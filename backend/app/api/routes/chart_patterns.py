@@ -73,9 +73,19 @@ def detect_chart_patterns(
         'volume': int(p.volume) if p.volume else 0
     } for p in prices])
 
-    # Detect patterns
-    detector = ChartPatternDetector(df, min_pattern_length=request.min_pattern_length)
-    detected_patterns = detector.detect_all_patterns()
+    # Detect patterns with quality controls
+    detector = ChartPatternDetector(
+        df,
+        min_pattern_length=request.min_pattern_length,
+        peak_order=request.peak_order,
+        min_confidence=request.min_confidence,
+        min_r_squared=request.min_r_squared
+    )
+    detected_patterns = detector.detect_all_patterns(
+        exclude_patterns=request.exclude_patterns,
+        remove_overlaps=request.remove_overlaps,
+        overlap_threshold=request.overlap_threshold
+    )
 
     # Save patterns to database
     saved_count = 0
@@ -136,7 +146,7 @@ def detect_chart_patterns(
 @router.get("/stocks/{stock_id}/chart-patterns", response_model=ChartPatternListResponse)
 def get_chart_patterns(
     stock_id: int,
-    days: int = Query(default=90, ge=1, le=730),
+    days: int = Query(default=None, ge=1, le=3650),
     confirmed_only: bool = Query(default=False),
     pattern_type: str = Query(default=None, regex="^(reversal|continuation)$"),
     signal: str = Query(default=None, regex="^(bullish|bearish|neutral)$"),
@@ -147,7 +157,7 @@ def get_chart_patterns(
 
     Args:
         stock_id: Stock ID
-        days: Number of days to retrieve
+        days: Number of days to retrieve (None = all patterns)
         confirmed_only: Only return user-confirmed patterns
         pattern_type: Filter by pattern type (reversal, continuation)
         signal: Filter by signal (bullish, bearish, neutral)
@@ -158,13 +168,12 @@ def get_chart_patterns(
         raise HTTPException(status_code=404, detail="Stock not found")
 
     # Build query
-    start_date = datetime.now() - timedelta(days=days)
-    query = db.query(ChartPattern).filter(
-        and_(
-            ChartPattern.stock_id == stock_id,
-            ChartPattern.end_date >= start_date
-        )
-    )
+    query = db.query(ChartPattern).filter(ChartPattern.stock_id == stock_id)
+
+    # Apply date filter only if days is specified
+    if days is not None:
+        start_date = datetime.now() - timedelta(days=days)
+        query = query.filter(ChartPattern.end_date >= start_date)
 
     if confirmed_only:
         query = query.filter(ChartPattern.user_confirmed == True)

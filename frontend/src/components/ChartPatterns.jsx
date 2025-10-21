@@ -19,6 +19,14 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
   const [expandedPattern, setExpandedPattern] = useState(null);
   const [visiblePatterns, setVisiblePatterns] = useState(new Set()); // Track which patterns are visible on chart
   const [isExpanded, setIsExpanded] = useState(true); // Collapsible section state
+  const [daysFilter, setDaysFilter] = useState(''); // Days filter for pattern detection/loading (empty = all)
+  const [removeOverlaps, setRemoveOverlaps] = useState(true); // Remove overlapping patterns
+  const [excludeRoundingPatterns, setExcludeRoundingPatterns] = useState(false); // Exclude Rounding Top/Bottom
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false); // Show/hide advanced options
+  const [overlapThreshold, setOverlapThreshold] = useState(10); // Overlap threshold percentage (10% default)
+  const [peakOrder, setPeakOrder] = useState(5); // Peak detection sensitivity
+  const [minConfidence, setMinConfidence] = useState(0); // Minimum confidence (0 = disabled)
+  const [minRSquared, setMinRSquared] = useState(0); // Minimum R² (0 = disabled)
 
   // Load patterns on mount
   useEffect(() => {
@@ -29,7 +37,12 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getChartPatterns(stockId, { days: 90 });
+      // Use daysFilter if specified, otherwise get all patterns
+      const params = {};
+      if (daysFilter && parseInt(daysFilter) > 0) {
+        params.days = parseInt(daysFilter);
+      }
+      const data = await getChartPatterns(stockId, params);
       setPatterns(data.patterns);
 
       // No patterns visible initially - user must toggle them on
@@ -73,7 +86,26 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
     setDetecting(true);
     setError(null);
     try {
-      const result = await detectChartPatterns(stockId, 90, 20);
+      // Use daysFilter if specified, otherwise detect in all available data
+      const days = daysFilter && parseInt(daysFilter) > 0 ? parseInt(daysFilter) : null;
+
+      // Build exclude patterns list
+      const excludePatterns = [];
+      if (excludeRoundingPatterns) {
+        excludePatterns.push('Rounding Top', 'Rounding Bottom');
+      }
+
+      const result = await detectChartPatterns(
+        stockId,
+        days,
+        20,
+        removeOverlaps,
+        excludePatterns,
+        overlapThreshold / 100, // Convert percentage to decimal
+        peakOrder,
+        minConfidence / 100, // Convert percentage to decimal
+        minRSquared / 100 // Convert percentage to decimal
+      );
       setStats({
         total_patterns: result.total_patterns,
         reversal_patterns: result.reversal_patterns,
@@ -168,6 +200,28 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
           )}
         </div>
         <div className="header-controls" onClick={(e) => e.stopPropagation()}>
+          <div className="days-filter-group">
+            <label htmlFor="days-input">Days:</label>
+            <input
+              id="days-input"
+              type="number"
+              min="30"
+              max="3650"
+              placeholder="All"
+              value={daysFilter}
+              onChange={(e) => setDaysFilter(e.target.value)}
+              className="days-input"
+              title="Number of days to analyze (leave empty for all data)"
+            />
+            <button
+              onClick={loadPatterns}
+              disabled={loading}
+              className="btn-refresh"
+              title="Refresh patterns with current days filter"
+            >
+              🔄
+            </button>
+          </div>
           <button
             onClick={handleDetectPatterns}
             disabled={detecting}
@@ -182,6 +236,121 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
       {isExpanded && (
         <div className="patterns-body">
 
+      {/* Advanced Options */}
+      <div className="advanced-options-section">
+        <button
+          className="toggle-advanced-btn"
+          onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+        >
+          {showAdvancedOptions ? '▼' : '▶'} Advanced Options
+        </button>
+
+        {showAdvancedOptions && (
+          <div className="advanced-options">
+            <div className="options-grid">
+              <div className="option-section">
+                <h4>Pattern Filtering</h4>
+                <div className="option-item">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={removeOverlaps}
+                      onChange={(e) => setRemoveOverlaps(e.target.checked)}
+                    />
+                    Remove overlapping patterns
+                  </label>
+                </div>
+                {removeOverlaps && (
+                  <div className="option-item slider-item">
+                    <label>
+                      Overlap threshold: {overlapThreshold}%
+                      <input
+                        type="range"
+                        min="5"
+                        max="50"
+                        value={overlapThreshold}
+                        onChange={(e) => setOverlapThreshold(parseInt(e.target.value))}
+                        className="slider"
+                      />
+                    </label>
+                    <span className="slider-hint">Lower = more patterns kept</span>
+                  </div>
+                )}
+                <div className="option-item">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={excludeRoundingPatterns}
+                      onChange={(e) => setExcludeRoundingPatterns(e.target.checked)}
+                    />
+                    Exclude Rounding Top/Bottom
+                  </label>
+                </div>
+              </div>
+
+              <div className="option-section">
+                <h4>Detection Sensitivity</h4>
+                <div className="option-item slider-item">
+                  <label>
+                    Peak sensitivity: {peakOrder}
+                    <input
+                      type="range"
+                      min="3"
+                      max="12"
+                      value={peakOrder}
+                      onChange={(e) => setPeakOrder(parseInt(e.target.value))}
+                      className="slider"
+                    />
+                  </label>
+                  <span className="slider-hint">Lower = more peaks detected</span>
+                </div>
+              </div>
+
+              <div className="option-section">
+                <h4>Quality Thresholds</h4>
+                <div className="option-item slider-item">
+                  <label>
+                    Min confidence: {minConfidence}%
+                    <input
+                      type="range"
+                      min="0"
+                      max="80"
+                      step="5"
+                      value={minConfidence}
+                      onChange={(e) => setMinConfidence(parseInt(e.target.value))}
+                      className="slider"
+                    />
+                  </label>
+                  <span className="slider-hint">0 = no minimum</span>
+                </div>
+                <div className="option-item slider-item">
+                  <label>
+                    Min trendline R²: {minRSquared}%
+                    <input
+                      type="range"
+                      min="0"
+                      max="90"
+                      step="5"
+                      value={minRSquared}
+                      onChange={(e) => setMinRSquared(parseInt(e.target.value))}
+                      className="slider"
+                    />
+                  </label>
+                  <span className="slider-hint">0 = no minimum</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="apply-note">
+              ⚠️ After changing these options, click "🔍 Detect Chart Patterns" to apply the changes
+            </div>
+            <div className="info-text">
+              💡 For training data collection: Use low thresholds (10% overlap, peak 5, no quality minimums) to get many pattern candidates.
+              Then manually confirm/reject them to build your ML dataset.
+            </div>
+          </div>
+        )}
+      </div>
 
       {stats.total_patterns > 0 && (
         <div className="detection-stats">
@@ -494,6 +663,67 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
         .header-controls {
           display: flex;
           gap: 10px;
+          align-items: center;
+        }
+
+        .days-filter-group {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 5px 10px;
+          border-radius: 5px;
+        }
+
+        .days-filter-group label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #e67e22;
+          margin: 0;
+        }
+
+        .days-input {
+          width: 80px;
+          padding: 6px 8px;
+          border: 2px solid #e67e22;
+          border-radius: 4px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #333;
+          background: white;
+        }
+
+        .days-input:focus {
+          outline: none;
+          border-color: #d35400;
+          box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.1);
+        }
+
+        .days-input::placeholder {
+          color: #999;
+          font-weight: normal;
+        }
+
+        .btn-refresh {
+          background: #f39c12;
+          color: white;
+          border: 2px solid #f39c12;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.3s;
+        }
+
+        .btn-refresh:hover:not(:disabled) {
+          background: #e08e0b;
+          border-color: #e08e0b;
+          transform: translateY(-1px);
+        }
+
+        .btn-refresh:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .expand-icon {
@@ -508,6 +738,144 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
         .patterns-body {
           padding: 20px;
           background: #f9fafb;
+        }
+
+        .advanced-options-section {
+          margin-bottom: 15px;
+          background: white;
+          border-radius: 6px;
+          border: 1px solid #e5e7eb;
+        }
+
+        .toggle-advanced-btn {
+          width: 100%;
+          text-align: left;
+          padding: 10px 15px;
+          background: white;
+          border: none;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 600;
+          color: #666;
+          transition: all 0.2s;
+          border-radius: 6px;
+        }
+
+        .toggle-advanced-btn:hover {
+          background: #f9fafb;
+          color: #333;
+        }
+
+        .advanced-options {
+          padding: 15px;
+          border-top: 1px solid #e5e7eb;
+          background: #f9fafb;
+        }
+
+        .options-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 20px;
+          margin-bottom: 15px;
+        }
+
+        .option-section {
+          background: white;
+          padding: 12px;
+          border-radius: 6px;
+          border: 1px solid #e5e7eb;
+        }
+
+        .option-section h4 {
+          margin: 0 0 10px 0;
+          font-size: 13px;
+          font-weight: 700;
+          color: #f39c12;
+          border-bottom: 2px solid #f39c12;
+          padding-bottom: 5px;
+        }
+
+        .option-item {
+          margin-bottom: 12px;
+        }
+
+        .option-item label {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          font-size: 13px;
+          color: #333;
+          cursor: pointer;
+          font-weight: 600;
+        }
+
+        .option-item input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
+          margin-right: 8px;
+        }
+
+        .slider-item label {
+          cursor: default;
+        }
+
+        .slider {
+          width: 100%;
+          height: 6px;
+          border-radius: 3px;
+          background: #e5e7eb;
+          outline: none;
+          cursor: pointer;
+        }
+
+        .slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #f39c12;
+          cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #f39c12;
+          cursor: pointer;
+          border: none;
+        }
+
+        .slider-hint {
+          font-size: 11px;
+          color: #666;
+          font-weight: normal;
+          font-style: italic;
+        }
+
+        .apply-note {
+          margin: 12px 0 8px 0;
+          padding: 10px;
+          background: #fff3cd;
+          border-left: 3px solid #f39c12;
+          border-radius: 4px;
+          font-size: 12px;
+          color: #856404;
+          line-height: 1.5;
+          font-weight: 600;
+        }
+
+        .info-text {
+          margin-top: 8px;
+          padding: 10px;
+          background: #e7f3ff;
+          border-left: 3px solid #3498db;
+          border-radius: 4px;
+          font-size: 12px;
+          color: #0c5460;
+          line-height: 1.5;
         }
 
         .btn-detect {

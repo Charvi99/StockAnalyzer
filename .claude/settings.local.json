@@ -23,7 +23,8 @@
       "Bash(python fix_indentation.py:*)",
       "Bash(timeout 10 bash:*)",
       "Bash(python:*)",
-      "Bash(timeout 20 bash:*)"
+      "Bash(timeout 20 bash:*)",
+      "Bash(timeout 5 bash -c \"docker-compose logs backend --tail=50 | grep -A 5 ''detect-chart-patterns'' || echo ''No recent detection logs found''\")"
     ],
     "deny": [],
     "ask": []

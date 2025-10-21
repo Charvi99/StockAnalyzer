@@ -11,6 +11,12 @@ class ChartPatternDetectionRequest(BaseModel):
     days: Optional[int] = Field(default=None, ge=30, le=10000, description="Days of historical data to analyze (None = all available data)")
     min_pattern_length: int = Field(default=20, ge=10, le=100, description="Minimum candles for pattern formation")
     exclude_recent_days: int = Field(default=0, ge=0, le=365, description="Exclude patterns from last N days (useful for historical training data collection)")
+    remove_overlaps: bool = Field(default=True, description="Remove overlapping patterns (keeps highest confidence)")
+    overlap_threshold: float = Field(default=0.1, ge=0.0, le=1.0, description="Minimum overlap fraction to consider patterns as overlapping (default 0.1 = 10%)")
+    exclude_patterns: Optional[List[str]] = Field(default=None, description="List of pattern names to exclude (e.g., ['Rounding Top', 'Rounding Bottom'])")
+    peak_order: int = Field(default=5, ge=3, le=15, description="Peak detection sensitivity (3=very sensitive, 15=very strict)")
+    min_confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Minimum confidence score to keep patterns (0.0 = keep all)")
+    min_r_squared: float = Field(default=0.0, ge=0.0, le=1.0, description="Minimum trendline R² quality (0.0 = no requirement)")
 
 
 class ChartPatternDetected(BaseModel):
