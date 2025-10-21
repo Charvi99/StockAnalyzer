@@ -465,7 +465,36 @@ curl http://localhost:8000/api/v1/chart-patterns/stats
 curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?confirmed_only=true"
 ```
 
-## Database Schema
+## Database Schema & Migrations
+
+### Database Migrations with Alembic
+
+This project uses **Alembic** for database schema version control and migrations.
+
+- **Automatic Migration on Startup**: When you run `docker-compose up`, the backend automatically applies all pending migrations before starting the application.
+- **Version Control**: All schema changes are tracked in `backend/alembic/versions/`
+- **Easy Rollbacks**: Undo migrations if needed
+- **Team Collaboration**: Share schema changes via code, not manual SQL scripts
+
+**Common Commands:**
+```bash
+# Check migration status
+docker-compose exec backend ./migrate.sh current
+
+# View migration history
+docker-compose exec backend ./migrate.sh history
+
+# Create new migration after changing models
+docker-compose exec backend ./migrate.sh create "add new column"
+
+# Apply migrations manually
+docker-compose exec backend ./migrate.sh upgrade
+
+# Rollback last migration
+docker-compose exec backend ./migrate.sh downgrade
+```
+
+📖 **Full Migration Guide**: See [ALEMBIC_GUIDE.md](./ALEMBIC_GUIDE.md) for detailed documentation
 
 ### Tables
 - **stocks** - Stock information (symbol, name, sector, industry)
@@ -478,7 +507,7 @@ curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?confirmed
 - **chart_patterns** - Detected chart patterns (H&S, triangles, etc.) with trendline data
 
 ### Sample Data
-Pre-loaded stocks:
+Pre-loaded stocks (loaded via initial migration):
 - AAPL (Apple Inc.)
 - GOOGL (Alphabet Inc.)
 - MSFT (Microsoft Corporation)

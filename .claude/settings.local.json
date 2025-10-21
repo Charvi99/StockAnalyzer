@@ -10,7 +10,20 @@
       "Bash(docker logs:*)",
       "Bash(docker exec:*)",
       "Read(//c/**)",
-      "Bash(docker-compose build:*)"
+      "Bash(docker-compose build:*)",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__list_memories",
+      "mcp__serena__read_memory",
+      "mcp__serena__list_dir",
+      "Bash(dir:*)",
+      "Bash(alembic revision:*)",
+      "Bash(pip install:*)",
+      "Bash(timeout 30 bash:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(python fix_indentation.py:*)",
+      "Bash(timeout 10 bash:*)",
+      "Bash(python:*)",
+      "Bash(timeout 20 bash:*)"
     ],
     "deny": [],
     "ask": []

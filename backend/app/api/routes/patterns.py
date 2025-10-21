@@ -42,13 +42,19 @@ def detect_patterns(
         raise HTTPException(status_code=404, detail="Stock not found")
 
     # Get price data for analysis
-    start_date = datetime.now() - timedelta(days=request.days)
-    prices = db.query(StockPrice).filter(
-        and_(
-            StockPrice.stock_id == stock_id,
-            StockPrice.timestamp >= start_date
-        )
-    ).order_by(StockPrice.timestamp).all()
+    if request.days is not None:
+        start_date = datetime.now() - timedelta(days=request.days)
+        prices = db.query(StockPrice).filter(
+            and_(
+                StockPrice.stock_id == stock_id,
+                StockPrice.timestamp >= start_date
+            )
+        ).order_by(StockPrice.timestamp).all()
+    else:
+        # Get all available data
+        prices = db.query(StockPrice).filter(
+            StockPrice.stock_id == stock_id
+        ).order_by(StockPrice.timestamp).all()
 
     if len(prices) < 10:
         raise HTTPException(
@@ -100,10 +106,12 @@ def detect_patterns(
     bullish_count = sum(1 for p in detected_patterns if p['pattern_type'] == 'bullish')
     bearish_count = sum(1 for p in detected_patterns if p['pattern_type'] == 'bearish')
 
+    analysis_period = f"{request.days} days" if request.days else f"all available data ({len(prices)} candles)"
+
     return PatternDetectionResponse(
         stock_id=stock_id,
         symbol=stock.symbol,
-        analysis_period=f"{request.days} days",
+        analysis_period=analysis_period,
         total_patterns=len(detected_patterns),
         bullish_patterns=bullish_count,
         bearish_patterns=bearish_count,

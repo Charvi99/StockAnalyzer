@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies
+from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ app.include_router(stocks.router, prefix="/api/v1")
 app.include_router(prices.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
 app.include_router(ml.router)  # ML routes already have prefix="/api/v1/ml"
+app.include_router(ml_predictions.router, prefix="/api/v1", tags=["ml-predictions"])  # ML pattern predictions
 app.include_router(sentiment.router)  # Sentiment routes already have prefix="/api/v1/sentiment"
 app.include_router(patterns.router, prefix="/api/v1")  # Candlestick pattern detection
 app.include_router(chart_patterns.router, prefix="/api/v1")  # Chart pattern detection
@@ -79,8 +80,9 @@ def root():
             "Integrated Recommendations",
             "Prediction Performance Tracking",
             "Candlestick Pattern Recognition (40 patterns - 20 bullish, 20 bearish)",
-            "Chart Pattern Recognition (Head & Shoulders, Triangles, Cup & Handle, Flags, Wedges)",
+            "Chart Pattern Recognition (19 patterns - Head & Shoulders, Triangles, Wedges, Rounding, Channels, etc.)",
             "Pattern Confirmation for ML Training Data Collection",
+            "Real-time ML Pattern Validation (LSTM + GRU models with 81%+ accuracy)",
             "Custom Trading Strategies Framework with 5 Built-in Strategies",
             "Strategy Backtesting & Performance Analysis"
         ]

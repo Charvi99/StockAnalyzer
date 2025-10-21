@@ -8,8 +8,9 @@ from datetime import datetime
 
 class ChartPatternDetectionRequest(BaseModel):
     """Request schema for detecting chart patterns"""
-    days: int = Field(default=90, ge=30, le=730, description="Days of historical data to analyze")
+    days: Optional[int] = Field(default=None, ge=30, le=10000, description="Days of historical data to analyze (None = all available data)")
     min_pattern_length: int = Field(default=20, ge=10, le=100, description="Minimum candles for pattern formation")
+    exclude_recent_days: int = Field(default=0, ge=0, le=365, description="Exclude patterns from last N days (useful for historical training data collection)")
 
 
 class ChartPatternDetected(BaseModel):
@@ -100,17 +101,45 @@ class ChartPatternStatsResponse(BaseModel):
     avg_confidence: float
 
 
+class OHLCCandle(BaseModel):
+    """Single OHLC candle for training data"""
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
 class ChartPatternTrainingDataExport(BaseModel):
-    """Schema for exporting labeled patterns for ML training"""
+    """Schema for exporting labeled patterns for ML training with OHLC data"""
+    # Pattern metadata
     pattern_id: int
     stock_symbol: str
     pattern_name: str
     pattern_type: str
     signal: str
-    start_date: datetime
-    end_date: datetime
     confidence_score: float
     key_points: Dict[str, Any]
     trendlines: Dict[str, Any]
     user_confirmed: bool
     label: str  # 'true_positive', 'false_positive', 'unknown'
+
+    # Date ranges
+    pattern_start_date: datetime
+    pattern_end_date: datetime
+    window_start_date: datetime
+    window_end_date: datetime
+
+    # OHLC data with padding
+    ohlc_data: List[OHLCCandle]
+    total_candles: int
+    pattern_start_index: int  # Index in ohlc_data where pattern starts
+    pattern_end_index: int    # Index in ohlc_data where pattern ends
+    padding_before: int
+    padding_after: int
+
+    # Normalization metadata (for the entire window)
+    price_min: float
+    price_max: float
+    volume_max: int

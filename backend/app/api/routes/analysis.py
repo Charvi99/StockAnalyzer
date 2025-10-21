@@ -11,7 +11,7 @@ import pandas as pd
 import logging
 
 from app.db.database import get_db
-from app.models.stock import Stock, StockPrice, Prediction, SentimentScore
+from app.models.stock import Stock, StockPrice, Prediction, SentimentScore, CandlestickPattern, ChartPattern
 from app.schemas.analysis import (
     TechnicalAnalysisResponse,
     AnalysisRequest,
@@ -83,6 +83,56 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
             sentiment_rec, sentiment_conf = "HOLD", 0.5
         reasoning.append(f"Market sentiment (index: {sentiment_index:.1f}, {sentiment_conf:.0%} confidence): {sentiment_rec} ({latest_sentiment.positive_count} positive, {latest_sentiment.negative_count} negative news)")
 
+    # Get recent candlestick patterns (last 30 days)
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    candlestick_patterns = db.query(CandlestickPattern).filter(
+        CandlestickPattern.stock_id == stock.id,
+        CandlestickPattern.timestamp >= thirty_days_ago
+    ).all()
+
+    candlestick_signal, candlestick_conf, candlestick_count = (None, None, len(candlestick_patterns))
+    if candlestick_patterns:
+        bullish_count = sum(1 for p in candlestick_patterns if p.pattern_type == 'bullish')
+        bearish_count = sum(1 for p in candlestick_patterns if p.pattern_type == 'bearish')
+        avg_confidence = sum(float(p.confidence_score) for p in candlestick_patterns) / len(candlestick_patterns)
+
+        if bullish_count > bearish_count:
+            candlestick_signal = "BUY"
+            candlestick_conf = min((bullish_count / len(candlestick_patterns)) * avg_confidence, 0.85)
+        elif bearish_count > bullish_count:
+            candlestick_signal = "SELL"
+            candlestick_conf = min((bearish_count / len(candlestick_patterns)) * avg_confidence, 0.85)
+        else:
+            candlestick_signal = "HOLD"
+            candlestick_conf = 0.5
+
+        reasoning.append(f"Candlestick patterns ({candlestick_conf:.0%} confidence): {candlestick_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected)")
+
+    # Get recent chart patterns (last 90 days)
+    ninety_days_ago = datetime.now() - timedelta(days=90)
+    chart_patterns = db.query(ChartPattern).filter(
+        ChartPattern.stock_id == stock.id,
+        ChartPattern.end_date >= ninety_days_ago
+    ).all()
+
+    chart_pattern_signal, chart_pattern_conf, chart_pattern_count = (None, None, len(chart_patterns))
+    if chart_patterns:
+        bullish_count = sum(1 for p in chart_patterns if p.signal == 'bullish')
+        bearish_count = sum(1 for p in chart_patterns if p.signal == 'bearish')
+        avg_confidence = sum(float(p.confidence_score) for p in chart_patterns) / len(chart_patterns)
+
+        if bullish_count > bearish_count:
+            chart_pattern_signal = "BUY"
+            chart_pattern_conf = min((bullish_count / len(chart_patterns)) * avg_confidence, 0.85)
+        elif bearish_count > bullish_count:
+            chart_pattern_signal = "SELL"
+            chart_pattern_conf = min((bearish_count / len(chart_patterns)) * avg_confidence, 0.85)
+        else:
+            chart_pattern_signal = "HOLD"
+            chart_pattern_conf = 0.5
+
+        reasoning.append(f"Chart patterns ({chart_pattern_conf:.0%} confidence): {chart_pattern_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected)")
+
     # Combine all recommendations
     recommendations = [(tech_recommendation['recommendation'], tech_recommendation['confidence'])]
     weights = [0.4]
@@ -128,6 +178,12 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         sentiment_index=sentiment_index,
         sentiment_positive=latest_sentiment.positive_count if latest_sentiment else None,
         sentiment_negative=latest_sentiment.negative_count if latest_sentiment else None,
+        candlestick_signal=candlestick_signal,
+        candlestick_confidence=candlestick_conf,
+        candlestick_pattern_count=candlestick_count,
+        chart_pattern_signal=chart_pattern_signal,
+        chart_pattern_confidence=chart_pattern_conf,
+        chart_pattern_count=chart_pattern_count,
         final_recommendation=final_rec,
         overall_confidence=final_conf,
         reasoning=reasoning,
