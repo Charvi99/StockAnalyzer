@@ -45,3 +45,6 @@ passlib[bcrypt]==1.7.4
 
 # Development/Debugging
 debugpy==1.8.0
+
+# ML Pattern Prediction (uses TensorFlow 2.15 - last version with Keras 2.x)
+tensorflow==2.15.0

@@ -29,15 +29,23 @@ const SignalRadar = ({ recommendation }) => {
     },
     {
       factor: 'ML',
-      value: processSignal(recommendation.ml_signal, recommendation.ml_confidence),
+      value: processSignal(recommendation.ml_recommendation, recommendation.ml_confidence),
     },
     {
       factor: 'Sentiment',
       value: sentimentScore,
     },
     {
+      factor: 'Candlestick',
+      value: processSignal(recommendation.candlestick_signal, recommendation.candlestick_confidence),
+    },
+    {
+      factor: 'Chart Pattern',
+      value: processSignal(recommendation.chart_pattern_signal, recommendation.chart_pattern_confidence),
+    },
+    {
       factor: 'Overall',
-      value: processSignal(recommendation.final_recommendation, recommendation.final_confidence),
+      value: processSignal(recommendation.final_recommendation, recommendation.overall_confidence),
     },
   ].map(item => ({ ...item, normalizedValue: item.value + 100 }));
 

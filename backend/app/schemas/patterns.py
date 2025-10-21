@@ -9,7 +9,7 @@ from decimal import Decimal
 
 class PatternDetectionRequest(BaseModel):
     """Request to detect patterns"""
-    days: int = Field(default=90, ge=1, le=1000, description="Number of days to analyze")
+    days: Optional[int] = Field(default=None, ge=1, le=10000, description="Number of days to analyze (None = all available data)")
 
 
 class CandleData(BaseModel):

@@ -14,12 +14,15 @@ from app.schemas.ml_sentiment import (
     MLTrainingRequest, MLTrainingResponse,
     MLPredictionRequest, MLPredictionResponse
 )
-from app.services.ml_predictor import MLPredictorService
+# NOTE: MLPredictorService was never implemented. These routes are disabled.
+# For pattern validation with ML, use /api/v1/ml-predictions endpoints instead.
+# from app.services.ml_predictor import MLPredictorService
 
 router = APIRouter(prefix="/api/v1/ml", tags=["Machine Learning"])
 
-# Global ML service instance
-ml_service = MLPredictorService(model_dir="/app/models")
+# Global ML service instance - DISABLED (not implemented)
+# ml_service = MLPredictorService(model_dir="/app/models")
+ml_service = None  # Placeholder
 
 
 @router.post("/stocks/{stock_id}/train", response_model=MLTrainingResponse)
@@ -39,6 +42,11 @@ async def train_model(
     - **batch_size**: Batch size for training (default: 32)
     - **learning_rate**: Learning rate (default: 0.001)
     """
+    raise HTTPException(
+        status_code=501,
+        detail="ML training service not implemented. Use ml_training scripts for pattern validation models."
+    )
+
     # Verify stock exists
     stock = db.query(Stock).filter(Stock.id == stock_id).first()
     if not stock:
@@ -103,6 +111,11 @@ async def predict_with_ml(
     - **model_type**: Model to use (LSTM, Transformer, CNN, CNNLSTM)
     - **seq_length**: Sequence length (default: 30)
     """
+    raise HTTPException(
+        status_code=501,
+        detail="ML prediction service not implemented. Use /api/v1/chart-patterns/{pattern_id}/ml-predict for pattern validation."
+    )
+
     # Verify stock exists
     stock = db.query(Stock).filter(Stock.id == stock_id).first()
     if not stock:

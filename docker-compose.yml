@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # init.sql is no longer used - we use Alembic migrations instead
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stockuser -d stock_analyzer"]
       interval: 10s
@@ -35,10 +35,11 @@ services:
     volumes:
       - ./backend:/app
       - backend_models:/app/ml/models
+      - ./ml_training:/app/ml_training
     depends_on:
       database:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Command is now handled by start.sh script in Dockerfile
 
   # React Frontend
   frontend:

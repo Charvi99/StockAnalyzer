@@ -193,6 +193,16 @@ class RecommendationResponse(BaseModel):
     sentiment_positive: Optional[int] = None
     sentiment_negative: Optional[int] = None
 
+    # Candlestick patterns (if available)
+    candlestick_signal: Optional[str] = None
+    candlestick_confidence: Optional[float] = None
+    candlestick_pattern_count: Optional[int] = None
+
+    # Chart patterns (if available)
+    chart_pattern_signal: Optional[str] = None
+    chart_pattern_confidence: Optional[float] = None
+    chart_pattern_count: Optional[int] = None
+
     # Overall recommendation
     final_recommendation: Optional[str] = None
     overall_confidence: Optional[float] = None

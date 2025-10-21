@@ -18,7 +18,8 @@ from app.schemas.chart_patterns import (
     ChartPatternListResponse,
     ChartPatternConfirmRequest,
     ChartPatternStatsResponse,
-    ChartPatternTrainingDataExport
+    ChartPatternTrainingDataExport,
+    OHLCCandle
 )
 from app.services.chart_patterns import ChartPatternDetector
 
@@ -43,13 +44,18 @@ def detect_chart_patterns(
         raise HTTPException(status_code=404, detail="Stock not found")
 
     # Get price data for analysis
-    start_date = datetime.now() - timedelta(days=request.days)
-    prices = db.query(StockPrice).filter(
-        and_(
-            StockPrice.stock_id == stock_id,
-            StockPrice.timestamp >= start_date
-        )
-    ).order_by(StockPrice.timestamp).all()
+    query = db.query(StockPrice).filter(StockPrice.stock_id == stock_id)
+
+    if request.days is not None:
+        start_date = datetime.now() - timedelta(days=request.days)
+        query = query.filter(StockPrice.timestamp >= start_date)
+
+    # Exclude recent data if specified (useful for historical training data)
+    if request.exclude_recent_days > 0:
+        end_date = datetime.now() - timedelta(days=request.exclude_recent_days)
+        query = query.filter(StockPrice.timestamp <= end_date)
+
+    prices = query.order_by(StockPrice.timestamp).all()
 
     if len(prices) < request.min_pattern_length:
         raise HTTPException(
@@ -110,10 +116,12 @@ def detect_chart_patterns(
     bearish_count = sum(1 for p in detected_patterns if p['signal'] == 'bearish')
     neutral_count = sum(1 for p in detected_patterns if p['signal'] == 'neutral')
 
+    analysis_period = f"{request.days} days" if request.days else f"all available data ({len(prices)} candles)"
+
     return ChartPatternDetectionResponse(
         stock_id=stock_id,
         symbol=stock.symbol,
-        analysis_period=f"{request.days} days",
+        analysis_period=analysis_period,
         total_patterns=len(detected_patterns),
         reversal_patterns=reversal_count,
         continuation_patterns=continuation_count,
@@ -304,12 +312,18 @@ def get_chart_pattern_stats(
 def export_chart_pattern_training_data(
     confirmed_only: bool = Query(default=True),
     stock_id: int = Query(default=None),
+    padding_candles: int = Query(default=5, ge=0, le=100, description="Number of candles to include before/after pattern"),
     db: Session = Depends(get_db)
 ):
     """
-    Export confirmed chart patterns as training data for ML
+    Export confirmed chart patterns as training data for ML with OHLC data
 
-    Returns patterns with labels for supervised learning
+    Returns patterns with labels and complete OHLC data including padding for CNN training
+
+    Args:
+        confirmed_only: Only export patterns with user confirmation
+        stock_id: Filter by specific stock
+        padding_candles: Number of candles to include before/after pattern for context
     """
     query = db.query(ChartPattern).join(Stock)
 
@@ -331,19 +345,97 @@ def export_chart_pattern_training_data(
         else:
             label = 'unknown'
 
+        # Get OHLC data for the pattern with padding
+        # Query stock prices ordered by timestamp
+        all_prices = db.query(StockPrice).filter(
+            StockPrice.stock_id == pattern.stock_id
+        ).order_by(StockPrice.timestamp).all()
+
+        if not all_prices:
+            continue  # Skip patterns without price data
+
+        # Find indices of pattern start and end in the price data
+        pattern_start_idx = None
+        pattern_end_idx = None
+
+        for i, price in enumerate(all_prices):
+            if price.timestamp >= pattern.start_date and pattern_start_idx is None:
+                pattern_start_idx = i
+            if price.timestamp >= pattern.end_date:
+                pattern_end_idx = i
+                break
+
+        if pattern_start_idx is None or pattern_end_idx is None:
+            continue  # Skip if pattern dates not found in price data
+
+        # Calculate window with padding
+        window_start_idx = max(0, pattern_start_idx - padding_candles)
+        window_end_idx = min(len(all_prices) - 1, pattern_end_idx + padding_candles)
+
+        # Get actual padding amounts
+        actual_padding_before = pattern_start_idx - window_start_idx
+        actual_padding_after = window_end_idx - pattern_end_idx
+
+        # Extract OHLC data for the window
+        window_prices = all_prices[window_start_idx:window_end_idx + 1]
+
+        ohlc_data = []
+        all_prices_list = []
+        all_volumes = []
+
+        for price in window_prices:
+            candle = {
+                'timestamp': price.timestamp,
+                'open': float(price.open),
+                'high': float(price.high),
+                'low': float(price.low),
+                'close': float(price.close),
+                'volume': int(price.volume) if price.volume else 0
+            }
+            ohlc_data.append(candle)
+            all_prices_list.extend([candle['high'], candle['low']])
+            all_volumes.append(candle['volume'])
+
+        # Calculate normalization metadata
+        price_min = min(all_prices_list) if all_prices_list else 0.0
+        price_max = max(all_prices_list) if all_prices_list else 0.0
+        volume_max = max(all_volumes) if all_volumes else 0
+
+        # Pattern indices in the window (0-indexed)
+        pattern_start_in_window = actual_padding_before
+        pattern_end_in_window = pattern_start_in_window + (pattern_end_idx - pattern_start_idx)
+
         training_data.append(ChartPatternTrainingDataExport(
+            # Pattern metadata
             pattern_id=pattern.id,
             stock_symbol=pattern.stock.symbol,
             pattern_name=pattern.pattern_name,
             pattern_type=pattern.pattern_type,
             signal=pattern.signal,
-            start_date=pattern.start_date,
-            end_date=pattern.end_date,
             confidence_score=float(pattern.confidence_score),
             key_points=pattern.key_points or {},
             trendlines=pattern.trendlines or {},
             user_confirmed=pattern.user_confirmed if pattern.user_confirmed is not None else False,
-            label=label
+            label=label,
+
+            # Date ranges
+            pattern_start_date=pattern.start_date,
+            pattern_end_date=pattern.end_date,
+            window_start_date=window_prices[0].timestamp,
+            window_end_date=window_prices[-1].timestamp,
+
+            # OHLC data with padding
+            ohlc_data=ohlc_data,
+            total_candles=len(ohlc_data),
+            pattern_start_index=pattern_start_in_window,
+            pattern_end_index=pattern_end_in_window,
+            padding_before=actual_padding_before,
+            padding_after=actual_padding_after,
+
+            # Normalization metadata
+            price_min=price_min,
+            price_max=price_max,
+            volume_max=volume_max
         ))
 
     return training_data
