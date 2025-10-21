@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getStocks, updateStock } from '../services/api';
+import { getDashboardAnalysis, updateStock, fetchStockData } from '../services/api';
 import StockDetail from './StockDetail';
 import AddStockModal from './AddStockModal';
 import StockCard from './StockCard';
@@ -11,33 +11,43 @@ const StockList = () => {
   const [selectedStock, setSelectedStock] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  useEffect(() => {
-    fetchStocks();
-  }, []);
-
-  const fetchStocks = async () => {
+  const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const data = await getStocks(true); // Get only tracked stocks
+      const data = await getDashboardAnalysis();
       setStocks(data);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch stocks');
+      setError('Failed to fetch dashboard data');
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleStockAdded = (newStock) => {
-    setStocks([...stocks, newStock]);
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const handleStockAdded = async (newStock) => {
+    try {
+      setStocks((prevStocks) => [...prevStocks, newStock]);
+      console.log(`Fetching initial historical data for ${newStock.symbol}...`);
+      await fetchStockData(newStock.id, '1y', '1d');
+      console.log(`Initial data for ${newStock.symbol} fetched successfully.`);
+      // Refresh the whole dashboard to get the new stock's analysis
+      fetchDashboardData();
+    } catch (err) {
+      console.error(`Failed to fetch initial data for ${newStock.symbol}:`, err);
+      setError(`Failed to fetch initial data for ${newStock.symbol}.`);
+    }
   };
 
   const handleUntrack = async (stockId) => {
     if (window.confirm('Remove this stock from your watchlist?')) {
       try {
         await updateStock(stockId, { is_tracked: false });
-        fetchStocks(); // Refresh the list
+        fetchDashboardData(); // Refresh the list
       } catch (err) {
         setError('Failed to untrack stock');
         console.error(err);
@@ -45,7 +55,7 @@ const StockList = () => {
     }
   };
 
-  if (loading) return <div className="loading">Loading stocks...</div>;
+  if (loading) return <div className="loading">Loading dashboard...</div>;
   if (error) return <div className="error">{error}</div>;
 
   return (
@@ -69,10 +79,11 @@ const StockList = () => {
         <div className="stocks-grid">
           {stocks.map((stock) => (
             <StockCard
-              key={stock.id}
+              key={stock.stock_id}
               stock={stock}
-              onViewDetails={setSelectedStock}
+              onViewDetails={() => setSelectedStock(stock)}
               onUntrack={handleUntrack}
+              onAnalysisComplete={fetchDashboardData}
             />
           ))}
         </div>

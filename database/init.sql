@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS stocks (
     name VARCHAR(255),
     sector VARCHAR(100),
     industry VARCHAR(100),
+    is_tracked BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS stock_prices (
     close DECIMAL(12, 4),
     volume BIGINT,
     adjusted_close DECIMAL(12, 4),
-    PRIMARY KEY (stock_id, timestamp)
+    PRIMARY KEY (timestamp, stock_id)
 );
 
 -- Convert stock_prices to a hypertable for time-series optimization
@@ -81,14 +82,57 @@ CREATE TABLE IF NOT EXISTS sentiment_scores (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Candlestick patterns table - stores detected patterns
+CREATE TABLE IF NOT EXISTS candlestick_patterns (
+    id SERIAL PRIMARY KEY,
+    stock_id INTEGER REFERENCES stocks(id) ON DELETE CASCADE,
+    pattern_name VARCHAR(100) NOT NULL,
+    pattern_type VARCHAR(20) CHECK (pattern_type IN ('bullish', 'bearish', 'neutral')),
+    timestamp TIMESTAMP NOT NULL,
+    confidence_score DECIMAL(5, 4) DEFAULT 1.0,
+    candle_data JSONB,  -- Stores the OHLC data for the pattern
+    user_confirmed BOOLEAN DEFAULT NULL,  -- NULL = not reviewed, TRUE = confirmed, FALSE = rejected
+    confirmed_at TIMESTAMP,
+    confirmed_by VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(stock_id, pattern_name, timestamp)
+);
+
+-- Chart patterns table - stores detected chart patterns
+CREATE TABLE IF NOT EXISTS chart_patterns (
+    id SERIAL PRIMARY KEY,
+    stock_id INTEGER REFERENCES stocks(id) ON DELETE CASCADE,
+    pattern_name VARCHAR(100) NOT NULL,
+    pattern_type VARCHAR(20) NOT NULL CHECK (pattern_type IN ('reversal', 'continuation')),
+    signal VARCHAR(20) NOT NULL CHECK (signal IN ('bullish', 'bearish', 'neutral')),
+    start_date TIMESTAMP NOT NULL,
+    end_date TIMESTAMP NOT NULL,
+    breakout_price DECIMAL(12, 4),
+    target_price DECIMAL(12, 4),
+    stop_loss DECIMAL(12, 4),
+    confidence_score DECIMAL(5, 4) DEFAULT 0.5,
+    key_points JSONB,
+    trendlines JSONB,
+    user_confirmed BOOLEAN DEFAULT NULL,
+    confirmed_at TIMESTAMP,
+    confirmed_by VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_stock_prices_stock_id ON stock_prices(stock_id);
-CREATE INDEX IF NOT EXISTS idx_stock_prices_timestamp ON stock_prices(timestamp DESC);
+
 CREATE INDEX IF NOT EXISTS idx_predictions_stock_id ON predictions(stock_id);
 CREATE INDEX IF NOT EXISTS idx_predictions_target_date ON predictions(target_date);
 CREATE INDEX IF NOT EXISTS idx_technical_indicators_stock_timestamp ON technical_indicators(stock_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_sentiment_scores_stock_id ON sentiment_scores(stock_id);
 CREATE INDEX IF NOT EXISTS idx_sentiment_scores_timestamp ON sentiment_scores(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_candlestick_patterns_stock_id ON candlestick_patterns(stock_id);
+CREATE INDEX IF NOT EXISTS idx_candlestick_patterns_timestamp ON candlestick_patterns(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_candlestick_patterns_confirmed ON candlestick_patterns(user_confirmed);
+CREATE INDEX IF NOT EXISTS idx_chart_patterns_stock_id ON chart_patterns(stock_id);
+CREATE INDEX IF NOT EXISTS idx_chart_patterns_end_date ON chart_patterns(end_date DESC);
 
 -- Insert some sample stocks for testing
 INSERT INTO stocks (symbol, name, sector, industry) VALUES
@@ -118,3 +162,4 @@ COMMENT ON TABLE predictions IS 'ML model predictions for stock prices';
 COMMENT ON TABLE prediction_performance IS 'Tracks accuracy of predictions vs actual results';
 COMMENT ON TABLE technical_indicators IS 'Stores calculated technical indicator values';
 COMMENT ON TABLE sentiment_scores IS 'Stores news sentiment analysis results using FinBERT';
+COMMENT ON TABLE candlestick_patterns IS 'Stores detected candlestick patterns with user confirmation for ML training';

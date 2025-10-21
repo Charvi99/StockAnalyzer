@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import StockChart from './StockChart';
 import TechnicalAnalysis from './TechnicalAnalysis';
 import SignalRadar from './SignalRadar';
+import CandlestickPatterns from './CandlestickPatterns';
+import ChartPatterns from './ChartPatterns';
+import TradingStrategies from './TradingStrategies';
 import { fetchStockData, getStockPrices, getRecommendation, analyzeSentiment } from '../services/api';
 
 const StockDetail = ({ stock, onClose }) => {
@@ -18,12 +21,26 @@ const StockDetail = ({ stock, onClose }) => {
   const [sentimentData, setSentimentData] = useState(null);
   const [sentimentLoading, setSentimentLoading] = useState(false);
   const [sentimentError, setSentimentError] = useState(null);
+  const [patterns, setPatterns] = useState([]);
+  const [chartPatterns, setChartPatterns] = useState([]);
+
+  // Shared indicator parameters state
+  const [indicatorParams, setIndicatorParams] = useState({
+    rsi_period: 14,
+    macd_fast: 12,
+    macd_slow: 26,
+    macd_signal: 9,
+    bb_window: 20,
+    bb_std: 2.0,
+    ma_short: 20,
+    ma_long: 50
+  });
 
   const loadPrices = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getStockPrices(stock.id, 365);
+      const data = await getStockPrices(stock.stock_id, 365);
       setPrices(data.prices);
     } catch (err) {
       setError('Failed to load price data');
@@ -31,13 +48,13 @@ const StockDetail = ({ stock, onClose }) => {
     } finally {
       setLoading(false);
     }
-  }, [stock.id]);
+  }, [stock.stock_id]);
 
   const loadRecommendation = useCallback(async () => {
     try {
       setRecommendationLoading(true);
       setRecommendationError(null);
-      const data = await getRecommendation(stock.id);
+      const data = await getRecommendation(stock.stock_id);
       console.log('Recommendation data loaded:', data);
       setRecommendation(data);
     } catch (err) {
@@ -46,7 +63,7 @@ const StockDetail = ({ stock, onClose }) => {
     } finally {
       setRecommendationLoading(false);
     }
-  }, [stock.id]);
+  }, [stock.stock_id]);
 
   useEffect(() => {
     loadPrices();
@@ -59,7 +76,7 @@ const StockDetail = ({ stock, onClose }) => {
       setError(null);
       setFetchResult(null);
 
-      const result = await fetchStockData(stock.id, period, interval);
+      const result = await fetchStockData(stock.stock_id, period, interval);
       setFetchResult(result);
 
       // Reload prices and recommendation after fetching
@@ -79,7 +96,7 @@ const StockDetail = ({ stock, onClose }) => {
     try {
       setSentimentLoading(true);
       setSentimentError(null);
-      const data = await analyzeSentiment(stock.id);
+      const data = await analyzeSentiment(stock.stock_id);
       setSentimentData(data);
     } catch (err) {
       setSentimentError(err.response?.data?.detail || 'Failed to analyze sentiment');
@@ -163,7 +180,14 @@ const StockDetail = ({ stock, onClose }) => {
             <div className="loading">Loading price data...</div>
           ) : prices.length > 0 ? (
             <>
-              <StockChart prices={prices} symbol={stock.symbol} />
+              <StockChart
+                prices={prices}
+                symbol={stock.symbol}
+                stockId={stock.stock_id}
+                indicatorParams={indicatorParams}
+                patterns={patterns}
+                chartPatterns={chartPatterns}
+              />
 
               {/* Signal Radar Chart */}
               {recommendationLoading ? (
@@ -182,7 +206,29 @@ const StockDetail = ({ stock, onClose }) => {
                 </div>
               )}
 
-              <TechnicalAnalysis stockId={stock.id} symbol={stock.symbol} />
+              <TechnicalAnalysis
+                stockId={stock.stock_id}
+                symbol={stock.symbol}
+                indicatorParams={indicatorParams}
+                setIndicatorParams={setIndicatorParams}
+              />
+
+              {/* Candlestick Patterns Section */}
+              <CandlestickPatterns
+                stockId={stock.stock_id}
+                symbol={stock.symbol}
+                onPatternsDetected={setPatterns}
+              />
+
+              {/* Chart Patterns Section */}
+              <ChartPatterns
+                stockId={stock.stock_id}
+                symbol={stock.symbol}
+                onPatternsDetected={setChartPatterns}
+              />
+
+              {/* Trading Strategies Section */}
+              <TradingStrategies stockId={stock.stock_id} />
 
               {/* Sentiment Analysis Section */}
               <div className="sentiment-analysis-section">
