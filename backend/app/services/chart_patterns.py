@@ -13,23 +13,30 @@ from sklearn.linear_model import LinearRegression
 class ChartPatternDetector:
     """Detects chart patterns in OHLC data"""
 
-    def __init__(self, df: pd.DataFrame, min_pattern_length: int = 20):
+    def __init__(self, df: pd.DataFrame, min_pattern_length: int = 20,
+                 peak_order: int = 5, min_confidence: float = 0.0, min_r_squared: float = 0.0):
         """
         Initialize with OHLC dataframe
 
         Args:
             df: DataFrame with columns: open, high, low, close, volume, timestamp
             min_pattern_length: Minimum number of candles for a pattern
+            peak_order: Order parameter for peak detection (higher = less sensitive, fewer peaks)
+            min_confidence: Minimum confidence score to keep a pattern (0.0-1.0)
+            min_r_squared: Minimum R² for trendline quality (0.0-1.0)
         """
         self.df = df.copy()
         self.min_pattern_length = min_pattern_length
+        self.peak_order = peak_order
+        self.min_confidence = min_confidence
+        self.min_r_squared = min_r_squared
         self._find_peaks_and_troughs()
 
     def _find_peaks_and_troughs(self):
         """Identify peaks (highs) and troughs (lows) in the price data"""
         # Use scipy to find local maxima and minima
-        high_indices = argrelextrema(self.df['high'].values, np.greater, order=5)[0]
-        low_indices = argrelextrema(self.df['low'].values, np.less, order=5)[0]
+        high_indices = argrelextrema(self.df['high'].values, np.greater, order=self.peak_order)[0]
+        low_indices = argrelextrema(self.df['low'].values, np.less, order=self.peak_order)[0]
 
         self.df['is_peak'] = False
         self.df['is_trough'] = False
@@ -197,38 +204,177 @@ class ChartPatternDetector:
 
         return float(np.clip(weighted_score, 0.0, 1.0))
 
-    def detect_all_patterns(self) -> List[Dict]:
-        """Detect all chart patterns"""
+    def _patterns_overlap(self, pattern1: Dict, pattern2: Dict, overlap_threshold: float = 0.3) -> bool:
+        """
+        Check if two patterns overlap significantly
+
+        Args:
+            pattern1: First pattern dict with start_date and end_date
+            pattern2: Second pattern dict with start_date and end_date
+            overlap_threshold: Minimum fraction of overlap to consider patterns overlapping (0.0-1.0)
+
+        Returns:
+            True if patterns overlap more than threshold
+        """
+        start1 = pattern1['start_date']
+        end1 = pattern1['end_date']
+        start2 = pattern2['start_date']
+        end2 = pattern2['end_date']
+
+        # Calculate overlap
+        latest_start = max(start1, start2)
+        earliest_end = min(end1, end2)
+
+        if latest_start >= earliest_end:
+            return False  # No overlap
+
+        overlap_duration = (earliest_end - latest_start).total_seconds()
+
+        # Calculate pattern durations
+        duration1 = (end1 - start1).total_seconds()
+        duration2 = (end2 - start2).total_seconds()
+
+        # Check if overlap is significant relative to either pattern
+        if duration1 > 0:
+            overlap_ratio1 = overlap_duration / duration1
+            if overlap_ratio1 >= overlap_threshold:
+                return True
+
+        if duration2 > 0:
+            overlap_ratio2 = overlap_duration / duration2
+            if overlap_ratio2 >= overlap_threshold:
+                return True
+
+        return False
+
+    def _remove_overlapping_patterns(self, patterns: List[Dict], overlap_threshold: float = 0.3) -> List[Dict]:
+        """
+        Remove overlapping patterns, keeping only the highest confidence one in each overlapping group
+
+        Args:
+            patterns: List of pattern dictionaries
+            overlap_threshold: Minimum overlap fraction to consider patterns as overlapping
+
+        Returns:
+            Filtered list with overlaps removed
+        """
+        if not patterns:
+            return patterns
+
+        # Sort by confidence score (descending)
+        sorted_patterns = sorted(patterns, key=lambda p: p['confidence_score'], reverse=True)
+
+        kept_patterns = []
+
+        for pattern in sorted_patterns:
+            # Check if this pattern overlaps with any already kept pattern
+            overlaps = False
+            for kept in kept_patterns:
+                if self._patterns_overlap(pattern, kept, overlap_threshold):
+                    overlaps = True
+                    break
+
+            # If no overlap, keep this pattern
+            if not overlaps:
+                kept_patterns.append(pattern)
+
+        # Sort by start date for return
+        kept_patterns.sort(key=lambda p: p['start_date'])
+
+        return kept_patterns
+
+    def detect_all_patterns(self, exclude_patterns: List[str] = None, remove_overlaps: bool = True,
+                           overlap_threshold: float = 0.1) -> List[Dict]:
+        """
+        Detect all chart patterns
+
+        Args:
+            exclude_patterns: List of pattern names to exclude (e.g., ['Rounding Top', 'Rounding Bottom'])
+            remove_overlaps: Whether to remove overlapping patterns (keeps highest confidence)
+            overlap_threshold: Minimum overlap fraction (0.0-1.0) to consider patterns as overlapping
+
+        Returns:
+            List of detected patterns
+        """
         patterns = []
 
+        if exclude_patterns is None:
+            exclude_patterns = []
+
         # Reversal Patterns
-        patterns.extend(self.detect_head_and_shoulders())
-        patterns.extend(self.detect_inverse_head_and_shoulders())
-        patterns.extend(self.detect_double_top())
-        patterns.extend(self.detect_double_bottom())
-        patterns.extend(self.detect_triple_top())
-        patterns.extend(self.detect_triple_bottom())
-        patterns.extend(self.detect_rounding_top())
-        patterns.extend(self.detect_rounding_bottom())
+        if 'Head and Shoulders' not in exclude_patterns:
+            patterns.extend(self.detect_head_and_shoulders())
+        if 'Inverse Head and Shoulders' not in exclude_patterns:
+            patterns.extend(self.detect_inverse_head_and_shoulders())
+        if 'Double Top' not in exclude_patterns:
+            patterns.extend(self.detect_double_top())
+        if 'Double Bottom' not in exclude_patterns:
+            patterns.extend(self.detect_double_bottom())
+        if 'Triple Top' not in exclude_patterns:
+            patterns.extend(self.detect_triple_top())
+        if 'Triple Bottom' not in exclude_patterns:
+            patterns.extend(self.detect_triple_bottom())
+        if 'Rounding Top' not in exclude_patterns:
+            patterns.extend(self.detect_rounding_top())
+        if 'Rounding Bottom' not in exclude_patterns:
+            patterns.extend(self.detect_rounding_bottom())
 
         # Triangle Patterns
-        patterns.extend(self.detect_ascending_triangle())
-        patterns.extend(self.detect_descending_triangle())
-        patterns.extend(self.detect_symmetrical_triangle())
+        if 'Ascending Triangle' not in exclude_patterns:
+            patterns.extend(self.detect_ascending_triangle())
+        if 'Descending Triangle' not in exclude_patterns:
+            patterns.extend(self.detect_descending_triangle())
+        if 'Symmetrical Triangle' not in exclude_patterns:
+            patterns.extend(self.detect_symmetrical_triangle())
 
         # Continuation Patterns
-        patterns.extend(self.detect_cup_and_handle())
-        patterns.extend(self.detect_flag())
-        patterns.extend(self.detect_pennant())
-        patterns.extend(self.detect_rising_wedge())
-        patterns.extend(self.detect_falling_wedge())
+        if 'Cup and Handle' not in exclude_patterns:
+            patterns.extend(self.detect_cup_and_handle())
+        if 'Flag' not in exclude_patterns:
+            patterns.extend(self.detect_flag())
+        if 'Pennant' not in exclude_patterns:
+            patterns.extend(self.detect_pennant())
+        if 'Rising Wedge' not in exclude_patterns:
+            patterns.extend(self.detect_rising_wedge())
+        if 'Falling Wedge' not in exclude_patterns:
+            patterns.extend(self.detect_falling_wedge())
 
         # Channel/Rectangle Patterns
-        patterns.extend(self.detect_rectangle())
-        patterns.extend(self.detect_ascending_channel())
-        patterns.extend(self.detect_descending_channel())
+        if 'Rectangle' not in exclude_patterns:
+            patterns.extend(self.detect_rectangle())
+        if 'Ascending Channel' not in exclude_patterns:
+            patterns.extend(self.detect_ascending_channel())
+        if 'Descending Channel' not in exclude_patterns:
+            patterns.extend(self.detect_descending_channel())
+
+        # Remove overlapping patterns if requested
+        if remove_overlaps:
+            patterns = self._remove_overlapping_patterns(patterns, overlap_threshold)
+
+        # Apply quality filters
+        if self.min_confidence > 0:
+            patterns = [p for p in patterns if p.get('confidence_score', 0) >= self.min_confidence]
+
+        if self.min_r_squared > 0:
+            patterns = [p for p in patterns if self._check_trendline_quality(p)]
 
         return patterns
+
+    def _check_trendline_quality(self, pattern: Dict) -> bool:
+        """Check if pattern meets minimum R² requirement"""
+        if 'trendlines' not in pattern or not pattern['trendlines']:
+            return True  # No trendlines to check
+
+        r_squared_values = []
+        for line_data in pattern['trendlines'].values():
+            if isinstance(line_data, dict) and 'r_squared' in line_data:
+                r_squared_values.append(line_data['r_squared'])
+
+        if not r_squared_values:
+            return True  # No R² values to check
+
+        avg_r_squared = np.mean(r_squared_values)
+        return avg_r_squared >= self.min_r_squared
 
     # ==================== REVERSAL PATTERNS ====================
 

@@ -175,11 +175,37 @@ export const getPatternStats = async (stockId = null) => {
 };
 
 // Chart Pattern endpoints (Phase 6)
-export const detectChartPatterns = async (stockId, days = 90, minPatternLength = 20) => {
-  const response = await api.post(`/api/v1/stocks/${stockId}/detect-chart-patterns`, {
-    days,
-    min_pattern_length: minPatternLength
-  });
+export const detectChartPatterns = async (
+  stockId,
+  days = null,
+  minPatternLength = 20,
+  removeOverlaps = true,
+  excludePatterns = null,
+  overlapThreshold = 0.1,
+  peakOrder = 5,
+  minConfidence = 0.0,
+  minRSquared = 0.0
+) => {
+  const payload = {
+    min_pattern_length: minPatternLength,
+    remove_overlaps: removeOverlaps,
+    overlap_threshold: overlapThreshold,
+    peak_order: peakOrder,
+    min_confidence: minConfidence,
+    min_r_squared: minRSquared
+  };
+
+  // Only include days if it's specified
+  if (days !== null && days !== undefined) {
+    payload.days = days;
+  }
+
+  // Include exclude_patterns if specified
+  if (excludePatterns && excludePatterns.length > 0) {
+    payload.exclude_patterns = excludePatterns;
+  }
+
+  const response = await api.post(`/api/v1/stocks/${stockId}/detect-chart-patterns`, payload);
   return response.data;
 };
 
