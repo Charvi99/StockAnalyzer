@@ -175,13 +175,13 @@ class RecommendationResponse(BaseModel):
     """Comprehensive recommendation response"""
     stock_id: int
     symbol: str
-    current_price: float
-    timestamp: datetime
+    current_price: Optional[float] = None
+    timestamp: Optional[datetime] = None
 
     # Technical analysis
-    technical_recommendation: str
-    technical_confidence: float
-    technical_signals: Dict[str, str]
+    technical_recommendation: Optional[str] = None
+    technical_confidence: Optional[float] = None
+    technical_signals: Optional[Dict[str, str]] = None
 
     # ML prediction (if available)
     ml_recommendation: Optional[str] = None
@@ -194,7 +194,10 @@ class RecommendationResponse(BaseModel):
     sentiment_negative: Optional[int] = None
 
     # Overall recommendation
-    final_recommendation: str
-    overall_confidence: float
-    reasoning: List[str]
-    risk_level: str  # LOW, MEDIUM, HIGH
+    final_recommendation: Optional[str] = None
+    overall_confidence: Optional[float] = None
+    reasoning: Optional[List[str]] = None
+    risk_level: Optional[str] = None  # LOW, MEDIUM, HIGH
+
+    # Error field
+    error: Optional[str] = None

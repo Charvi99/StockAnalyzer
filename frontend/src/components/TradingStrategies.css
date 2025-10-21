@@ -1,0 +1,520 @@
+.trading-strategies-container {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.strategies-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 15px 20px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.3s ease;
+}
+
+.strategies-header:hover {
+  background: linear-gradient(135deg, #5568d3 0%, #653a91 100%);
+}
+
+.strategies-header .header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.strategies-header .header-icon {
+  font-size: 24px;
+}
+
+.strategies-header h3 {
+  color: white;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.strategy-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.expand-icon {
+  color: white;
+  font-size: 14px;
+  transition: transform 0.3s ease;
+}
+
+.expand-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.strategies-body {
+  padding: 20px;
+}
+
+.error-message {
+  background: #fee;
+  color: #c33;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  border: 1px solid #fcc;
+}
+
+.strategy-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  padding: 12px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tab-button:hover {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.tab-button.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+.strategy-tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.strategy-selector {
+  margin-bottom: 20px;
+}
+
+.strategy-selector label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #333;
+}
+
+.strategy-selector select {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+}
+
+.strategy-selector select:hover {
+  border-color: #667eea;
+}
+
+.strategy-selector select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.strategy-description {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+}
+
+.execute-button {
+  width: 100%;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  margin-bottom: 20px;
+}
+
+.execute-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.execute-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Strategy Result Styles */
+.strategy-result {
+  animation: slideIn 0.4s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.signal-box {
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  border: 2px solid;
+}
+
+.signal-box.signal-buy {
+  background: linear-gradient(135deg, #d4f4dd 0%, #b8e6c2 100%);
+  border-color: #4caf50;
+}
+
+.signal-box.signal-sell {
+  background: linear-gradient(135deg, #ffe4e1 0%, #ffc7c2 100%);
+  border-color: #f44336;
+}
+
+.signal-box.signal-hold {
+  background: linear-gradient(135deg, #fff9e6 0%, #ffe9b3 100%);
+  border-color: #ff9800;
+}
+
+.signal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.signal-emoji {
+  font-size: 32px;
+}
+
+.signal-text {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.signal-buy .signal-text {
+  color: #2e7d32;
+}
+
+.signal-sell .signal-text {
+  color: #c62828;
+}
+
+.signal-hold .signal-text {
+  color: #f57c00;
+}
+
+.confidence-bar {
+  position: relative;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.6s ease;
+  border-radius: 15px;
+}
+
+.confidence-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+  text-shadow: 0 0 3px white;
+}
+
+.result-details {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+}
+
+.result-details h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+  font-size: 16px;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.detail-item:last-child {
+  border-bottom: none;
+}
+
+.detail-item.full-width {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.detail-label {
+  font-weight: 500;
+  color: #666;
+  text-transform: capitalize;
+}
+
+.detail-value {
+  font-weight: 600;
+  color: #333;
+}
+
+/* Backtest Result Styles */
+.backtest-result {
+  animation: slideIn 0.4s ease;
+}
+
+.backtest-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.summary-item {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+}
+
+.summary-value.positive {
+  color: #4caf50;
+}
+
+.summary-value.negative {
+  color: #f44336;
+}
+
+/* Consensus Result Styles */
+.consensus-result {
+  animation: slideIn 0.4s ease;
+}
+
+.consensus-box {
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  border: 2px solid;
+  text-align: center;
+}
+
+.consensus-box.signal-buy {
+  background: linear-gradient(135deg, #d4f4dd 0%, #b8e6c2 100%);
+  border-color: #4caf50;
+}
+
+.consensus-box.signal-sell {
+  background: linear-gradient(135deg, #ffe4e1 0%, #ffc7c2 100%);
+  border-color: #f44336;
+}
+
+.consensus-box.signal-hold {
+  background: linear-gradient(135deg, #fff9e6 0%, #ffe9b3 100%);
+  border-color: #ff9800;
+}
+
+.consensus-box h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.consensus-signal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.consensus-signal .signal-emoji {
+  font-size: 48px;
+}
+
+.consensus-signal .signal-text {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+.signal-counts {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.count-item {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.count-item.buy {
+  background: rgba(76, 175, 80, 0.2);
+  color: #2e7d32;
+}
+
+.count-item.hold {
+  background: rgba(255, 152, 0, 0.2);
+  color: #f57c00;
+}
+
+.count-item.sell {
+  background: rgba(244, 67, 54, 0.2);
+  color: #c62828;
+}
+
+.individual-results {
+  margin-top: 20px;
+}
+
+.individual-results h4 {
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.individual-result {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  border-left: 4px solid;
+}
+
+.individual-result.signal-buy {
+  border-left-color: #4caf50;
+}
+
+.individual-result.signal-sell {
+  border-left-color: #f44336;
+}
+
+.individual-result.signal-hold {
+  border-left-color: #ff9800;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.strategy-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.signal-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f0f0f0;
+}
+
+.individual-result.signal-buy .signal-badge {
+  background: rgba(76, 175, 80, 0.2);
+  color: #2e7d32;
+}
+
+.individual-result.signal-sell .signal-badge {
+  background: rgba(244, 67, 54, 0.2);
+  color: #c62828;
+}
+
+.individual-result.signal-hold .signal-badge {
+  background: rgba(255, 152, 0, 0.2);
+  color: #f57c00;
+}
+
+.confidence-mini {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.result-reason {
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+}
+
+.result-error {
+  font-size: 13px;
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
+  padding: 8px;
+  border-radius: 6px;
+}

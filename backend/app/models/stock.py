@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, TIMESTAMP, DECIMAL, BigInteger, ForeignKey, CheckConstraint, Boolean
+from sqlalchemy import Column, Integer, String, TIMESTAMP, DECIMAL, BigInteger, ForeignKey, CheckConstraint, Boolean, Text, text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -21,14 +22,16 @@ class Stock(Base):
     predictions = relationship("Prediction", back_populates="stock", cascade="all, delete-orphan")
     indicators = relationship("TechnicalIndicator", back_populates="stock", cascade="all, delete-orphan")
     sentiment_scores = relationship("SentimentScore", back_populates="stock", cascade="all, delete-orphan")
+    candlestick_patterns = relationship("CandlestickPattern", back_populates="stock", cascade="all, delete-orphan")
+    chart_patterns = relationship("ChartPattern", back_populates="stock", cascade="all, delete-orphan")
 
 
 class StockPrice(Base):
     __tablename__ = "stock_prices"
 
-    id = Column(Integer, primary_key=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False)
+    timestamp = Column(TIMESTAMP, primary_key=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), primary_key=True)
+    id = Column(Integer, server_default=text("nextval('stock_prices_id_seq'::regclass)"))
     open = Column(DECIMAL(12, 4))
     high = Column(DECIMAL(12, 4))
     low = Column(DECIMAL(12, 4))
@@ -114,3 +117,58 @@ class SentimentScore(Base):
 
     # Relationship
     stock = relationship("Stock", back_populates="sentiment_scores")
+
+
+class CandlestickPattern(Base):
+    __tablename__ = "candlestick_patterns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    pattern_name = Column(String(100), nullable=False)
+    pattern_type = Column(String(20), nullable=False)
+    timestamp = Column(TIMESTAMP, nullable=False)
+    confidence_score = Column(DECIMAL(5, 4), default=1.0)
+    candle_data = Column(JSONB)  # Stores OHLC data for the pattern
+    user_confirmed = Column(Boolean, default=None, nullable=True)  # NULL = not reviewed, TRUE = confirmed, FALSE = rejected
+    confirmed_at = Column(TIMESTAMP, nullable=True)
+    confirmed_by = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("pattern_type IN ('bullish', 'bearish', 'neutral')", name="check_pattern_type"),
+    )
+
+    # Relationship
+    stock = relationship("Stock", back_populates="candlestick_patterns")
+
+
+class ChartPattern(Base):
+    __tablename__ = "chart_patterns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    pattern_name = Column(String(100), nullable=False)
+    pattern_type = Column(String(20), nullable=False)  # reversal, continuation
+    signal = Column(String(20), nullable=False)  # bullish, bearish, neutral
+    start_date = Column(TIMESTAMP, nullable=False)
+    end_date = Column(TIMESTAMP, nullable=False)
+    breakout_price = Column(DECIMAL(12, 4))
+    target_price = Column(DECIMAL(12, 4))
+    stop_loss = Column(DECIMAL(12, 4))
+    confidence_score = Column(DECIMAL(5, 4), default=0.5)
+    key_points = Column(JSONB)  # Support/resistance levels, peaks, troughs
+    trendlines = Column(JSONB)  # Line coordinates for visualization
+    user_confirmed = Column(Boolean, default=None, nullable=True)
+    confirmed_at = Column(TIMESTAMP, nullable=True)
+    confirmed_by = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("pattern_type IN ('reversal', 'continuation')", name="check_chart_pattern_type"),
+        CheckConstraint("signal IN ('bullish', 'bearish', 'neutral')", name="check_chart_signal"),
+    )
+
+    # Relationship
+    stock = relationship("Stock", back_populates="chart_patterns")

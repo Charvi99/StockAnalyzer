@@ -7,9 +7,16 @@
       "Bash(docker-compose restart:*)",
       "Bash(curl:*)",
       "Bash(docker-compose down:*)",
-      "Bash(docker logs:*)"
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+      "Read(//c/**)",
+      "Bash(docker-compose build:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "server-name"
+  ]
 }

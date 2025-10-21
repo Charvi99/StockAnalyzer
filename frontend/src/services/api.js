@@ -138,4 +138,107 @@ export const getLatestSentiment = async (stockId) => {
   return response.data;
 };
 
+export const getDashboardAnalysis = async () => {
+  const response = await api.get('/api/v1/analysis/dashboard');
+  return response.data;
+};
+
+// Candlestick Pattern endpoints (Phase 5)
+export const detectPatterns = async (stockId, days = 90) => {
+  const response = await api.post(`/api/v1/stocks/${stockId}/detect-patterns`, { days });
+  return response.data;
+};
+
+export const getPatterns = async (stockId, params = {}) => {
+  const response = await api.get(`/api/v1/stocks/${stockId}/patterns`, { params });
+  return response.data;
+};
+
+export const confirmPattern = async (patternId, confirmed, notes = '', confirmedBy = 'user') => {
+  const response = await api.patch(`/api/v1/patterns/${patternId}/confirm`, {
+    confirmed,
+    notes,
+    confirmed_by: confirmedBy
+  });
+  return response.data;
+};
+
+export const deletePattern = async (patternId) => {
+  const response = await api.delete(`/api/v1/patterns/${patternId}`);
+  return response.data;
+};
+
+export const getPatternStats = async (stockId = null) => {
+  const params = stockId ? { stock_id: stockId } : {};
+  const response = await api.get('/api/v1/patterns/stats', { params });
+  return response.data;
+};
+
+// Chart Pattern endpoints (Phase 6)
+export const detectChartPatterns = async (stockId, days = 90, minPatternLength = 20) => {
+  const response = await api.post(`/api/v1/stocks/${stockId}/detect-chart-patterns`, {
+    days,
+    min_pattern_length: minPatternLength
+  });
+  return response.data;
+};
+
+export const getChartPatterns = async (stockId, params = {}) => {
+  const response = await api.get(`/api/v1/stocks/${stockId}/chart-patterns`, { params });
+  return response.data;
+};
+
+export const confirmChartPattern = async (patternId, confirmed, notes = '', confirmedBy = 'user') => {
+  const response = await api.patch(`/api/v1/chart-patterns/${patternId}/confirm`, {
+    confirmed,
+    notes,
+    confirmed_by: confirmedBy
+  });
+  return response.data;
+};
+
+export const deleteChartPattern = async (patternId) => {
+  const response = await api.delete(`/api/v1/chart-patterns/${patternId}`);
+  return response.data;
+};
+
+export const getChartPatternStats = async (stockId = null) => {
+  const params = stockId ? { stock_id: stockId } : {};
+  const response = await api.get('/api/v1/chart-patterns/stats', { params });
+  return response.data;
+};
+
+export const exportChartPatternTrainingData = async (confirmedOnly = true, stockId = null) => {
+  const params = { confirmed_only: confirmedOnly };
+  if (stockId) params.stock_id = stockId;
+  const response = await api.get('/api/v1/chart-patterns/export/training-data', { params });
+  return response.data;
+};
+
+// Trading Strategy endpoints (Phase 6)
+export const listStrategies = async () => {
+  const response = await api.get('/api/v1/strategies/list');
+  return response.data;
+};
+
+export const getStrategyDetails = async (strategyName) => {
+  const response = await api.get(`/api/v1/strategies/${strategyName}`);
+  return response.data;
+};
+
+export const executeStrategy = async (stockId, params) => {
+  const response = await api.post(`/api/v1/strategies/${stockId}/execute`, params);
+  return response.data;
+};
+
+export const backtestStrategy = async (stockId, params) => {
+  const response = await api.post(`/api/v1/strategies/${stockId}/backtest`, params);
+  return response.data;
+};
+
+export const executeAllStrategies = async (stockId) => {
+  const response = await api.post(`/api/v1/strategies/${stockId}/execute-all`);
+  return response.data;
+};
+
 export default api;

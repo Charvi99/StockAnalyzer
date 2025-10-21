@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api.routes import health, stocks, prices, analysis, ml, sentiment
+from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,9 @@ app.include_router(prices.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
 app.include_router(ml.router)  # ML routes already have prefix="/api/v1/ml"
 app.include_router(sentiment.router)  # Sentiment routes already have prefix="/api/v1/sentiment"
+app.include_router(patterns.router, prefix="/api/v1")  # Candlestick pattern detection
+app.include_router(chart_patterns.router, prefix="/api/v1")  # Chart pattern detection
+app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])  # Trading strategies
 
 
 @app.get("/")
@@ -65,8 +68,8 @@ def root():
     Root endpoint
     """
     return {
-        "message": "Stock Analyzer API - Phase 4 with ML & Sentiment Analysis",
-        "version": "2.0.0",
+        "message": "Stock Analyzer API - Phase 6 with Chart Pattern Recognition & Trading Strategies",
+        "version": "2.3.0",
         "docs": "/docs",
         "health": "/health",
         "features": [
@@ -74,6 +77,11 @@ def root():
             "ML Predictions (LSTM, Transformer, CNN, CNN-LSTM)",
             "Sentiment Analysis (News scraping and FinBERT)",
             "Integrated Recommendations",
-            "Prediction Performance Tracking"
+            "Prediction Performance Tracking",
+            "Candlestick Pattern Recognition (40 patterns - 20 bullish, 20 bearish)",
+            "Chart Pattern Recognition (Head & Shoulders, Triangles, Cup & Handle, Flags, Wedges)",
+            "Pattern Confirmation for ML Training Data Collection",
+            "Custom Trading Strategies Framework with 5 Built-in Strategies",
+            "Strategy Backtesting & Performance Analysis"
         ]
     }
