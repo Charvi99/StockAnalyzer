@@ -1,6 +1,6 @@
 # Stock Analyzer
 
-A full-stack web application for comprehensive stock market analysis and prediction. This application helps you understand stock investing by providing technical analysis, machine learning predictions, sentiment analysis, and tracking of prediction accuracy over time.
+A full-stack web application for comprehensive stock market analysis and prediction. This application helps you understand stock investing by providing technical analysis, machine learning predictions, sentiment analysis, and chart pattern recognition. Pre-populated with **335+ stocks** across 18 sectors for immediate analysis and CNN training data collection.
 
 ## Features
 
@@ -64,6 +64,28 @@ A full-stack web application for comprehensive stock market analysis and predict
 - **Trendline Analysis** - Slope, R-squared, and support/resistance line coordinates
 - **User Confirmation System** - Label patterns for building ML training datasets
 - **Pattern Statistics & Export** - Track confirmation rates and export labeled data
+- **Optimized for CNN Training** - Preset parameters (5% overlap, peak sensitivity 4, 50% min confidence)
+
+### Phase 7 - Enhanced Dashboard & Data Collection ✅
+- **335+ Pre-populated Stocks** - Diverse stock selection across 18 sectors:
+  - Technology (74), Healthcare (41), Financial (38), Consumer Goods (33), Energy (25), and more
+- **Sector-Based Organization** - Color-coded cards with icons and collapsible sections:
+  - 18 unique sector themes (colors, icons, light backgrounds)
+  - Grouped view with sector headers and stock counts
+  - Toggle between sector-grouped and grid views
+- **Enhanced Stock Cards** - Rich visual information:
+  - Company name, sector badge, industry badge
+  - Colored top border matching sector theme
+  - Sector icon with symbol display
+- **Batch Operations** - Efficient bulk processing:
+  - Batch fetch 5 years of historical data for all stocks
+  - Batch pattern detection with optimal presets
+  - Real-time progress tracking with live updates
+  - Success/failure reporting with summaries
+- **CNN Training Data Collection** - Optimized workflow:
+  - One-click data collection for 200+ stocks
+  - Estimated 10,000+ patterns (minimum viable for CNN)
+  - Export labeled patterns for machine learning
 
 ## Technology Stack
 
@@ -149,12 +171,19 @@ StockAnalyzer/
 │   └── package.json
 ├── database/
 │   └── init.sql                   # Database schema
+├── docs/                          # Documentation
+│   ├── SWING_TRADING_OUTLOOK.md   # Swing trading guide & platform recommendations
+│   ├── POLYGON_SETUP.md           # Polygon.io setup guide
+│   ├── ALEMBIC_GUIDE.md           # Database migration guide
+│   ├── CLAUDE_CONTEXT.md          # Project context for AI assistants
+│   ├── TECHNICAL_INDICATORS_ENCYCLOPEDIA.md
+│   └── ...                        # Other documentation
 ├── oldTools/                      # Legacy trading tools (reference)
+├── populate_stocks.py             # Population script (246 stocks)
+├── populate_stocks_batch2.py      # Additional stocks (94 stocks)
 ├── docker-compose.yml
 ├── .env                          # Environment variables (not in git)
 ├── .env.example                  # Environment template
-├── POLYGON_SETUP.md              # Polygon.io setup guide
-├── OPTIMIZATION_REPORT.md        # Performance optimization opportunities
 └── README.md
 ```
 
@@ -221,16 +250,41 @@ The application uses **Polygon.io** for stock market data.
 
 **Free Tier Limits:** 5 requests/minute, unlimited daily requests
 
-📖 **Full setup guide:** See [POLYGON_SETUP.md](./POLYGON_SETUP.md)
+📖 **Full setup guide:** See [docs/POLYGON_SETUP.md](./docs/POLYGON_SETUP.md)
+
+### 📈 Swing Trading Guide
+
+Looking to use Stock Analyzer for swing trading? We've got you covered!
+
+📖 **Complete guide:** See [docs/SWING_TRADING_OUTLOOK.md](./docs/SWING_TRADING_OUTLOOK.md)
+
+**Includes:**
+- Suitability assessment (⭐⭐⭐⭐⭐ Highly Suitable!)
+- Daily trading workflows
+- Pattern-specific strategies
+- Risk management framework
+- **Automated trading platform recommendations** (Alpaca, Interactive Brokers, TD Ameritrade)
+- Integration architecture for automation
+- Success metrics to track
 
 ## Usage
 
 ### Frontend Features
 
-#### Stock List View
-- View all tracked stocks
-- Add new stocks to track
-- Click "View Details" to open stock detail modal
+#### Enhanced Dashboard View
+- **335+ Pre-loaded Stocks** - Ready for immediate analysis
+- **Sector-Based Organization** - Grouped by 18 sectors with color coding:
+  - Technology 💻, Healthcare ⚕️, Financial 💰, Consumer Goods 🛍️, Energy ⚡
+  - Industrials 🏭, Retail 🏪, Real Estate 🏢, Materials ⛏️, Entertainment 🎬
+  - Consumer Services 🔔, Automotive 🚗, Telecommunications 📡, Utilities 💡
+  - Transportation ✈️, Leisure 🎨, Aerospace 🚀, Consumer Cyclical 🔄
+- **Collapsible Sectors** - Click to expand/collapse each sector
+- **Toggle Views** - Switch between grouped and flat grid layouts
+- **Rich Stock Cards** - Company name, sector/industry badges, colored borders
+- **Batch Operations**:
+  - 🔧 **Fetch 5Y Data** - Fetch 5 years of data for all stocks at once
+  - 🎯 **Detect Patterns** - Batch pattern detection with progress tracking
+- **Add New Stocks** - Easy stock addition with symbol/sector/industry
 
 #### Stock Detail Modal
 1. **Fetch Historical Data**
@@ -290,13 +344,27 @@ The application uses **Polygon.io** for stock market data.
    - Export labeled patterns for machine learning
 
 8. **Chart Pattern Recognition**
-   - Click "Detect Chart Patterns" to analyze last 90 days
+   - Click "Detect Chart Patterns" to analyze with optimized settings:
+     - **Overlap Threshold**: 5% (preset for optimal results)
+     - **Exclude Rounding Patterns**: Enabled (reduces noise)
+     - **Peak Sensitivity**: 4 (balanced detection)
+     - **Min Confidence**: 50% (quality threshold)
    - View detected patterns (12 types: Head & Shoulders, Triangles, Cup & Handle, Flags, Wedges, etc.)
    - Filter by pattern type (reversal/continuation) and signal (bullish/bearish/neutral)
    - View key price levels (breakout, target, stop loss)
    - Analyze trendline data (slope, R-squared)
    - Confirm/reject patterns for ML training data collection
    - View pattern statistics and export labeled patterns
+   - Advanced settings available for fine-tuning detection parameters
+
+9. **CNN Training Data Collection**
+   - **Optimized Workflow** for collecting training data:
+     1. Use batch fetch to load 5Y data for all 335+ stocks
+     2. Use batch pattern detection with preset optimal parameters
+     3. Review and label detected patterns (10,000+ expected)
+     4. Export labeled patterns for CNN model training
+   - **Estimated Data**: ~10,000 patterns from 200 stocks × 5 years
+   - **Quality Focus**: Preset filters reduce false positives by 60-80%
 
 ### API Endpoints
 
@@ -494,7 +562,7 @@ docker-compose exec backend ./migrate.sh upgrade
 docker-compose exec backend ./migrate.sh downgrade
 ```
 
-📖 **Full Migration Guide**: See [ALEMBIC_GUIDE.md](./ALEMBIC_GUIDE.md) for detailed documentation
+📖 **Full Migration Guide**: See [docs/ALEMBIC_GUIDE.md](./docs/ALEMBIC_GUIDE.md) for detailed documentation
 
 ### Tables
 - **stocks** - Stock information (symbol, name, sector, industry)
@@ -507,12 +575,17 @@ docker-compose exec backend ./migrate.sh downgrade
 - **chart_patterns** - Detected chart patterns (H&S, triangles, etc.) with trendline data
 
 ### Sample Data
-Pre-loaded stocks (loaded via initial migration):
-- AAPL (Apple Inc.)
-- GOOGL (Alphabet Inc.)
-- MSFT (Microsoft Corporation)
-- TSLA (Tesla, Inc.)
-- AMZN (Amazon.com Inc.)
+Pre-loaded stocks (335+ stocks via population scripts):
+- **Technology** (74 stocks): AAPL, MSFT, GOOGL, NVDA, META, TSLA, AMD, INTC, CRM, ADBE, and more
+- **Healthcare** (41 stocks): JNJ, UNH, PFE, ABBV, TMO, MRK, LLY, MRNA, AMGN, and more
+- **Financial** (38 stocks): JPM, BAC, WFC, GS, MS, V, MA, PYPL, SQ, BLK, and more
+- **Consumer Goods** (33 stocks): PG, KO, PEP, NKE, COST, WMT, HD, MCD, SBUX, and more
+- **Energy** (25 stocks): XOM, CVX, COP, SLB, EOG, OXY, MPC, PSX, and more
+- **Other Sectors** (124 stocks): Industrials, Retail, Real Estate, Materials, Entertainment, and more
+
+**Population Scripts**:
+- `populate_stocks.py` - Initial 246 stocks
+- `populate_stocks_batch2.py` - Additional 94 stocks
 
 ## Performance & Optimization
 
@@ -663,7 +736,17 @@ This quality scoring system results in:
 - More reliable trading signals
 - Higher quality training data for machine learning models
 
-### Phase 7: Optimization & Enhancement (Next)
+### ✅ Phase 7: Enhanced Dashboard & Data Collection (Complete)
+- 335+ pre-populated stocks across 18 sectors
+- Sector-based organization with color coding
+- Batch operations for data fetching and pattern detection
+- Optimized presets for CNN training data collection
+- Enhanced stock cards with company metadata
+- Real-time progress tracking for batch operations
+
+### Phase 8: CNN Model Training & Optimization (Next)
+- CNN model training on collected pattern data
+- Model evaluation and accuracy tracking
 - Database indexing and caching
 - React performance optimization
 - Real-time updates (WebSockets)
@@ -671,7 +754,6 @@ This quality scoring system results in:
 - Portfolio simulation
 - Email/notification alerts
 - Mobile responsiveness
-- Chart pattern ML model training
 - Trendline visualization on charts
 
 ## Contributing

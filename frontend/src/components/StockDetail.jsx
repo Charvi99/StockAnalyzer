@@ -24,6 +24,11 @@ const StockDetail = ({ stock, onClose }) => {
   const [patterns, setPatterns] = useState([]);
   const [chartPatterns, setChartPatterns] = useState([]);
 
+  // Pattern highlighting and selection state
+  const [highlightedPattern, setHighlightedPattern] = useState(null);
+  const [selectedPattern, setSelectedPattern] = useState(null);
+  const [focusedPatternId, setFocusedPatternId] = useState(null);
+
   // Shared indicator parameters state
   const [indicatorParams, setIndicatorParams] = useState({
     rsi_period: 14,

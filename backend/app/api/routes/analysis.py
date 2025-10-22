@@ -167,6 +167,9 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     return RecommendationResponse(
         stock_id=stock.id,
         symbol=stock.symbol,
+        name=stock.name,
+        sector=stock.sector,
+        industry=stock.industry,
         current_price=current_price,
         timestamp=df.index[-1],
         technical_recommendation=tech_recommendation['recommendation'],
@@ -206,10 +209,10 @@ def get_dashboard_analysis(db: Session = Depends(get_db)):
             dashboard_data.append(recommendation)
         except HTTPException as e:
             logger.warning(f"Could not get recommendation for stock {stock.id} ('{stock.symbol}'): {e.detail}")
-            dashboard_data.append(RecommendationResponse(stock_id=stock.id, symbol=stock.symbol, error=e.detail))
+            dashboard_data.append(RecommendationResponse(stock_id=stock.id, symbol=stock.symbol, name=stock.name, sector=stock.sector, industry=stock.industry, error=e.detail))
         except Exception as e:
             logger.error(f"An unexpected error occurred for stock {stock.id} ('{stock.symbol}'): {e}")
-            dashboard_data.append(RecommendationResponse(stock_id=stock.id, symbol=stock.symbol, error="An unexpected error occurred during analysis."))
+            dashboard_data.append(RecommendationResponse(stock_id=stock.id, symbol=stock.symbol, name=stock.name, sector=stock.sector, industry=stock.industry, error="An unexpected error occurred during analysis."))
     return dashboard_data
 
 
