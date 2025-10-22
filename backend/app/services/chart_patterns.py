@@ -47,12 +47,29 @@ class ChartPatternDetector:
         self.peaks = self.df[self.df['is_peak']].copy()
         self.troughs = self.df[self.df['is_trough']].copy()
 
-    def _calculate_trendline(self, x_values: np.ndarray, y_values: np.ndarray) -> Dict:
-        """Calculate trendline using linear regression"""
+    def _calculate_trendline(self, x_values: np.ndarray, y_values: np.ndarray, start_idx: int = None) -> Dict:
+        """
+        Calculate trendline using linear regression
+
+        Args:
+            x_values: Absolute indices from DataFrame
+            y_values: Price values
+            start_idx: Starting index of the pattern (to convert to relative indices)
+
+        Returns:
+            Dict with slope, intercept (relative to pattern start), and r_squared
+        """
         if len(x_values) < 2:
             return None
 
-        x = x_values.reshape(-1, 1)
+        # Convert absolute indices to relative indices (starting from 0)
+        if start_idx is not None:
+            x_relative = x_values - start_idx
+        else:
+            # If no start_idx provided, assume x_values are already relative
+            x_relative = x_values
+
+        x = x_relative.reshape(-1, 1)
         y = y_values
 
         model = LinearRegression()
@@ -390,6 +407,7 @@ class ChartPatternDetector:
             left_shoulder_idx = peaks_list[i]
             head_idx = peaks_list[i + 1]
             right_shoulder_idx = peaks_list[i + 2]
+            start_idx = left_shoulder_idx  # Pattern starting index
 
             left_shoulder = self.df.loc[left_shoulder_idx]
             head = self.df.loc[head_idx]
@@ -415,7 +433,7 @@ class ChartPatternDetector:
             # Calculate neckline
             neckline_indices = np.array([left_shoulder_idx, right_shoulder_idx])
             neckline_prices = np.array([trough1['low'], trough2['low']])
-            neckline = self._calculate_trendline(neckline_indices, neckline_prices)
+            neckline = self._calculate_trendline(neckline_indices, neckline_prices, start_idx)
 
             if not neckline:
                 continue
@@ -485,6 +503,7 @@ class ChartPatternDetector:
             left_shoulder_idx = troughs_list[i]
             head_idx = troughs_list[i + 1]
             right_shoulder_idx = troughs_list[i + 2]
+            start_idx = left_shoulder_idx  # Pattern starting index
 
             left_shoulder = self.df.loc[left_shoulder_idx]
             head = self.df.loc[head_idx]
@@ -510,7 +529,7 @@ class ChartPatternDetector:
             # Calculate neckline using linear regression
             neckline_indices = np.array([left_shoulder_idx, right_shoulder_idx])
             neckline_prices = np.array([peak1['high'], peak2['high']])
-            neckline = self._calculate_trendline(neckline_indices, neckline_prices)
+            neckline = self._calculate_trendline(neckline_indices, neckline_prices, start_idx)
 
             if not neckline:
                 continue
@@ -579,6 +598,7 @@ class ChartPatternDetector:
         for i in range(len(peaks_list) - 1):
             peak1_idx = peaks_list[i]
             peak2_idx = peaks_list[i + 1]
+            start_idx = peak1_idx  # Pattern starting index
 
             peak1 = self.df.loc[peak1_idx]
             peak2 = self.df.loc[peak2_idx]
@@ -600,7 +620,7 @@ class ChartPatternDetector:
             # Calculate resistance line (peaks)
             peak_indices = np.array([peak1_idx, peak2_idx])
             peak_prices = np.array([peak1['high'], peak2['high']])
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
 
             if not resistance_line:
                 continue
@@ -664,6 +684,7 @@ class ChartPatternDetector:
         for i in range(len(troughs_list) - 1):
             trough1_idx = troughs_list[i]
             trough2_idx = troughs_list[i + 1]
+            start_idx = trough1_idx  # Pattern starting index
 
             trough1 = self.df.loc[trough1_idx]
             trough2 = self.df.loc[trough2_idx]
@@ -685,7 +706,7 @@ class ChartPatternDetector:
             # Calculate support line (troughs)
             trough_indices = np.array([trough1_idx, trough2_idx])
             trough_prices = np.array([trough1['low'], trough2['low']])
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
 
             if not support_line:
                 continue
@@ -750,6 +771,7 @@ class ChartPatternDetector:
         # Look for patterns in sliding windows
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Get the actual starting index
 
             # Get peaks and troughs in window
             window_peaks = window[window['is_peak']]
@@ -769,7 +791,7 @@ class ChartPatternDetector:
             # Check if support is rising
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
 
             if not support_line or support_line['slope'] <= 0:
                 continue
@@ -842,6 +864,7 @@ class ChartPatternDetector:
 
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
 
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -860,7 +883,7 @@ class ChartPatternDetector:
             # Check if resistance is falling
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
 
             if not resistance_line or resistance_line['slope'] >= 0:
                 continue
@@ -933,6 +956,7 @@ class ChartPatternDetector:
 
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
 
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -943,12 +967,12 @@ class ChartPatternDetector:
             # Calculate resistance line (should be descending)
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
 
             # Calculate support line (should be ascending)
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -1026,6 +1050,7 @@ class ChartPatternDetector:
 
         for i in range(len(self.df) - 30):
             window = self.df.iloc[i:i + 30]
+            start_idx = self.df.index[i]  # Pattern starting index
 
             # Find the U-shape (cup)
             window_lows = window['low'].values
@@ -1184,6 +1209,7 @@ class ChartPatternDetector:
 
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
 
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -1194,11 +1220,11 @@ class ChartPatternDetector:
             # Both lines should be rising
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
 
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -1278,6 +1304,7 @@ class ChartPatternDetector:
 
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
 
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -1288,11 +1315,11 @@ class ChartPatternDetector:
             # Both lines should be falling
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
 
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -1379,7 +1406,8 @@ class ChartPatternDetector:
             peak1_idx = peaks_list[i]
             peak2_idx = peaks_list[i + 1]
             peak3_idx = peaks_list[i + 2]
-    
+            start_idx = peak1_idx  # Pattern starting index
+
             peak1_price = self.df.loc[peak1_idx, 'high']
             peak2_price = self.df.loc[peak2_idx, 'high']
             peak3_price = self.df.loc[peak3_idx, 'high']
@@ -1412,7 +1440,7 @@ class ChartPatternDetector:
             # Neckline (support formed by troughs)
             trough_indices = troughs_between.index.values
             trough_prices = troughs_between['low'].values
-            neckline = self._calculate_trendline(trough_indices, trough_prices)
+            neckline = self._calculate_trendline(trough_indices, trough_prices, start_idx)
     
             if not neckline or neckline['r_squared'] < 0.5:
                 continue
@@ -1483,7 +1511,8 @@ class ChartPatternDetector:
             trough1_idx = troughs_list[i]
             trough2_idx = troughs_list[i + 1]
             trough3_idx = troughs_list[i + 2]
-    
+            start_idx = trough1_idx  # Pattern starting index
+
             trough1_price = self.df.loc[trough1_idx, 'low']
             trough2_price = self.df.loc[trough2_idx, 'low']
             trough3_price = self.df.loc[trough3_idx, 'low']
@@ -1515,7 +1544,7 @@ class ChartPatternDetector:
             # Neckline (resistance formed by peaks)
             peak_indices = peaks_between.index.values
             peak_prices = peaks_between['high'].values
-            neckline = self._calculate_trendline(peak_indices, peak_prices)
+            neckline = self._calculate_trendline(peak_indices, peak_prices, start_idx)
     
             if not neckline or neckline['r_squared'] < 0.5:
                 continue
@@ -1574,6 +1603,7 @@ class ChartPatternDetector:
     
         for i in range(len(self.df) - self.min_pattern_length * 2):
             window = self.df.iloc[i:i + self.min_pattern_length * 2]
+            start_idx = self.df.index[i]  # Pattern starting index
     
             # Get highs in the window
             highs = window['high'].values
@@ -1654,6 +1684,7 @@ class ChartPatternDetector:
     
         for i in range(len(self.df) - self.min_pattern_length * 2):
             window = self.df.iloc[i:i + self.min_pattern_length * 2]
+            start_idx = self.df.index[i]  # Pattern starting index
     
             lows = window['low'].values
             indices = np.arange(len(lows))
@@ -1729,6 +1760,7 @@ class ChartPatternDetector:
     
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
     
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -1754,8 +1786,8 @@ class ChartPatternDetector:
             peak_indices = window_peaks.index.values
             trough_indices = window_troughs.index.values
     
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
     
             if not resistance_line or not support_line:
                 continue
@@ -1823,6 +1855,7 @@ class ChartPatternDetector:
     
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
     
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -1833,11 +1866,11 @@ class ChartPatternDetector:
             # Calculate trendlines
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
     
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
     
             if not resistance_line or not support_line:
                 continue
@@ -1910,6 +1943,7 @@ class ChartPatternDetector:
     
         for i in range(len(self.df) - self.min_pattern_length):
             window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
     
             window_peaks = window[window['is_peak']]
             window_troughs = window[window['is_trough']]
@@ -1919,11 +1953,11 @@ class ChartPatternDetector:
     
             peak_indices = window_peaks.index.values
             peak_prices = window_peaks['high'].values
-            resistance_line = self._calculate_trendline(peak_indices, peak_prices)
+            resistance_line = self._calculate_trendline(peak_indices, peak_prices, start_idx)
     
             trough_indices = window_troughs.index.values
             trough_prices = window_troughs['low'].values
-            support_line = self._calculate_trendline(trough_indices, trough_prices)
+            support_line = self._calculate_trendline(trough_indices, trough_prices, start_idx)
     
             if not resistance_line or not support_line:
                 continue

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { createChart } from 'lightweight-charts';
 
-const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = [], chartPatterns = [] }) => {
+const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = [], chartPatterns = [], highlightedPattern = null }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef(null);
   const seriesRefs = useRef({});
@@ -425,16 +425,29 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
     chartPatterns.forEach((pattern, patternIndex) => {
       console.log(`[StockChart] Processing pattern ${patternIndex}:`, pattern.pattern_name);
 
-      // Color based on signal
+      // Enhanced color scheme for better visibility
       const getColor = (lineKey) => {
-        if (pattern.signal === 'bullish') return lineKey.includes('support') || lineKey === 'support' ? '#28a745' : '#20c997';
-        if (pattern.signal === 'bearish') return lineKey.includes('resistance') || lineKey === 'resistance' ? '#dc3545' : '#fd7e14';
-        return lineKey.includes('upper') || lineKey.includes('resistance') ? '#6c757d' : '#adb5bd';
+        // Bullish patterns: green tones
+        if (pattern.signal === 'bullish') {
+          if (lineKey.includes('support') || lineKey.includes('lower')) return '#10b981'; // Bright green
+          if (lineKey.includes('resistance') || lineKey.includes('upper')) return '#059669'; // Dark green
+          return '#14b8a6'; // Teal
+        }
+        // Bearish patterns: red tones
+        if (pattern.signal === 'bearish') {
+          if (lineKey.includes('resistance') || lineKey.includes('upper')) return '#ef4444'; // Bright red
+          if (lineKey.includes('support') || lineKey.includes('lower')) return '#dc2626'; // Dark red
+          return '#f59e0b'; // Orange
+        }
+        // Neutral patterns: blue/purple tones
+        if (lineKey.includes('upper') || lineKey.includes('resistance')) return '#6366f1'; // Indigo
+        if (lineKey.includes('lower') || lineKey.includes('support')) return '#8b5cf6'; // Purple
+        return '#3b82f6'; // Blue
       };
 
       const primaryColor = pattern.signal === 'bullish' ? '#28a745' : pattern.signal === 'bearish' ? '#dc3545' : '#6c757d';
 
-      // Draw peaks as markers if available
+      // Draw peaks as markers if available - LARGER and MORE VISIBLE
       if (pattern.key_points?.peaks && Array.isArray(pattern.key_points.peaks)) {
         console.log(`[StockChart] Drawing ${pattern.key_points.peaks.length} peak markers`);
         pattern.key_points.peaks.forEach((peak, idx) => {
@@ -443,13 +456,13 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
             position: 'aboveBar',
             color: pattern.signal === 'bearish' ? '#dc3545' : '#f39c12',
             shape: 'circle',
-            text: `P${idx + 1}`,
-            size: 0.5,
+            text: `Peak ${idx + 1}`,
+            size: 2, // Much larger
           });
         });
       }
 
-      // Draw troughs as markers if available
+      // Draw troughs as markers if available - LARGER and MORE VISIBLE
       if (pattern.key_points?.troughs && Array.isArray(pattern.key_points.troughs)) {
         console.log(`[StockChart] Drawing ${pattern.key_points.troughs.length} trough markers`);
         pattern.key_points.troughs.forEach((trough, idx) => {
@@ -458,13 +471,13 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
             position: 'belowBar',
             color: pattern.signal === 'bullish' ? '#28a745' : '#f39c12',
             shape: 'circle',
-            text: `T${idx + 1}`,
-            size: 0.5,
+            text: `Trough ${idx + 1}`,
+            size: 2, // Much larger
           });
         });
       }
 
-      // Add pattern boundary markers (start/end)
+      // Add pattern boundary markers (start/end) - MUCH MORE PROMINENT
       const startTime = Math.floor(new Date(pattern.start_date).getTime() / 1000);
       const endTime = Math.floor(new Date(pattern.end_date).getTime() / 1000);
 
@@ -473,8 +486,8 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
         position: 'aboveBar',
         color: primaryColor,
         shape: 'arrowDown',
-        text: `${pattern.pattern_name} Start`,
-        size: 1,
+        text: `${pattern.pattern_name} START`,
+        size: 3, // Very large for visibility
       });
 
       allMarkers.push({
@@ -482,8 +495,8 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
         position: 'aboveBar',
         color: primaryColor,
         shape: 'arrowDown',
-        text: `${pattern.pattern_name} End`,
-        size: 1,
+        text: `${pattern.pattern_name} END`,
+        size: 3, // Very large for visibility
       });
 
       // Draw trendlines if available
@@ -524,11 +537,12 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
 
           console.log(`[StockChart] Generated ${trendlineData.length} points for trendline ${lineKey}`);
 
-          // Create line series for this trendline
+          // Create line series for this trendline with enhanced visibility
+          const lineStyle = lineKey.includes('support') || lineKey.includes('lower') ? 2 : 0; // Dashed for support, solid for resistance
           const trendlineSeries = chart.addLineSeries({
             color: getColor(lineKey),
-            lineWidth: 2,
-            lineStyle: 0, // Solid line
+            lineWidth: 3, // Thicker lines for better visibility
+            lineStyle: lineStyle, // 0=solid, 1=dotted, 2=dashed
             title: `${pattern.pattern_name} - ${lineKey}`,
             priceLineVisible: false,
             lastValueVisible: false,
@@ -548,7 +562,37 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
       console.log(`[StockChart] Set ${allMarkers.length} total markers`);
     }
 
-  }, [chartPatterns]);
+  }, [chartPatterns, patterns]);
+
+  // Add visual highlight for hovered pattern - zoom to pattern with padding
+  useEffect(() => {
+    if (!chartRef.current || !prices || prices.length === 0) return;
+
+    const chart = chartRef.current;
+
+    // If no pattern is highlighted, reset to full view
+    if (!highlightedPattern) {
+      chart.timeScale().fitContent();
+      return;
+    }
+
+    // Zoom to the highlighted pattern's time range with generous padding
+    const startDate = new Date(highlightedPattern.start_date);
+    const endDate = new Date(highlightedPattern.end_date);
+
+    // Calculate pattern duration to determine appropriate padding
+    const patternDurationDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+
+    // Use 30% of pattern duration as padding, minimum 7 days
+    const paddingDays = Math.max(7, Math.ceil(patternDurationDays * 0.3));
+    const paddingSeconds = paddingDays * 24 * 60 * 60;
+
+    chart.timeScale().setVisibleRange({
+      from: Math.floor(startDate.getTime() / 1000) - paddingSeconds,
+      to: Math.floor(endDate.getTime() / 1000) + paddingSeconds,
+    });
+
+  }, [highlightedPattern, prices]);
 
   return (
     <div className="stock-chart">

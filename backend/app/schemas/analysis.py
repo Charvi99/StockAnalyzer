@@ -175,6 +175,9 @@ class RecommendationResponse(BaseModel):
     """Comprehensive recommendation response"""
     stock_id: int
     symbol: str
+    name: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
     current_price: Optional[float] = None
     timestamp: Optional[datetime] = None
 

@@ -58,7 +58,7 @@ def fetch_stock_data(
 @router.get("/{stock_id}/prices", response_model=StockPriceListResponse)
 def get_stock_prices(
     stock_id: int,
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: int = Query(default=100, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
@@ -68,7 +68,7 @@ def get_stock_prices(
     Retrieve historical prices for a stock
 
     - **stock_id**: ID of the stock
-    - **limit**: Maximum number of records to return (1-1000)
+    - **limit**: Maximum number of records to return (1-10000)
     - **skip**: Number of records to skip (for pagination)
     - **start_date**: Filter prices from this date onwards
     - **end_date**: Filter prices up to this date
@@ -116,7 +116,7 @@ def get_stock_prices(
 @router.get("/symbol/{symbol}/prices", response_model=StockPriceListResponse)
 def get_stock_prices_by_symbol(
     symbol: str,
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: int = Query(default=100, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
@@ -126,7 +126,7 @@ def get_stock_prices_by_symbol(
     Retrieve historical prices for a stock by symbol
 
     - **symbol**: Stock ticker symbol (e.g., 'AAPL')
-    - **limit**: Maximum number of records to return (1-1000)
+    - **limit**: Maximum number of records to return (1-10000)
     - **skip**: Number of records to skip (for pagination)
     - **start_date**: Filter prices from this date onwards
     - **end_date**: Filter prices up to this date

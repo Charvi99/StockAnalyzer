@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { detectChartPatterns, getChartPatterns, confirmChartPattern, deleteChartPattern } from '../services/api';
 
-const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
+const ChartPatterns = forwardRef(({
+  stockId,
+  symbol,
+  onPatternsDetected,
+  onPatternHover = null,
+  onPatternLeave = null,
+  enableKeyboardShortcuts = false
+}, ref) => {
   const [patterns, setPatterns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -21,12 +28,19 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
   const [isExpanded, setIsExpanded] = useState(true); // Collapsible section state
   const [daysFilter, setDaysFilter] = useState(''); // Days filter for pattern detection/loading (empty = all)
   const [removeOverlaps, setRemoveOverlaps] = useState(true); // Remove overlapping patterns
-  const [excludeRoundingPatterns, setExcludeRoundingPatterns] = useState(false); // Exclude Rounding Top/Bottom
+  const [excludeRoundingPatterns, setExcludeRoundingPatterns] = useState(true); // Exclude Rounding Top/Bottom
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false); // Show/hide advanced options
-  const [overlapThreshold, setOverlapThreshold] = useState(10); // Overlap threshold percentage (10% default)
-  const [peakOrder, setPeakOrder] = useState(5); // Peak detection sensitivity
-  const [minConfidence, setMinConfidence] = useState(0); // Minimum confidence (0 = disabled)
+  const [overlapThreshold, setOverlapThreshold] = useState(5); // Overlap threshold percentage (5% default)
+  const [peakOrder, setPeakOrder] = useState(4); // Peak detection sensitivity
+  const [minConfidence, setMinConfidence] = useState(50); // Minimum confidence (50% default)
   const [minRSquared, setMinRSquared] = useState(0); // Minimum R² (0 = disabled)
+  const [focusedPatternIndex, setFocusedPatternIndex] = useState(0); // For keyboard navigation
+
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    confirmPattern: handleConfirmPattern,
+    deletePattern: handleDeletePattern
+  }), []);
 
   // Load patterns on mount
   useEffect(() => {
@@ -153,6 +167,67 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
     }
   };
 
+  // Filter patterns based on type and signal
+  const filteredPatterns = patterns.filter(p => {
+    if (filterType !== 'all' && p.pattern_type !== filterType) return false;
+    if (filterSignal !== 'all' && p.signal !== filterSignal) return false;
+    return true;
+  });
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    if (!enableKeyboardShortcuts || filteredPatterns.length === 0) return;
+
+    const handleKeyPress = (e) => {
+      // Don't trigger if user is typing in an input field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+
+      const currentPattern = filteredPatterns[focusedPatternIndex];
+      if (!currentPattern) return;
+
+      switch(e.key.toLowerCase()) {
+        case 'y':
+        case 'c':
+          // Confirm pattern
+          if (currentPattern.user_confirmed !== true) {
+            handleConfirmPattern(currentPattern.id, true);
+          }
+          break;
+        case 'n':
+        case 'r':
+          // Reject pattern
+          if (currentPattern.user_confirmed !== false) {
+            handleConfirmPattern(currentPattern.id, false);
+          }
+          break;
+        case 'delete':
+        case 'x':
+          // Delete pattern
+          handleDeletePattern(currentPattern.id);
+          break;
+        case 'arrowdown':
+          // Navigate to next pattern
+          e.preventDefault();
+          setFocusedPatternIndex(prev =>
+            prev < filteredPatterns.length - 1 ? prev + 1 : prev
+          );
+          break;
+        case 'arrowup':
+          // Navigate to previous pattern
+          e.preventDefault();
+          setFocusedPatternIndex(prev => prev > 0 ? prev - 1 : prev);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [enableKeyboardShortcuts, focusedPatternIndex, filteredPatterns]);
+
   const getSignalColor = (signal) => {
     switch (signal) {
       case 'bullish': return '#28a745';
@@ -178,12 +253,6 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
       default: return '#95a5a6';
     }
   };
-
-  const filteredPatterns = patterns.filter(p => {
-    if (filterType !== 'all' && p.pattern_type !== filterType) return false;
-    if (filterSignal !== 'all' && p.signal !== filterSignal) return false;
-    return true;
-  });
 
   const pendingCount = patterns.filter(p => p.user_confirmed === null).length;
   const confirmedCount = patterns.filter(p => p.user_confirmed === true).length;
@@ -266,7 +335,7 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
                       Overlap threshold: {overlapThreshold}%
                       <input
                         type="range"
-                        min="5"
+                        min="1"
                         max="50"
                         value={overlapThreshold}
                         onChange={(e) => setOverlapThreshold(parseInt(e.target.value))}
@@ -441,10 +510,13 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
           </div>
 
           <div className="patterns-list">
-            {filteredPatterns.map(pattern => (
+            {filteredPatterns.map((pattern, index) => (
               <div
                 key={pattern.id}
-                className={`pattern-card ${pattern.user_confirmed === true ? 'confirmed' : pattern.user_confirmed === false ? 'rejected' : 'pending'}`}
+                className={`pattern-card ${pattern.user_confirmed === true ? 'confirmed' : pattern.user_confirmed === false ? 'rejected' : 'pending'} ${index === focusedPatternIndex ? 'focused' : ''}`}
+                onMouseEnter={() => onPatternHover && onPatternHover(pattern)}
+                onMouseLeave={() => onPatternLeave && onPatternLeave()}
+                onClick={() => setFocusedPatternIndex(index)}
               >
                 <div className="pattern-card-header">
                   <div className="pattern-title">
@@ -505,6 +577,17 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
 
                 {expandedPattern === pattern.id && (
                   <div className="pattern-details">
+                    {/* Pattern Schematic Visual */}
+                    <div className="pattern-schematic">
+                      <h5>Pattern Visualization:</h5>
+                      <div className="schematic-diagram">
+                        {getPatternSchematic(pattern.pattern_name, pattern.signal)}
+                      </div>
+                    </div>
+
+                    {/* Pattern-Specific Validation Metrics */}
+                    {getPatternMetrics(pattern)}
+
                     <div className="pattern-description">
                       <h5>Pattern Description:</h5>
                       <p>{getPatternDescription(pattern.pattern_name)}</p>
@@ -1166,7 +1249,9 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
         .pattern-description h5,
         .price-levels h5,
         .key-points h5,
-        .trendlines-info h5 {
+        .trendlines-info h5,
+        .pattern-schematic h5,
+        .pattern-metrics h5 {
           margin: 0 0 8px 0;
           color: #333;
           font-size: 13px;
@@ -1178,6 +1263,98 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
           color: #666;
           font-size: 13px;
           line-height: 1.5;
+        }
+
+        /* Pattern Schematic Styles */
+        .pattern-schematic {
+          margin-bottom: 16px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          padding: 12px;
+        }
+
+        .schematic-diagram {
+          background: #f9fafb;
+          border-radius: 4px;
+          padding: 8px;
+          overflow-x: auto;
+        }
+
+        .ascii-diagram pre {
+          margin: 0;
+          padding: 0;
+          font-size: 11px;
+          line-height: 1.3;
+        }
+
+        /* Pattern Metrics Styles */
+        .pattern-metrics {
+          margin-bottom: 16px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          padding: 12px;
+        }
+
+        .metrics-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .metric-item {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 8px;
+          background: #f9fafb;
+          border-radius: 4px;
+        }
+
+        .metric-label {
+          font-size: 11px;
+          color: #6b7280;
+          font-weight: 600;
+        }
+
+        .metric-value {
+          font-size: 15px;
+          font-weight: 700;
+          color: #111827;
+        }
+
+        .metric-value.good {
+          color: #059669;
+        }
+
+        .metric-value.moderate {
+          color: #f59e0b;
+        }
+
+        .metric-value.poor {
+          color: #dc2626;
+        }
+
+        .metric-hint {
+          font-size: 10px;
+          color: #6b7280;
+          font-weight: 500;
+        }
+
+        .validation-tip {
+          padding: 12px;
+          background: #eff6ff;
+          border-left: 3px solid #3b82f6;
+          border-radius: 4px;
+          font-size: 12px;
+          color: #1e40af;
+          line-height: 1.5;
+        }
+
+        .validation-tip strong {
+          font-weight: 700;
         }
 
         .price-levels,
@@ -1315,7 +1492,7 @@ const ChartPatterns = ({ stockId, symbol, onPatternsDetected }) => {
       `}</style>
     </div>
   );
-};
+});
 
 // Chart pattern descriptions
 const getPatternDescription = (patternName) => {
@@ -1349,6 +1526,283 @@ const getPatternDescription = (patternName) => {
   };
 
   return descriptions[patternName] || 'Chart pattern detected in price action. Represents potential trend continuation or reversal based on historical price movements and trendline analysis.';
+};
+
+// Pattern schematic diagrams (ASCII art-style visual representations)
+const getPatternSchematic = (patternName, signal) => {
+  const color = signal === 'bullish' ? '#28a745' : signal === 'bearish' ? '#dc3545' : '#6c757d';
+
+  const schematics = {
+    'Flag': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        {signal === 'bullish' ? (
+          <pre>{`
+    │              ╱─── Breakout
+    │             ╱
+    │      ╱────╱  ← Flag (parallel lines)
+    │     ╱    ╱
+    │    ╱────╱
+    │   ╱
+    │  ╱  ← Flagpole (steep prior move)
+    │ ╱
+    │╱
+  ──┴────────────────
+        Time →`}</pre>
+        ) : (
+          <pre>{`
+  ──┬────────────────
+    │╲
+    │ ╲  ← Flagpole (steep prior drop)
+    │  ╲
+    │   ╲────╲
+    │    ╲    ╲  ← Flag (parallel lines)
+    │     ╲────╲
+    │            ╲
+    │             ╲─── Breakout
+    │              ╲
+        Time →`}</pre>
+        )}
+      </div>
+    ),
+    'Pennant': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{signal === 'bullish' ? `
+    │         ╱─── Breakout
+    │        ╱
+    │   ╱──<  ← Pennant (converging)
+    │  ╱
+    │ ╱  ← Pole
+    │╱
+  ──┴────────
+    Time →` : `
+  ──┬────────
+    │╲
+    │ ╲  ← Pole
+    │  ╲──>  ← Pennant
+    │       ╲
+    │        ╲─── Breakout
+    Time →`}</pre>
+      </div>
+    ),
+    'Head and Shoulders': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+    │    ╱╲  ← Head
+    │   ╱  ╲
+    │  ╱    ╲
+    │ ╱╲    ╱╲  Shoulders
+  ──┴────────────
+     Neckline
+        Time →`}</pre>
+      </div>
+    ),
+    'Inverse Head and Shoulders': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+  ──┬────────────
+     Neckline
+    │ ╲╱    ╲╱  Shoulders
+    │  ╲    ╱
+    │   ╲  ╱
+    │    ╲╱  ← Head
+        Time →`}</pre>
+      </div>
+    ),
+    'Ascending Triangle': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+    │  ────────  Resistance
+    │   ╱ ╱ ╱
+    │  ╱ ╱ ╱  ← Rising support
+    │ ╱ ╱ ╱
+  ──┴────────
+    Time →`}</pre>
+      </div>
+    ),
+    'Descending Triangle': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+    │ ╲ ╲ ╲  ← Falling resistance
+    │  ╲ ╲ ╲
+    │   ╲ ╲ ╲
+    │  ────────  Support
+  ──┴────────
+    Time →`}</pre>
+      </div>
+    ),
+    'Double Top': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+    │  ╱╲    ╱╲  Peaks
+    │ ╱  ╲  ╱  ╲
+    │╱    ╲╱    ╲
+  ──┴─────────────
+      Support
+        Time →`}</pre>
+      </div>
+    ),
+    'Double Bottom': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
+        <pre>{`
+  ──┬─────────────
+      Resistance
+    │╲    ╱╲    ╱
+    │ ╲  ╱  ╲  ╱
+    │  ╲╱    ╲╱  Troughs
+        Time →`}</pre>
+      </div>
+    )
+  };
+
+  return schematics[patternName] || (
+    <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', color: '#666'}}>
+      <pre>No schematic available</pre>
+    </div>
+  );
+};
+
+// Pattern-specific validation metrics
+const getPatternMetrics = (pattern) => {
+  const patternName = pattern.pattern_name;
+
+  // For Flag patterns, show parallelism and prior trend metrics
+  if (patternName === 'Flag' && pattern.trendlines) {
+    const trendlineKeys = Object.keys(pattern.trendlines);
+    const hasUpperLower = trendlineKeys.includes('upper_channel') && trendlineKeys.includes('lower_channel');
+
+    if (hasUpperLower) {
+      const upper = pattern.trendlines.upper_channel;
+      const lower = pattern.trendlines.lower_channel;
+
+      // Calculate parallelism (how close the slopes are)
+      const slopeDiff = Math.abs(upper.slope - lower.slope);
+      const avgSlope = (Math.abs(upper.slope) + Math.abs(lower.slope)) / 2;
+      const parallelism = avgSlope > 0 ? (1 - slopeDiff / avgSlope) * 100 : 0;
+
+      // Quality score based on R² values
+      const avgRSquared = ((upper.r_squared || 0) + (lower.r_squared || 0)) / 2;
+
+      return (
+        <div className="pattern-metrics">
+          <h5>⚙️ Flag Pattern Validation Metrics:</h5>
+          <div className="metrics-grid">
+            <div className="metric-item">
+              <span className="metric-label">Parallelism:</span>
+              <span className={`metric-value ${parallelism > 70 ? 'good' : parallelism > 50 ? 'moderate' : 'poor'}`}>
+                {parallelism.toFixed(1)}%
+              </span>
+              <span className="metric-hint">
+                {parallelism > 70 ? '✓ Excellent' : parallelism > 50 ? '~ Moderate' : '✗ Weak'}
+              </span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Trendline Quality:</span>
+              <span className={`metric-value ${avgRSquared > 0.8 ? 'good' : avgRSquared > 0.6 ? 'moderate' : 'poor'}`}>
+                {(avgRSquared * 100).toFixed(1)}%
+              </span>
+              <span className="metric-hint">
+                {avgRSquared > 0.8 ? '✓ Strong fit' : avgRSquared > 0.6 ? '~ Fair fit' : '✗ Weak fit'}
+              </span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Upper Slope:</span>
+              <span className="metric-value">{upper.slope.toFixed(4)}</span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Lower Slope:</span>
+              <span className="metric-value">{lower.slope.toFixed(4)}</span>
+            </div>
+          </div>
+          <div className="validation-tip">
+            💡 <strong>Tip:</strong> A valid flag has parallel trendlines (parallelism &gt; 70%) and slopes opposite to the prior trend.
+            Check that the flagpole (prior move) is steep and in the opposite direction of the flag slopes.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // For Triangle patterns, show convergence metrics
+  if ((patternName.includes('Triangle') || patternName.includes('Wedge')) && pattern.trendlines) {
+    const trendlineKeys = Object.keys(pattern.trendlines);
+    if (trendlineKeys.length >= 2) {
+      const lines = Object.values(pattern.trendlines);
+      const avgRSquared = lines.reduce((sum, line) => sum + (line.r_squared || 0), 0) / lines.length;
+
+      return (
+        <div className="pattern-metrics">
+          <h5>⚙️ {patternName} Validation Metrics:</h5>
+          <div className="metrics-grid">
+            <div className="metric-item">
+              <span className="metric-label">Trendline Quality:</span>
+              <span className={`metric-value ${avgRSquared > 0.7 ? 'good' : avgRSquared > 0.5 ? 'moderate' : 'poor'}`}>
+                {(avgRSquared * 100).toFixed(1)}%
+              </span>
+              <span className="metric-hint">
+                {avgRSquared > 0.7 ? '✓ Clear convergence' : avgRSquared > 0.5 ? '~ Moderate' : '✗ Unclear'}
+              </span>
+            </div>
+            {lines.map((line, idx) => (
+              <div key={idx} className="metric-item">
+                <span className="metric-label">{trendlineKeys[idx]} R²:</span>
+                <span className="metric-value">{((line.r_squared || 0) * 100).toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+          <div className="validation-tip">
+            💡 <strong>Tip:</strong> Look for clear converging trendlines with R² &gt; 70%.
+            Both trendlines should show consistent touch points with the price action.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // For Head and Shoulders, show symmetry metrics
+  if ((patternName === 'Head and Shoulders' || patternName === 'Inverse Head and Shoulders') && pattern.trendlines) {
+    const neckline = pattern.trendlines.neckline;
+    if (neckline) {
+      return (
+        <div className="pattern-metrics">
+          <h5>⚙️ {patternName} Validation Metrics:</h5>
+          <div className="metrics-grid">
+            <div className="metric-item">
+              <span className="metric-label">Neckline Quality:</span>
+              <span className={`metric-value ${neckline.r_squared > 0.8 ? 'good' : neckline.r_squared > 0.6 ? 'moderate' : 'poor'}`}>
+                {(neckline.r_squared * 100).toFixed(1)}%
+              </span>
+              <span className="metric-hint">
+                {neckline.r_squared > 0.8 ? '✓ Strong' : neckline.r_squared > 0.6 ? '~ Fair' : '✗ Weak'}
+              </span>
+            </div>
+            <div className="metric-item">
+              <span className="metric-label">Neckline Slope:</span>
+              <span className="metric-value">{neckline.slope.toFixed(4)}</span>
+            </div>
+          </div>
+          <div className="validation-tip">
+            💡 <strong>Tip:</strong> Check that shoulders are roughly equal in height and the head clearly stands out.
+            Neckline should connect the two troughs (or peaks for inverse).
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // For Double Top/Bottom, show symmetry
+  if ((patternName === 'Double Top' || patternName === 'Double Bottom') && pattern.key_points) {
+    return (
+      <div className="pattern-metrics">
+        <h5>⚙️ {patternName} Validation Metrics:</h5>
+        <div className="validation-tip">
+          💡 <strong>Tip:</strong> The two peaks (or troughs) should be at similar price levels (&lt;3% difference).
+          Look for a clear trough (or peak) between them forming the support/resistance level.
+        </div>
+      </div>
+    );
+  }
+
+  return null; // No specific metrics for this pattern type
 };
 
 export default ChartPatterns;
