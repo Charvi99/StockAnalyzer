@@ -4,7 +4,7 @@ import IndicatorInfo from './IndicatorInfo';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParams }) => {
+const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParams, onAnalysisUpdated }) => {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -69,6 +69,11 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
       });
 
       setAnalysis(response.data);
+
+      // Notify parent component to update recommendation/radar chart
+      if (onAnalysisUpdated) {
+        onAnalysisUpdated();
+      }
     } catch (err) {
       console.error('Error fetching analysis:', err);
 
@@ -101,7 +106,7 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
     } finally {
       setLoading(false);
     }
-  }, [stockId, indicatorParams]);
+  }, [stockId, indicatorParams, onAnalysisUpdated]);
 
   // Auto-load analysis on mount
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   RadarChart,
   PolarGrid,
@@ -10,51 +10,63 @@ import {
 } from 'recharts';
 
 const SignalRadar = ({ recommendation }) => {
-  if (!recommendation) {
+  // Memoize processed data to prevent unnecessary recalculations
+  const radarData = useMemo(() => {
+    if (!recommendation) return null;
+
+    const processSignal = (signal, confidence) => {
+      if (signal === 'BUY') return confidence * 100;
+      if (signal === 'SELL') return confidence * -100;
+      return 0;
+    };
+
+    // Sentiment score is already on -100 to +100 scale
+    const sentimentScore = recommendation.sentiment_index || 0;
+
+    const data = [
+      {
+        factor: 'Technical',
+        value: processSignal(recommendation.technical_recommendation, recommendation.technical_confidence),
+      },
+      {
+        factor: 'ML',
+        value: processSignal(recommendation.ml_recommendation, recommendation.ml_confidence),
+      },
+      {
+        factor: 'Sentiment',
+        value: sentimentScore,
+      },
+      {
+        factor: 'Candlestick',
+        value: processSignal(recommendation.candlestick_signal, recommendation.candlestick_confidence),
+      },
+      {
+        factor: 'Chart Pattern',
+        value: processSignal(recommendation.chart_pattern_signal, recommendation.chart_pattern_confidence),
+      },
+      {
+        factor: 'Overall',
+        value: processSignal(recommendation.final_recommendation, recommendation.overall_confidence),
+      },
+    ];
+
+    return data.map(item => ({ ...item, normalizedValue: item.value + 100 }));
+  }, [recommendation]);
+
+  const thresholdData = useMemo(() => {
+    if (!radarData) return null;
+
+    return radarData.map(item => ({
+      ...item,
+      buyThreshold: 170, // 70 + 100
+      sellThreshold: 30, // -70 + 100
+      holdThreshold: 100, // 0 + 100
+    }));
+  }, [radarData]);
+
+  if (!recommendation || !radarData || !thresholdData) {
     return <div className="no-data">No recommendation data available</div>;
   }
-
-  const processSignal = (signal, confidence) => {
-    if (signal === 'BUY') return confidence * 100;
-    if (signal === 'SELL') return confidence * -100;
-    return 0;
-  };
-
-  const sentimentScore = recommendation.sentiment_index || 0;
-
-  const radarData = [
-    {
-      factor: 'Technical',
-      value: processSignal(recommendation.technical_recommendation, recommendation.technical_confidence),
-    },
-    {
-      factor: 'ML',
-      value: processSignal(recommendation.ml_recommendation, recommendation.ml_confidence),
-    },
-    {
-      factor: 'Sentiment',
-      value: sentimentScore,
-    },
-    {
-      factor: 'Candlestick',
-      value: processSignal(recommendation.candlestick_signal, recommendation.candlestick_confidence),
-    },
-    {
-      factor: 'Chart Pattern',
-      value: processSignal(recommendation.chart_pattern_signal, recommendation.chart_pattern_confidence),
-    },
-    {
-      factor: 'Overall',
-      value: processSignal(recommendation.final_recommendation, recommendation.overall_confidence),
-    },
-  ].map(item => ({ ...item, normalizedValue: item.value + 100 }));
-
-  const thresholdData = radarData.map(item => ({
-    ...item,
-    buyThreshold: 170, // 70 + 100
-    sellThreshold: 30, // -70 + 100
-    holdThreshold: 100, // 0 + 100
-  }));
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {

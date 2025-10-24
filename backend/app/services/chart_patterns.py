@@ -1130,7 +1130,7 @@ class ChartPatternDetector:
             signal = 'bullish' if is_bullish else 'bearish'
 
             patterns.append({
-                'pattern_name': 'Flag',
+                'pattern_name': f'{signal.capitalize()} Flag',
                 'pattern_type': 'continuation',
                 'signal': signal,
                 'start_date': pole_window.iloc[0]['timestamp'],
@@ -1183,7 +1183,7 @@ class ChartPatternDetector:
             signal = 'bullish' if is_bullish else 'bearish'
 
             patterns.append({
-                'pattern_name': 'Pennant',
+                'pattern_name': f'{signal.capitalize()} Pennant',
                 'pattern_type': 'continuation',
                 'signal': signal,
                 'start_date': pole_window.iloc[0]['timestamp'],

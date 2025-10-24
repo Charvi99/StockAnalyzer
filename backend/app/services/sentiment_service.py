@@ -210,7 +210,7 @@ class SentimentService:
         self.polygon_api_key = polygon_api_key
         self.analyzers = {}
 
-    def analyze_sentiment(self, ticker: str, limit_per_ticker: int = 50, threshold: float = 0.9) -> Dict:
+    def analyze_sentiment(self, ticker: str, limit_per_ticker: int = 20, threshold: float = 0.9) -> Dict:
         """
         Analyze sentiment for a single ticker
 
@@ -247,7 +247,18 @@ class SentimentService:
 
         news_list = []
         if not sentiment_df.empty:
-            news_list = sentiment_df.to_dict('records')
+            # Rename columns to match NewsArticle schema
+            news_df_renamed = sentiment_df.rename(columns={
+                'Ticker': 'ticker',
+                'Datetime': 'published_at',
+                'Headline': 'title',
+                'Summary': 'summary',
+                'Source': 'source',
+                'URL': 'url',
+                'SCORE_PROB': 'confidence',
+                'SCORE_SENT': 'sentiment'
+            })
+            news_list = news_df_renamed.to_dict('records')
 
         return {
             'ticker': ticker,
@@ -263,7 +274,7 @@ class SentimentService:
             'news': news_list
         }
 
-    def analyze_multiple_tickers(self, tickers: List[str], limit_per_ticker: int = 50, threshold: float = 0.9) -> Dict:
+    def analyze_multiple_tickers(self, tickers: List[str], limit_per_ticker: int = 20, threshold: float = 0.9) -> Dict:
         """
         Analyze sentiment for multiple tickers
 
@@ -316,7 +327,18 @@ class SentimentService:
         # Get high-confidence news articles
         news_list = []
         if not sentiment_df.empty:
-            news_list = sentiment_df.to_dict('records')
+            # Rename columns to match NewsArticle schema
+            news_df_renamed = sentiment_df.rename(columns={
+                'Ticker': 'ticker',
+                'Datetime': 'published_at',
+                'Headline': 'title',
+                'Summary': 'summary',
+                'Source': 'source',
+                'URL': 'url',
+                'SCORE_PROB': 'confidence',
+                'SCORE_SENT': 'sentiment'
+            })
+            news_list = news_df_renamed.to_dict('records')
 
         return {
             'tickers': results,

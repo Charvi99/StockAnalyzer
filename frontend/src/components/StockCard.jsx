@@ -59,6 +59,14 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
 
   return (
     <div className="stock-card">
+      {/* Loading overlay for progressive loading */}
+      {stock._loading && (
+        <div className="loading-overlay">
+          <div className="loading-spinner"></div>
+          <div className="loading-text">Loading analysis...</div>
+        </div>
+      )}
+
       {/* Colored top border for sector indication */}
       <div className="sector-indicator" style={{ background: sectorConfig.color }}></div>
 
@@ -187,6 +195,41 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
         .stock-card:hover {
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
           transform: translateY(-2px);
+        }
+
+        .loading-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(255, 255, 255, 0.9);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 10;
+          border-radius: 12px;
+        }
+
+        .loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 4px solid #e5e7eb;
+          border-top-color: #667eea;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+
+        .loading-text {
+          margin-top: 12px;
+          color: #6b7280;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
 
         .sector-indicator {

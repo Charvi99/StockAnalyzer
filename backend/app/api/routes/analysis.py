@@ -4,7 +4,7 @@ API routes for technical analysis and predictions
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
@@ -21,6 +21,7 @@ from app.schemas.analysis import (
     PredictionResponse
 )
 from app.services.technical_indicators import TechnicalIndicators
+from app.services.order_calculator import OrderCalculatorService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,11 +30,12 @@ logger = logging.getLogger(__name__)
 def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationResponse:
     """
     Reusable function to get a comprehensive recommendation for a single stock.
+
+    NOTE: When called from dashboard endpoint, stock.prices/predictions/etc are already loaded!
+    This avoids re-querying the database.
     """
-    # Get price data
-    prices = db.query(StockPrice).filter(
-        StockPrice.stock_id == stock.id
-    ).order_by(StockPrice.timestamp.asc()).all()
+    # Get price data (use already-loaded relationship if available)
+    prices = sorted(stock.prices, key=lambda p: p.timestamp) if stock.prices else []
 
     if not prices or len(prices) < 50:
         raise HTTPException(
@@ -49,15 +51,11 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     df = TechnicalIndicators.calculate_all_indicators(df)
     tech_recommendation = TechnicalIndicators.generate_recommendation(df)
 
-    # Get latest prediction (if any)
-    latest_prediction = db.query(Prediction).filter(
-        Prediction.stock_id == stock.id
-    ).order_by(Prediction.created_at.desc()).first()
+    # Get latest prediction (use already-loaded relationship if available)
+    latest_prediction = max(stock.predictions, key=lambda p: p.created_at, default=None) if stock.predictions else None
 
-    # Get latest sentiment (if any)
-    latest_sentiment = db.query(SentimentScore).filter(
-        SentimentScore.stock_id == stock.id
-    ).order_by(SentimentScore.timestamp.desc()).first()
+    # Get latest sentiment (use already-loaded relationship if available)
+    latest_sentiment = max(stock.sentiment_scores, key=lambda s: s.timestamp, default=None) if stock.sentiment_scores else None
 
     # Prepare response
     latest = df.iloc[-1]
@@ -83,12 +81,9 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
             sentiment_rec, sentiment_conf = "HOLD", 0.5
         reasoning.append(f"Market sentiment (index: {sentiment_index:.1f}, {sentiment_conf:.0%} confidence): {sentiment_rec} ({latest_sentiment.positive_count} positive, {latest_sentiment.negative_count} negative news)")
 
-    # Get recent candlestick patterns (last 30 days)
+    # Get recent candlestick patterns (last 30 days, use already-loaded data)
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    candlestick_patterns = db.query(CandlestickPattern).filter(
-        CandlestickPattern.stock_id == stock.id,
-        CandlestickPattern.timestamp >= thirty_days_ago
-    ).all()
+    candlestick_patterns = [p for p in stock.candlestick_patterns if p.timestamp >= thirty_days_ago] if stock.candlestick_patterns else []
 
     candlestick_signal, candlestick_conf, candlestick_count = (None, None, len(candlestick_patterns))
     if candlestick_patterns:
@@ -108,12 +103,9 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
 
         reasoning.append(f"Candlestick patterns ({candlestick_conf:.0%} confidence): {candlestick_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected)")
 
-    # Get recent chart patterns (last 90 days)
+    # Get recent chart patterns (last 90 days, use already-loaded data)
     ninety_days_ago = datetime.now() - timedelta(days=90)
-    chart_patterns = db.query(ChartPattern).filter(
-        ChartPattern.stock_id == stock.id,
-        ChartPattern.end_date >= ninety_days_ago
-    ).all()
+    chart_patterns = [p for p in stock.chart_patterns if p.end_date >= ninety_days_ago] if stock.chart_patterns else []
 
     chart_pattern_signal, chart_pattern_conf, chart_pattern_count = (None, None, len(chart_patterns))
     if chart_patterns:
@@ -199,9 +191,23 @@ def get_dashboard_analysis(db: Session = Depends(get_db)):
     """
     Get comprehensive analysis for all tracked stocks for the dashboard.
     This is an efficient endpoint to avoid N+1 API calls from the frontend.
+
+    Uses eager loading to avoid N+1 query problem (1651 queries -> 6 queries!)
     """
     logger.info("Getting dashboard analysis for all tracked stocks")
-    stocks = db.query(Stock).filter(Stock.is_tracked == True).all()
+
+    # CRITICAL FIX: Use selectinload() to eagerly load all relationships
+    # This changes 1651 queries (1 + 330*5) into just 6 queries total!
+    stocks = db.query(Stock).filter(Stock.is_tracked == True).options(
+        selectinload(Stock.prices),
+        selectinload(Stock.predictions),
+        selectinload(Stock.sentiment_scores),
+        selectinload(Stock.candlestick_patterns),
+        selectinload(Stock.chart_patterns)
+    ).all()
+
+    logger.info(f"Loaded {len(stocks)} stocks with all relationships eagerly loaded")
+
     dashboard_data = []
     for stock in stocks:
         try:
@@ -213,6 +219,68 @@ def get_dashboard_analysis(db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"An unexpected error occurred for stock {stock.id} ('{stock.symbol}'): {e}")
             dashboard_data.append(RecommendationResponse(stock_id=stock.id, symbol=stock.symbol, name=stock.name, sector=stock.sector, industry=stock.industry, error="An unexpected error occurred during analysis."))
+    return dashboard_data
+
+
+@router.get("/analysis/dashboard/chunk", response_model=List[RecommendationResponse])
+def get_dashboard_analysis_chunk(
+    offset: int = Query(0, ge=0, description="Starting index for pagination"),
+    limit: int = Query(50, ge=1, le=100, description="Number of stocks to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive analysis for a chunk of tracked stocks.
+    Used for progressive loading in the frontend with loading states.
+
+    This endpoint loads stocks in batches to provide immediate visual feedback
+    while maintaining efficient database queries using eager loading.
+
+    Args:
+        offset: Starting index (default 0)
+        limit: Number of stocks to return (default 50, max 100)
+
+    Returns:
+        List of recommendations for the requested chunk
+    """
+    logger.info(f"Getting dashboard chunk: offset={offset}, limit={limit}")
+
+    # Use eager loading to avoid N+1 queries (same optimization as full dashboard)
+    stocks = db.query(Stock).filter(Stock.is_tracked == True).options(
+        selectinload(Stock.prices),
+        selectinload(Stock.predictions),
+        selectinload(Stock.sentiment_scores),
+        selectinload(Stock.candlestick_patterns),
+        selectinload(Stock.chart_patterns)
+    ).order_by(Stock.symbol).offset(offset).limit(limit).all()
+
+    logger.info(f"Loaded {len(stocks)} stocks for chunk (offset={offset})")
+
+    dashboard_data = []
+    for stock in stocks:
+        try:
+            recommendation = _get_recommendation_for_stock(stock, db)
+            dashboard_data.append(recommendation)
+        except HTTPException as e:
+            logger.warning(f"Could not get recommendation for stock {stock.id} ('{stock.symbol}'): {e.detail}")
+            dashboard_data.append(RecommendationResponse(
+                stock_id=stock.id,
+                symbol=stock.symbol,
+                name=stock.name,
+                sector=stock.sector,
+                industry=stock.industry,
+                error=e.detail
+            ))
+        except Exception as e:
+            logger.error(f"An unexpected error occurred for stock {stock.id} ('{stock.symbol}'): {e}")
+            dashboard_data.append(RecommendationResponse(
+                stock_id=stock.id,
+                symbol=stock.symbol,
+                name=stock.name,
+                sector=stock.sector,
+                industry=stock.industry,
+                error="An unexpected error occurred during analysis."
+            ))
+
     return dashboard_data
 
 
@@ -413,4 +481,38 @@ def create_ml_prediction(
         technical_indicators=recommendation['indicators'],
         reason=recommendation['reason']
     )
+
+
+@router.post("/stocks/{stock_id}/order-calculator")
+async def calculate_order_parameters(
+    stock_id: int,
+    account_size: float = Query(default=10000.0, ge=100, le=10000000, description="Total account size"),
+    risk_percentage: float = Query(default=2.0, ge=0.5, le=10.0, description="Risk percentage per trade"),
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate recommended order parameters including entry, stop loss, and take profit
+
+    Combines:
+    - Chart pattern levels (stop loss, target prices)
+    - Candlestick patterns for bias
+    - Technical indicators (ATR for volatility)
+    - Support/resistance levels
+
+    Returns position sizing and risk/reward calculations
+    """
+    try:
+        calculator = OrderCalculatorService(db)
+        result = calculator.calculate_order_parameters(
+            stock_id=stock_id,
+            account_size=account_size,
+            risk_percentage=risk_percentage
+        )
+        return result
+    except ValueError as e:
+        logger.error(f"Order calculator ValueError for stock {stock_id}: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Order calculator error for stock {stock_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to calculate order parameters: {str(e)}")
 

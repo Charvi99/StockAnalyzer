@@ -26,12 +26,12 @@
   overflow: hidden;
 }
 
-/* Header */
+/* Header - Compact Version */
 .stock-detail-header-sbs {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 30px;
+  padding: 10px 20px;
   border-bottom: 2px solid #e5e7eb;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -39,24 +39,24 @@
 
 .header-left h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .stock-meta {
-  margin: 5px 0 0 0;
-  font-size: 14px;
-  opacity: 0.9;
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .close-btn-sbs {
   background: rgba(255, 255, 255, 0.2);
   border: 2px solid white;
   color: white;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  font-size: 28px;
+  font-size: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -71,18 +71,35 @@
   transform: rotate(90deg);
 }
 
-/* Fetch Controls */
+/* Fetch Controls - Split Layout */
 .fetch-controls-sbs {
-  padding: 15px 30px;
+  padding: 12px 20px;
   background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
 }
 
 .controls-row-sbs {
   display: flex;
-  gap: 15px;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.controls-left-section {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex: 1;
+}
+
+.controls-right-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .control-group-sbs {
@@ -130,10 +147,12 @@
 }
 
 .fetch-result-sbs {
-  margin-top: 10px;
-  padding: 10px 15px;
+  padding: 6px 12px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .fetch-result-sbs.success {
@@ -315,4 +334,54 @@
     font-size: 11px;
     padding: 10px 8px;
   }
+}
+
+/* Right Panel Tabs - Now in Controls Bar */
+.right-panel-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.right-tab-btn {
+  padding: 8px 20px;
+  background: white;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.right-tab-btn:hover {
+  background: #f3f4f6;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.right-tab-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+/* Right Panel Content - Single Scroll Container */
+.right-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #f9fafb;
+}
+
+.chart-only-view {
+  padding: 20px;
+  background: white;
+  min-height: 100%;
 }

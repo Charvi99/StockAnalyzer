@@ -1,10 +1,11 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { detectChartPatterns, getChartPatterns, confirmChartPattern, deleteChartPattern } from '../services/api';
 
 const ChartPatterns = forwardRef(({
   stockId,
   symbol,
   onPatternsDetected,
+  onPatternsUpdated,
   onPatternHover = null,
   onPatternLeave = null,
   enableKeyboardShortcuts = false
@@ -42,12 +43,7 @@ const ChartPatterns = forwardRef(({
     deletePattern: handleDeletePattern
   }), []);
 
-  // Load patterns on mount
-  useEffect(() => {
-    loadPatterns();
-  }, [stockId]);
-
-  const loadPatterns = async () => {
+  const loadPatterns = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -72,7 +68,12 @@ const ChartPatterns = forwardRef(({
     } finally {
       setLoading(false);
     }
-  };
+  }, [stockId, daysFilter, onPatternsDetected]);
+
+  // Load patterns on mount
+  useEffect(() => {
+    loadPatterns();
+  }, [loadPatterns]);
 
   const togglePatternVisibility = (patternId) => {
     setVisiblePatterns(prev => {
@@ -131,6 +132,11 @@ const ChartPatterns = forwardRef(({
 
       // Reload patterns from database
       await loadPatterns();
+
+      // Notify parent component to update recommendation/radar chart
+      if (onPatternsUpdated) {
+        onPatternsUpdated();
+      }
     } catch (err) {
       console.error('Error detecting chart patterns:', err);
       setError(err.response?.data?.detail || 'Failed to detect chart patterns');
@@ -1517,8 +1523,12 @@ const getPatternDescription = (patternName) => {
     'Cup and Handle': 'Bullish continuation resembling a teacup. Rounded bottom (cup) followed by small consolidation (handle). Breakout above handle resistance continues uptrend. Target: Cup depth projected upward.',
 
     'Flag': 'Brief consolidation in steep trend, forming rectangular channel against trend direction. Bullish/bearish flags continue prior trend. Quick pattern formation (1-3 weeks). Target: Flagpole height projected.',
+    'Bullish Flag': 'Brief consolidation in steep uptrend, forming rectangular channel against trend direction. Continuation pattern that resumes the uptrend. Quick pattern formation (1-3 weeks). Target: Flagpole height projected upward.',
+    'Bearish Flag': 'Brief consolidation in steep downtrend, forming rectangular channel against trend direction. Continuation pattern that resumes the downtrend. Quick pattern formation (1-3 weeks). Target: Flagpole height projected downward.',
 
     'Pennant': 'Similar to flag but forms small symmetrical triangle. Brief consolidation after strong move. Continues prior trend. Forms within 1-3 weeks. Target: Pennant pole height projected in trend direction.',
+    'Bullish Pennant': 'Small symmetrical triangle forming after strong upward move. Brief consolidation that continues the uptrend. Forms within 1-3 weeks. Target: Pennant pole height projected upward.',
+    'Bearish Pennant': 'Small symmetrical triangle forming after strong downward move. Brief consolidation that continues the downtrend. Forms within 1-3 weeks. Target: Pennant pole height projected downward.',
 
     'Rising Wedge': 'Bearish reversal/continuation with converging upward trendlines. Both support and resistance rising but converging. Usually breaks downward. Shows weakening momentum despite rising prices.',
 
@@ -1564,6 +1574,38 @@ const getPatternSchematic = (patternName, signal) => {
         )}
       </div>
     ),
+    'Bullish Flag': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: '#28a745'}}>
+        <pre>{`
+    │              ╱─── Breakout
+    │             ╱
+    │      ╱────╱  ← Flag (parallel lines)
+    │     ╱    ╱
+    │    ╱────╱
+    │   ╱
+    │  ╱  ← Flagpole (steep prior move)
+    │ ╱
+    │╱
+  ──┴────────────────
+        Time →`}</pre>
+      </div>
+    ),
+    'Bearish Flag': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: '#dc3545'}}>
+        <pre>{`
+  ──┬────────────────
+    │╲
+    │ ╲  ← Flagpole (steep prior drop)
+    │  ╲
+    │   ╲────╲
+    │    ╲    ╲  ← Flag (parallel lines)
+    │     ╲────╲
+    │            ╲
+    │             ╲─── Breakout
+    │              ╲
+        Time →`}</pre>
+      </div>
+    ),
     'Pennant': (
       <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: color}}>
         <pre>{signal === 'bullish' ? `
@@ -1575,6 +1617,31 @@ const getPatternSchematic = (patternName, signal) => {
     │╱
   ──┴────────
     Time →` : `
+  ──┬────────
+    │╲
+    │ ╲  ← Pole
+    │  ╲──>  ← Pennant
+    │       ╲
+    │        ╲─── Breakout
+    Time →`}</pre>
+      </div>
+    ),
+    'Bullish Pennant': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: '#28a745'}}>
+        <pre>{`
+    │         ╱─── Breakout
+    │        ╱
+    │   ╱──<  ← Pennant (converging)
+    │  ╱
+    │ ╱  ← Pole
+    │╱
+  ──┴────────
+    Time →`}</pre>
+      </div>
+    ),
+    'Bearish Pennant': (
+      <div className="ascii-diagram" style={{fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.3', color: '#dc3545'}}>
+        <pre>{`
   ──┬────────
     │╲
     │ ╲  ← Pole
