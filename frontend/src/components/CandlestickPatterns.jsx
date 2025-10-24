@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { detectPatterns, getPatterns, confirmPattern, deletePattern } from '../services/api';
 
-const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected }) => {
+const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUpdated }) => {
   const [patterns, setPatterns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -11,12 +11,7 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected }) => {
   const [expandedPattern, setExpandedPattern] = useState(null);
   const [isExpanded, setIsExpanded] = useState(true); // Collapsible section state
 
-  // Load patterns on mount
-  useEffect(() => {
-    loadPatterns();
-  }, [stockId]);
-
-  const loadPatterns = async () => {
+  const loadPatterns = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -33,7 +28,12 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [stockId, onPatternsDetected]);
+
+  // Load patterns on mount
+  useEffect(() => {
+    loadPatterns();
+  }, [loadPatterns]);
 
   const handleDetectPatterns = async () => {
     setDetecting(true);
@@ -48,6 +48,11 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected }) => {
 
       // Reload patterns from database
       await loadPatterns();
+
+      // Notify parent component to update recommendation/radar chart
+      if (onPatternsUpdated) {
+        onPatternsUpdated();
+      }
     } catch (err) {
       console.error('Error detecting patterns:', err);
       setError(err.response?.data?.detail || 'Failed to detect patterns');

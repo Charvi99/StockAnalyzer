@@ -143,6 +143,13 @@ export const getDashboardAnalysis = async () => {
   return response.data;
 };
 
+export const getDashboardAnalysisChunk = async (offset = 0, limit = 50) => {
+  const response = await api.get('/api/v1/analysis/dashboard/chunk', {
+    params: { offset, limit }
+  });
+  return response.data;
+};
+
 // Candlestick Pattern endpoints (Phase 5)
 export const detectPatterns = async (stockId, days = 90) => {
   const response = await api.post(`/api/v1/stocks/${stockId}/detect-patterns`, { days });

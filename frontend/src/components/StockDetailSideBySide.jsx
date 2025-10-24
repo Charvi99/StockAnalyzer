@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import StockChart from './StockChart';
 import TechnicalAnalysis from './TechnicalAnalysis';
-import SignalRadar from './SignalRadar';
 import CandlestickPatterns from './CandlestickPatterns';
 import ChartPatterns from './ChartPatterns';
 import TradingStrategies from './TradingStrategies';
+import SentimentAnalysis from './SentimentAnalysis';
+import OverviewTab from './OverviewTab';
 import { fetchStockData, getStockPrices, getRecommendation } from '../services/api';
 import './StockDetailSideBySide.css';
 
@@ -25,6 +26,7 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
   // Pattern highlighting and selection state
   const [highlightedPattern, setHighlightedPattern] = useState(null);
   const [activeTab, setActiveTab] = useState('chart-patterns'); // 'chart-patterns', 'technical', 'signals'
+  const [rightPanelTab, setRightPanelTab] = useState('overview'); // 'overview', 'chart'
 
   const chartPatternsRef = useRef(null);
 
@@ -120,7 +122,8 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
         </div>
 
         <div className="fetch-controls-sbs">
-          <div className="controls-row-sbs">
+          {/* Left Section - Fetch Data Controls */}
+          <div className="controls-left-section">
             <div className="control-group-sbs">
               <label>Period:</label>
               <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -152,18 +155,36 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
             <button onClick={handleFetchData} disabled={fetching} className="fetch-btn-sbs">
               {fetching ? 'Fetching...' : 'Fetch Data'}
             </button>
+
+            {fetchResult && (
+              <div className={`fetch-result-sbs ${fetchResult.success ? 'success' : 'error'}`}>
+                <span>{fetchResult.message}</span>
+                {fetchResult.success && (
+                  <span className="fetch-stats-sbs">
+                    {' '}| Fetched: {fetchResult.records_fetched} | Saved: {fetchResult.records_saved} new
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          {fetchResult && (
-            <div className={`fetch-result-sbs ${fetchResult.success ? 'success' : 'error'}`}>
-              <p>{fetchResult.message}</p>
-              {fetchResult.success && (
-                <p className="fetch-stats-sbs">
-                  Fetched: {fetchResult.records_fetched} | Saved: {fetchResult.records_saved} new
-                </p>
-              )}
+          {/* Right Section - Right Panel Tabs */}
+          <div className="controls-right-section">
+            <div className="right-panel-tabs">
+              <button
+                className={`right-tab-btn ${rightPanelTab === 'overview' ? 'active' : ''}`}
+                onClick={() => setRightPanelTab('overview')}
+              >
+                📊 Overview
+              </button>
+              <button
+                className={`right-tab-btn ${rightPanelTab === 'chart' ? 'active' : ''}`}
+                onClick={() => setRightPanelTab('chart')}
+              >
+                📈 Chart
+              </button>
             </div>
-          )}
+          </div>
         </div>
 
         {error && <div className="error-sbs">{error}</div>}
@@ -199,6 +220,12 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                 >
                   🎯 Trading Strategies
                 </button>
+                <button
+                  className={`tab-btn-sbs ${activeTab === 'sentiment' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('sentiment')}
+                >
+                  💭 Sentiment Analysis
+                </button>
               </div>
 
               <div className="tab-content-sbs">
@@ -208,6 +235,7 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                     stockId={stock.stock_id}
                     symbol={stock.symbol}
                     onPatternsDetected={setChartPatterns}
+                    onPatternsUpdated={loadRecommendation}
                     onPatternHover={handlePatternHover}
                     onPatternLeave={handlePatternLeave}
                     highlightedPattern={highlightedPattern}
@@ -220,6 +248,7 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                     stockId={stock.stock_id}
                     symbol={stock.symbol}
                     onPatternsDetected={setPatterns}
+                    onPatternsUpdated={loadRecommendation}
                   />
                 )}
 
@@ -229,11 +258,20 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                     symbol={stock.symbol}
                     indicatorParams={indicatorParams}
                     setIndicatorParams={setIndicatorParams}
+                    onAnalysisUpdated={loadRecommendation}
                   />
                 )}
 
                 {activeTab === 'strategies' && (
                   <TradingStrategies stockId={stock.stock_id} />
+                )}
+
+                {activeTab === 'sentiment' && (
+                  <SentimentAnalysis
+                    stockId={stock.stock_id}
+                    symbol={stock.symbol}
+                    onSentimentUpdated={loadRecommendation}
+                  />
                 )}
               </div>
 
@@ -242,29 +280,33 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
               </div>
             </div>
 
-            {/* RIGHT SIDE - Chart (Fixed/Sticky) */}
+            {/* RIGHT SIDE - Content Panel */}
             <div className="chart-panel-sbs">
-              <StockChart
-                prices={prices}
-                symbol={stock.symbol}
-                stockId={stock.stock_id}
-                indicatorParams={indicatorParams}
-                patterns={patterns}
-                chartPatterns={visibleChartPatterns}
-                highlightedPattern={highlightedPattern}
-              />
+              {/* Right Panel Content */}
+              <div className="right-panel-content">
+                {rightPanelTab === 'overview' && (
+                  <OverviewTab
+                    stock={stock}
+                    recommendation={recommendation}
+                    recommendationLoading={recommendationLoading}
+                    recommendationError={recommendationError}
+                  />
+                )}
 
-              {recommendationLoading ? (
-                <div className="loading-sbs" style={{ marginTop: '20px' }}>
-                  Loading recommendation...
-                </div>
-              ) : recommendationError ? (
-                <div className="error-sbs" style={{ marginTop: '20px' }}>
-                  <strong>Radar Chart Error:</strong> {recommendationError}
-                </div>
-              ) : recommendation ? (
-                <SignalRadar recommendation={recommendation} />
-              ) : null}
+                {rightPanelTab === 'chart' && (
+                  <div className="chart-only-view">
+                    <StockChart
+                      prices={prices}
+                      symbol={stock.symbol}
+                      stockId={stock.stock_id}
+                      indicatorParams={indicatorParams}
+                      patterns={patterns}
+                      chartPatterns={visibleChartPatterns}
+                      highlightedPattern={highlightedPattern}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ) : (

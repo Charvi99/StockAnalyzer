@@ -36,6 +36,13 @@ Welcome to the Stock Analyzer documentation directory. All project documentation
   - Creating and applying migrations
   - Rollback procedures
 
+- **[../backups/README.md](../backups/README.md)**
+  - Database backup and restore guide
+  - Backup creation (binary & SQL formats)
+  - Restore procedures
+  - Automated backup setup
+  - Troubleshooting
+
 ### **Technical Reference**
 - **[TECHNICAL_INDICATORS_ENCYCLOPEDIA.md](./TECHNICAL_INDICATORS_ENCYCLOPEDIA.md)**
   - Detailed explanations of all 15+ indicators
@@ -93,6 +100,9 @@ Welcome to the Stock Analyzer documentation directory. All project documentation
 
 ### **I want to modify the database schema**
 → Follow [ALEMBIC_GUIDE.md](./ALEMBIC_GUIDE.md)
+
+### **I want to backup my database**
+→ Follow [../backups/README.md](../backups/README.md)
 
 ### **I'm continuing development**
 → Review [CLAUDE_CONTEXT.md](./CLAUDE_CONTEXT.md) for current state

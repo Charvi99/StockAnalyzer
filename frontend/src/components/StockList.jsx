@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getDashboardAnalysis, updateStock, fetchStockData, detectChartPatterns } from '../services/api';
+import { getDashboardAnalysis, getDashboardAnalysisChunk, getStocks, updateStock, fetchStockData, detectChartPatterns } from '../services/api';
 import StockDetailSideBySide from './StockDetailSideBySide';
 import AddStockModal from './AddStockModal';
 import StockCard from './StockCard';
@@ -43,17 +43,100 @@ const StockList = () => {
   const [batchDetecting, setBatchDetecting] = useState(false);
   const [detectProgress, setDetectProgress] = useState({ current: 0, total: 0, currentSymbol: '', totalPatterns: 0 });
 
+  // Progressive loading state
+  const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState({ loaded: 0, total: 0 });
+  const [stocksWithoutAnalysis, setStocksWithoutAnalysis] = useState(new Set());
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const data = await getDashboardAnalysis();
-      setStocks(data);
+      setLoadingAnalysis(true);
       setError(null);
+
+      // STEP 1: Load basic stock info FAST (just stocks table, no analysis)
+      console.log('Step 1: Loading basic stock info...');
+      const basicStocks = await getStocks(true); // tracked only
+      console.log(`Loaded ${basicStocks.length} stocks (basic info only)`);
+
+      // Create initial stock objects with loading state
+      const initialStocks = basicStocks.map(stock => ({
+        stock_id: stock.id,
+        symbol: stock.symbol,
+        name: stock.name,
+        sector: stock.sector,
+        industry: stock.industry,
+        is_tracked: stock.is_tracked,
+        // Mark as loading (no analysis data yet)
+        _loading: true,
+        // Placeholder values
+        recommendation: null,
+        confidence: null,
+        signals: null,
+        current_price: null,
+        change_percent: null,
+        indicators: null,
+        ml_prediction: null,
+        sentiment: null,
+        patterns: null,
+        chart_patterns: null,
+        strategies: null
+      }));
+
+      // Show stocks immediately with loading state
+      setStocks(initialStocks);
+      setStocksWithoutAnalysis(new Set(initialStocks.map(s => s.stock_id)));
+      setAnalysisProgress({ loaded: 0, total: basicStocks.length });
+      setLoading(false); // Done loading structure, now loading analysis
+
+      // STEP 2: Load analysis data in chunks
+      const CHUNK_SIZE = 50;
+      const totalStocks = basicStocks.length;
+      let loadedCount = 0;
+
+      console.log(`Step 2: Loading analysis data in chunks of ${CHUNK_SIZE}...`);
+
+      for (let offset = 0; offset < totalStocks; offset += CHUNK_SIZE) {
+        try {
+          console.log(`Loading chunk: offset=${offset}, limit=${CHUNK_SIZE}`);
+          const chunkData = await getDashboardAnalysisChunk(offset, CHUNK_SIZE);
+
+          // Update stocks with analysis data
+          setStocks(prevStocks => {
+            const updatedStocks = [...prevStocks];
+            chunkData.forEach(analyzedStock => {
+              const index = updatedStocks.findIndex(s => s.stock_id === analyzedStock.stock_id);
+              if (index !== -1) {
+                updatedStocks[index] = { ...analyzedStock, _loading: false };
+              }
+            });
+            return updatedStocks;
+          });
+
+          // Update progress
+          loadedCount += chunkData.length;
+          setAnalysisProgress({ loaded: loadedCount, total: totalStocks });
+          setStocksWithoutAnalysis(prev => {
+            const newSet = new Set(prev);
+            chunkData.forEach(stock => newSet.delete(stock.stock_id));
+            return newSet;
+          });
+
+          console.log(`Progress: ${loadedCount}/${totalStocks} stocks analyzed`);
+        } catch (chunkErr) {
+          console.error(`Failed to load chunk at offset ${offset}:`, chunkErr);
+          // Continue with next chunk even if one fails
+        }
+      }
+
+      console.log('All analysis data loaded!');
+      setLoadingAnalysis(false);
+
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error(err);
-    } finally {
       setLoading(false);
+      setLoadingAnalysis(false);
     }
   };
 
@@ -206,6 +289,26 @@ const StockList = () => {
             <div
               className="progress-fill"
               style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+
+      {/* Analysis Loading Progress Indicator */}
+      {loadingAnalysis && analysisProgress.total > 0 && (
+        <div className="batch-progress-bar analysis-progress">
+          <div className="progress-info">
+            <span className="progress-text">
+              Loading analysis data... ({analysisProgress.loaded}/{analysisProgress.total})
+            </span>
+            <span className="progress-percent">
+              {Math.round((analysisProgress.loaded / analysisProgress.total) * 100)}%
+            </span>
+          </div>
+          <div className="progress-track">
+            <div
+              className="progress-fill"
+              style={{ width: `${(analysisProgress.loaded / analysisProgress.total) * 100}%` }}
             ></div>
           </div>
         </div>

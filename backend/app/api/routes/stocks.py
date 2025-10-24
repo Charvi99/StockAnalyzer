@@ -11,7 +11,7 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
 @router.get("/", response_model=List[StockResponse])
 def get_stocks(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 1000,
     tracked_only: bool = Query(default=True, description="Return only tracked stocks"),
     db: Session = Depends(get_db)
 ):
@@ -25,7 +25,7 @@ def get_stocks(
     if tracked_only:
         query = query.filter(Stock.is_tracked == True)
 
-    stocks = query.offset(skip).limit(limit).all()
+    stocks = query.order_by(Stock.symbol).offset(skip).limit(limit).all()
     return stocks
 
 

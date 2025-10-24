@@ -61,14 +61,14 @@ class SentimentRequest(BaseModel):
 
 class NewsArticle(BaseModel):
     """Schema for a single news article with sentiment"""
-    Ticker: str
-    Datetime: datetime
-    Headline: str
-    Summary: str
-    Source: str
-    URL: str
-    SCORE_PROB: float
-    SCORE_SENT: str
+    ticker: str
+    published_at: datetime
+    title: str
+    summary: str
+    source: str
+    url: str
+    confidence: float
+    sentiment: str
 
 
 class SentimentAnalysisResponse(BaseModel):
