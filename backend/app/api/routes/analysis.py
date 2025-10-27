@@ -27,6 +27,337 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _check_weekly_trend(df_daily: pd.DataFrame) -> dict:
+    """
+    Check weekly trend for swing trading validation
+    Uses daily data and resamples to weekly
+
+    Returns:
+        dict: {
+            'trend': 'bullish' | 'bearish' | 'neutral',
+            'weekly_sma_50': float,
+            'weekly_close': float
+        }
+    """
+    if df_daily.empty or len(df_daily) < 60:  # Need ~12 weeks minimum
+        return {'trend': 'neutral', 'weekly_sma_50': None, 'weekly_close': None}
+
+    try:
+        # Resample daily to weekly (Friday close)
+        df_weekly = df_daily.resample('W-FRI').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).dropna()
+
+        if len(df_weekly) < 50:
+            return {'trend': 'neutral', 'weekly_sma_50': None, 'weekly_close': None}
+
+        # Calculate 50-week SMA on weekly chart
+        df_weekly['sma_50'] = df_weekly['close'].rolling(window=50).mean()
+
+        weekly_sma_50 = df_weekly['sma_50'].iloc[-1]
+        weekly_close = df_weekly['close'].iloc[-1]
+
+        # Determine trend
+        if pd.notna(weekly_sma_50):
+            if weekly_close > weekly_sma_50:
+                trend = 'bullish'
+            elif weekly_close < weekly_sma_50:
+                trend = 'bearish'
+            else:
+                trend = 'neutral'
+        else:
+            trend = 'neutral'
+
+        return {
+            'trend': trend,
+            'weekly_sma_50': round(float(weekly_sma_50), 2) if pd.notna(weekly_sma_50) else None,
+            'weekly_close': round(float(weekly_close), 2)
+        }
+    except Exception as e:
+        logger.warning(f"Error calculating weekly trend: {e}")
+        return {'trend': 'neutral', 'weekly_sma_50': None, 'weekly_close': None}
+
+
+def _detect_swing_points(df: pd.DataFrame, lookback: int = 5) -> dict:
+    """
+    Detect swing highs and lows for candlestick pattern validation
+
+    A swing high is a price peak where the high is greater than N bars before and after
+    A swing low is a price valley where the low is less than N bars before and after
+
+    Args:
+        df: DataFrame with OHLC data
+        lookback: Number of bars to look back/forward (default 5)
+
+    Returns:
+        dict: {
+            'swing_highs': set of timestamps,
+            'swing_lows': set of timestamps
+        }
+    """
+    swing_highs = set()
+    swing_lows = set()
+
+    if len(df) < lookback * 2 + 1:
+        return {'swing_highs': swing_highs, 'swing_lows': swing_lows}
+
+    try:
+        # Detect swing highs (local maxima)
+        for i in range(lookback, len(df) - lookback):
+            current_high = df['high'].iloc[i]
+            is_swing_high = True
+
+            # Check if current high is greater than surrounding bars
+            for j in range(1, lookback + 1):
+                if df['high'].iloc[i - j] >= current_high or df['high'].iloc[i + j] >= current_high:
+                    is_swing_high = False
+                    break
+
+            if is_swing_high:
+                swing_highs.add(df.index[i])
+
+        # Detect swing lows (local minima)
+        for i in range(lookback, len(df) - lookback):
+            current_low = df['low'].iloc[i]
+            is_swing_low = True
+
+            # Check if current low is less than surrounding bars
+            for j in range(1, lookback + 1):
+                if df['low'].iloc[i - j] <= current_low or df['low'].iloc[i + j] <= current_low:
+                    is_swing_low = False
+                    break
+
+            if is_swing_low:
+                swing_lows.add(df.index[i])
+
+    except Exception as e:
+        logger.warning(f"Error detecting swing points: {e}")
+
+    return {'swing_highs': swing_highs, 'swing_lows': swing_lows}
+
+
+def _categorize_candlestick_pattern(pattern_name: str) -> str:
+    """
+    Categorize candlestick pattern as 'reversal' or 'continuation'
+
+    Reversal patterns should only be valid at swing points
+    Continuation patterns should align with weekly trend
+    """
+    # Bullish/Bearish reversal patterns (valid at swing lows/highs)
+    reversal_patterns = {
+        # Bullish reversal (at swing lows)
+        'Hammer', 'Inverted Hammer', 'Bullish Engulfing', 'Piercing Line',
+        'Tweezer Bottom', 'Bullish Kicker', 'Bullish Harami', 'Bullish Counterattack',
+        'Morning Star', 'Morning Doji Star', 'Three White Soldiers',
+        'Three Inside Up', 'Three Outside Up', 'Bullish Abandoned Baby',
+        'Dragonfly Doji',
+        # Bearish reversal (at swing highs)
+        'Hanging Man', 'Shooting Star', 'Bearish Engulfing', 'Dark Cloud Cover',
+        'Tweezer Top', 'Bearish Kicker', 'Bearish Harami', 'Bearish Counterattack',
+        'Evening Star', 'Evening Doji Star', 'Three Black Crows',
+        'Three Inside Down', 'Three Outside Down', 'Bearish Abandoned Baby',
+        'Gravestone Doji'
+    }
+
+    # Continuation patterns (valid if aligned with weekly trend)
+    continuation_patterns = {
+        'Rising Three Methods', 'Upside Tasuki Gap', 'Mat Hold', 'Rising Window',
+        'Falling Three Methods', 'Downside Tasuki Gap', 'On Neck Line', 'Falling Window',
+        'Bullish Marubozu', 'Bearish Marubozu'  # Strong trend continuation
+    }
+
+    if pattern_name in reversal_patterns:
+        return 'reversal'
+    elif pattern_name in continuation_patterns:
+        return 'continuation'
+    else:
+        return 'reversal'  # Default to reversal (more conservative)
+
+
+def _evaluate_swing_trading_context(
+    df: pd.DataFrame,
+    weekly_trend: dict,
+    tech_recommendation: dict,
+    recommendation: str
+) -> dict:
+    """
+    Phase 2C: Smart technical indicator alignment for swing trading.
+
+    Uses weighted scoring instead of hard filters to preserve pullback opportunities
+    while reducing confidence for low-probability setups.
+
+    Args:
+        df: DataFrame with calculated technical indicators
+        weekly_trend: Weekly trend information
+        tech_recommendation: Technical analysis results
+        recommendation: Current recommendation (BUY/SELL/HOLD)
+
+    Returns:
+        dict: {
+            'confidence_adjustment': float,  # Multiplier (0.7 to 1.2)
+            'reasoning': list,               # Explanation strings
+            'ma_alignment': str,             # 'strong', 'moderate', 'weak', 'counter'
+            'rsi_context': str,              # 'opportunity', 'neutral', 'caution'
+            'macd_alignment': str            # 'aligned', 'divergent', 'counter'
+        }
+    """
+    latest = df.iloc[-1]
+    current_price = float(latest['close'])
+    confidence_multiplier = 1.0
+    reasoning = []
+
+    # Get indicator values
+    ma_20 = float(latest['ma_short']) if pd.notna(latest['ma_short']) else None
+    ma_50 = float(latest['ma_long']) if pd.notna(latest['ma_long']) else None
+    sma_200 = float(latest['sma_200']) if 'sma_200' in latest and pd.notna(latest['sma_200']) else None
+    rsi = float(latest['rsi']) if pd.notna(latest['rsi']) else None
+    macd = float(latest['macd']) if pd.notna(latest['macd']) else None
+    macd_signal = float(latest['macd_signal']) if pd.notna(latest['macd_signal']) else None
+
+    weekly_is_bullish = weekly_trend['trend'] == 'bullish'
+    weekly_is_bearish = weekly_trend['trend'] == 'bearish'
+
+    # ============ 1. MOVING AVERAGE ALIGNMENT (Most Important) ============
+    ma_alignment = 'neutral'
+
+    if ma_50 and sma_200:
+        # Check MA alignment with weekly trend
+        if weekly_is_bullish:
+            if current_price > ma_50 > sma_200:
+                # Perfect alignment: price above both MAs, MAs stacked bullish
+                ma_alignment = 'strong'
+                confidence_multiplier *= 1.15
+                reasoning.append(f"✅ Strong MA alignment: Price ${current_price:.2f} > 50SMA ${ma_50:.2f} > 200SMA ${sma_200:.2f} (bullish structure)")
+            elif current_price > ma_50:
+                # Good: price above 50 SMA
+                ma_alignment = 'moderate'
+                confidence_multiplier *= 1.08
+                reasoning.append(f"✅ Price above 50-day SMA (${current_price:.2f} > ${ma_50:.2f}) - trend support holding")
+            elif ma_20 and current_price > ma_20 and current_price < ma_50:
+                # Pullback opportunity: price between 20-50 SMA
+                ma_alignment = 'pullback'
+                confidence_multiplier *= 1.0  # Neutral - valid pullback
+                reasoning.append(f"📊 Pullback to structure: Price ${current_price:.2f} between 20SMA ${ma_20:.2f} and 50SMA ${ma_50:.2f} (potential entry)")
+            elif current_price < ma_50:
+                # Weak: price below 50 SMA but weekly still bullish
+                ma_alignment = 'weak'
+                confidence_multiplier *= 0.85
+                reasoning.append(f"⚠️ Price below 50-day SMA (${current_price:.2f} < ${ma_50:.2f}) - deeper pullback, higher risk")
+
+        elif weekly_is_bearish:
+            if current_price < ma_50 < sma_200:
+                # Perfect bearish alignment
+                ma_alignment = 'strong'
+                if recommendation == 'SELL':
+                    confidence_multiplier *= 1.15
+                reasoning.append(f"✅ Strong bearish MA alignment: Price ${current_price:.2f} < 50SMA ${ma_50:.2f} < 200SMA ${sma_200:.2f}")
+            elif current_price < ma_50:
+                # Good bearish positioning
+                ma_alignment = 'moderate'
+                if recommendation == 'SELL':
+                    confidence_multiplier *= 1.08
+                reasoning.append(f"✅ Price below 50-day SMA (${current_price:.2f} < ${ma_50:.2f}) - bearish structure intact")
+            elif current_price > ma_50:
+                # Counter-trend positioning (bad for longs)
+                ma_alignment = 'counter'
+                if recommendation == 'BUY':
+                    confidence_multiplier *= 0.75
+                    reasoning.append(f"⚠️ Counter-trend setup: Price ${current_price:.2f} > 50SMA ${ma_50:.2f} but weekly trend BEARISH - low probability")
+    elif ma_50:
+        # Only have 50 SMA, use simplified logic
+        if weekly_is_bullish and current_price > ma_50:
+            confidence_multiplier *= 1.1
+            reasoning.append(f"✅ Price above 50-day SMA (${current_price:.2f} > ${ma_50:.2f})")
+        elif weekly_is_bearish and current_price < ma_50:
+            confidence_multiplier *= 1.1
+            reasoning.append(f"✅ Price below 50-day SMA (${current_price:.2f} < ${ma_50:.2f})")
+
+    # ============ 2. RSI CONTEXT (Opportunity Detection) ============
+    rsi_context = 'neutral'
+
+    if rsi:
+        if weekly_is_bullish:
+            if rsi < 30:
+                # Oversold in uptrend = OPPORTUNITY (pullback buy)
+                rsi_context = 'opportunity'
+                if recommendation == 'BUY':
+                    confidence_multiplier *= 1.12
+                    reasoning.append(f"🎯 RSI oversold pullback: {rsi:.1f} < 30 in bullish weekly trend (strong entry opportunity)")
+            elif 30 <= rsi <= 55:
+                # Healthy pullback zone
+                rsi_context = 'neutral'
+                reasoning.append(f"📊 RSI neutral zone: {rsi:.1f} (healthy for continuation)")
+            elif rsi > 70:
+                # Overbought - reduce confidence (chasing)
+                rsi_context = 'caution'
+                if recommendation == 'BUY':
+                    confidence_multiplier *= 0.90
+                    reasoning.append(f"⚠️ RSI overbought: {rsi:.1f} > 70 (late entry, higher risk)")
+
+        elif weekly_is_bearish:
+            if rsi > 70:
+                # Overbought in downtrend = OPPORTUNITY (pullback short)
+                rsi_context = 'opportunity'
+                if recommendation == 'SELL':
+                    confidence_multiplier *= 1.12
+                    reasoning.append(f"🎯 RSI overbought in bearish trend: {rsi:.1f} > 70 (short opportunity)")
+            elif rsi < 30:
+                # Oversold in downtrend - ignore long signals
+                rsi_context = 'caution'
+                if recommendation == 'BUY':
+                    confidence_multiplier *= 0.70
+                    reasoning.append(f"⚠️ RSI oversold in bearish weekly trend: {rsi:.1f} < 30 (catching falling knife)")
+            else:
+                rsi_context = 'neutral'
+
+    # ============ 3. MACD ALIGNMENT ============
+    macd_alignment = 'neutral'
+
+    if macd is not None and macd_signal is not None:
+        macd_bullish = macd > macd_signal
+        macd_bearish = macd < macd_signal
+
+        if weekly_is_bullish:
+            if macd_bullish:
+                # MACD aligned with weekly trend
+                macd_alignment = 'aligned'
+                confidence_multiplier *= 1.05
+                reasoning.append(f"✅ MACD bullish cross aligned with weekly trend")
+            else:
+                # MACD bearish but weekly bullish = just a pullback
+                macd_alignment = 'divergent'
+                # Don't penalize - this could be a pullback entry
+                reasoning.append(f"📊 MACD pullback in bullish weekly trend (watch for re-cross)")
+
+        elif weekly_is_bearish:
+            if macd_bearish:
+                # MACD aligned with weekly trend
+                macd_alignment = 'aligned'
+                if recommendation == 'SELL':
+                    confidence_multiplier *= 1.05
+                reasoning.append(f"✅ MACD bearish cross aligned with weekly trend")
+            elif macd_bullish and recommendation == 'BUY':
+                # Counter-trend MACD signal
+                macd_alignment = 'counter'
+                confidence_multiplier *= 0.80
+                reasoning.append(f"⚠️ MACD bullish but weekly trend bearish (counter-trend risk)")
+
+    # Cap confidence adjustments
+    confidence_multiplier = max(0.65, min(1.25, confidence_multiplier))
+
+    return {
+        'confidence_adjustment': confidence_multiplier,
+        'reasoning': reasoning,
+        'ma_alignment': ma_alignment,
+        'rsi_context': rsi_context,
+        'macd_alignment': macd_alignment
+    }
+
+
 def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationResponse:
     """
     Reusable function to get a comprehensive recommendation for a single stock.
@@ -81,9 +412,42 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
             sentiment_rec, sentiment_conf = "HOLD", 0.5
         reasoning.append(f"Market sentiment (index: {sentiment_index:.1f}, {sentiment_conf:.0%} confidence): {sentiment_rec} ({latest_sentiment.positive_count} positive, {latest_sentiment.negative_count} negative news)")
 
+    # Check weekly trend for swing trading validation (Phase 2A)
+    # IMPORTANT: Must check weekly trend BEFORE filtering patterns
+    weekly_trend = _check_weekly_trend(df)
+
+    # Detect swing points for candlestick pattern validation (Phase 2B)
+    swing_points = _detect_swing_points(df, lookback=5)
+
     # Get recent candlestick patterns (last 30 days, use already-loaded data)
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    candlestick_patterns = [p for p in stock.candlestick_patterns if p.timestamp >= thirty_days_ago] if stock.candlestick_patterns else []
+    candlestick_patterns_raw = [p for p in stock.candlestick_patterns if p.timestamp >= thirty_days_ago] if stock.candlestick_patterns else []
+
+    # PHASE 2B: Filter candlestick patterns for swing trading
+    candlestick_patterns = []
+    for p in candlestick_patterns_raw:
+        pattern_category = _categorize_candlestick_pattern(p.pattern_name)
+
+        if pattern_category == 'reversal':
+            # Reversal patterns: Must be at swing points
+            if p.pattern_type == 'bullish':
+                # Bullish reversal should be at swing low
+                if p.timestamp not in swing_points['swing_lows']:
+                    continue  # Not at swing low, ignore
+            elif p.pattern_type == 'bearish':
+                # Bearish reversal should be at swing high
+                if p.timestamp not in swing_points['swing_highs']:
+                    continue  # Not at swing high, ignore
+
+        elif pattern_category == 'continuation':
+            # Continuation patterns: Must align with weekly trend
+            if p.pattern_type == 'bullish' and weekly_trend['trend'] == 'bearish':
+                continue  # Bullish continuation in bearish weekly trend = low probability
+            if p.pattern_type == 'bearish' and weekly_trend['trend'] == 'bullish':
+                continue  # Bearish continuation in bullish weekly trend = low probability
+
+        # Pattern passed filters, include it
+        candlestick_patterns.append(p)
 
     candlestick_signal, candlestick_conf, candlestick_count = (None, None, len(candlestick_patterns))
     if candlestick_patterns:
@@ -101,11 +465,31 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
             candlestick_signal = "HOLD"
             candlestick_conf = 0.5
 
-        reasoning.append(f"Candlestick patterns ({candlestick_conf:.0%} confidence): {candlestick_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected)")
+        reasoning.append(f"Candlestick patterns ({candlestick_conf:.0%} confidence): {candlestick_signal} ({bullish_count} bullish, {bearish_count} bearish patterns) - swing-validated")
+    else:
+        reasoning.append("No valid swing trading candlestick patterns detected (filtered by swing points and trend alignment)")
 
     # Get recent chart patterns (last 90 days, use already-loaded data)
     ninety_days_ago = datetime.now() - timedelta(days=90)
-    chart_patterns = [p for p in stock.chart_patterns if p.end_date >= ninety_days_ago] if stock.chart_patterns else []
+    chart_patterns_raw = [p for p in stock.chart_patterns if p.end_date >= ninety_days_ago] if stock.chart_patterns else []
+
+    # PHASE 2B: Filter chart patterns for swing trading
+    chart_patterns = []
+    for p in chart_patterns_raw:
+        # 1. Minimum duration: 10 days (swing patterns, not day-trading micro patterns)
+        pattern_duration = (p.end_date - p.start_date).days
+        if pattern_duration < 10:
+            continue
+
+        # 2. Trend alignment: Only count patterns aligned with weekly trend
+        if p.signal == 'bullish' and weekly_trend['trend'] == 'bearish':
+            # Bullish pattern in bearish weekly trend = low probability, ignore
+            continue
+        if p.signal == 'bearish' and weekly_trend['trend'] == 'bullish':
+            # Bearish pattern in bullish weekly trend = low probability, ignore
+            continue
+
+        chart_patterns.append(p)
 
     chart_pattern_signal, chart_pattern_conf, chart_pattern_count = (None, None, len(chart_patterns))
     if chart_patterns:
@@ -123,7 +507,9 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
             chart_pattern_signal = "HOLD"
             chart_pattern_conf = 0.5
 
-        reasoning.append(f"Chart patterns ({chart_pattern_conf:.0%} confidence): {chart_pattern_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected)")
+        reasoning.append(f"Chart patterns ({chart_pattern_conf:.0%} confidence): {chart_pattern_signal} ({bullish_count} bullish, {bearish_count} bearish patterns detected) - swing-validated")
+    else:
+        reasoning.append("No valid swing trading patterns detected (filtered by duration and trend alignment)")
 
     # Combine all recommendations
     recommendations = [(tech_recommendation['recommendation'], tech_recommendation['confidence'])]
@@ -153,6 +539,47 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         final_conf = min(final_conf * 1.1, 1.0)
     else:
         reasoning.append("⚠ Mixed signals - use caution")
+
+    # PHASE 2A: Swing Trading Filter - Override BUY if weekly trend is bearish
+    weekly_conflict = False
+    if final_rec == 'BUY' and weekly_trend['trend'] == 'bearish':
+        original_rec = final_rec
+        original_conf = final_conf
+        final_rec = 'HOLD'
+        final_conf = final_conf * 0.5  # Cut confidence in half
+        weekly_conflict = True
+        reasoning.append(f"⚠️ SWING TRADING OVERRIDE: {original_rec} downgraded to HOLD - Weekly trend is BEARISH (price ${weekly_trend['weekly_close']:.2f} < 50-week SMA ${weekly_trend['weekly_sma_50']:.2f})")
+        reasoning.append("⛔ Swing trades against weekly trend have low probability - Wait for weekly trend to turn bullish")
+    elif final_rec == 'BUY' and weekly_trend['trend'] == 'bullish':
+        reasoning.append(f"✅ SWING TRADING CONFIRMED: Weekly trend is BULLISH (price ${weekly_trend['weekly_close']:.2f} > 50-week SMA ${weekly_trend['weekly_sma_50']:.2f}) - Trend alignment favorable")
+        # Boost confidence slightly for trend alignment
+        final_conf = min(final_conf * 1.05, 1.0)
+    elif weekly_trend['trend'] == 'neutral':
+        reasoning.append(f"ℹ️ Weekly trend is NEUTRAL - Exercise caution with swing positions")
+
+    # PHASE 2C: Smart Technical Indicator Alignment (Preserves pullback opportunities)
+    swing_context = _evaluate_swing_trading_context(
+        df=df,
+        weekly_trend=weekly_trend,
+        tech_recommendation=tech_recommendation,
+        recommendation=final_rec
+    )
+
+    # Apply smart confidence adjustment (0.65x to 1.25x multiplier)
+    original_conf_before_2c = final_conf
+    final_conf = final_conf * swing_context['confidence_adjustment']
+    final_conf = max(0.3, min(1.0, final_conf))  # Cap between 30% and 100%
+
+    # Add swing trading context reasoning
+    if swing_context['confidence_adjustment'] != 1.0:
+        adj_pct = (swing_context['confidence_adjustment'] - 1.0) * 100
+        if adj_pct > 0:
+            reasoning.append(f"📈 Swing trading context: Confidence boosted {adj_pct:+.0f}% ({original_conf_before_2c:.0%} → {final_conf:.0%})")
+        else:
+            reasoning.append(f"📉 Swing trading context: Confidence reduced {adj_pct:+.0f}% ({original_conf_before_2c:.0%} → {final_conf:.0%})")
+
+    # Add detailed context reasoning
+    reasoning.extend(swing_context['reasoning'])
 
     risk_level = "LOW" if final_conf >= 0.75 else "MEDIUM" if final_conf >= 0.50 else "HIGH"
 

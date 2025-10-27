@@ -22,7 +22,7 @@
 
 ---
 
-## ✅ CURRENT STATUS: Phase 7 Complete - Performance Optimization & Progressive Loading
+## ✅ CURRENT STATUS: Phase 2C Complete - Smart Technical Indicator Alignment
 
 ### Phase 1: Core Infrastructure ✅ COMPLETE
 - [x] Docker Compose environment (database, backend, frontend)
@@ -96,6 +96,28 @@
 - [x] Added training history export and results summary generation
 - [x] Sentiment analysis UI restoration with full-featured component
 - [x] Pattern naming improvements (Bullish/Bearish prefixes for clarity)
+
+### Phase 2: Swing Trading Alignment ✅ CORE COMPLETE (2D/2E Optional)
+- [x] **Phase 2A**: Weekly trend filter in recommendation engine
+  - [x] Added `_check_weekly_trend()` function with 50-week SMA calculation
+  - [x] Override BUY signals when weekly trend is bearish
+  - [x] Boost confidence for trend-aligned signals
+- [x] **Phase 2B**: Pattern filtering for swing trading
+  - [x] Chart patterns: 10+ day minimum duration, weekly trend alignment
+  - [x] Candlestick patterns: Swing point detection, reversal/continuation categorization
+  - [x] Reversal patterns valid only at swing highs/lows
+  - [x] Continuation patterns valid only when aligned with weekly trend
+- [x] **Phase 2C**: Smart technical indicator alignment ⭐ NEW
+  - [x] Smart MA alignment scoring (preserves pullback opportunities)
+  - [x] Context-aware RSI logic (oversold in uptrend = opportunity)
+  - [x] MACD trend alignment checking
+  - [x] Weighted confidence system (0.65x to 1.25x multiplier)
+  - [x] Added 200 SMA calculation
+- [ ] **Phase 2D**: ML model retraining (Optional - Not Required)
+  - [ ] Predict 5-20 day returns instead of next day
+  - [ ] Add weekly trend as input feature
+- [ ] **Phase 2E**: Sentiment aggregation (Optional - Not Required)
+  - [ ] 7-day rolling average instead of daily
 
 ---
 
@@ -1288,6 +1310,217 @@ curl -X POST http://localhost:8000/api/v1/stocks/1/predict \
 3. Consider adding trendline visualization to charts
 4. Consider implementing remaining critical optimizations (caching, database indexes)
 
+### Session 9 - 2025-10-24
+**Goal:** Phase 2B & 2C - Swing Trading Alignment
+
+**Session 9A: Phase 2B - Candlestick Pattern Filtering**
+
+**Context:**
+Previous Claude instance started Phase 2B (candlestick pattern filtering) but crashed during implementation. Phase 2A (weekly trend filter for recommendations) was already complete. Chart pattern filtering (10+ day minimum, trend alignment) was also complete.
+
+**Completed:**
+- ✅ Created `_detect_swing_points()` helper function
+  - Detects local price maxima (swing highs) and minima (swing lows)
+  - Uses 5-bar lookback for swing point confirmation
+  - Returns set of timestamps for validated swing points
+- ✅ Created `_categorize_candlestick_pattern()` helper function
+  - Categorizes 40 patterns as 'reversal' or 'continuation'
+  - Reversal patterns: Hammer, Engulfing, Morning/Evening Star, Doji, etc. (30 patterns)
+  - Continuation patterns: Rising/Falling Three Methods, Tasuki Gap, Marubozu, etc. (10 patterns)
+- ✅ Implemented candlestick pattern filtering in `_get_recommendation_for_stock()`
+  - **Reversal patterns**: Only valid at swing points
+    - Bullish reversal (Hammer, Engulfing) → Must be at swing LOW
+    - Bearish reversal (Shooting Star, Hanging Man) → Must be at swing HIGH
+  - **Continuation patterns**: Only valid if aligned with weekly trend
+    - Bullish continuation → Ignored in bearish weekly trend
+    - Bearish continuation → Ignored in bullish weekly trend
+  - Updated reasoning messages: "swing-validated" indicator
+- ✅ Moved weekly trend check BEFORE pattern filtering for proper sequencing
+- ✅ Tested backend restart - successful, no errors
+- ✅ Updated documentation
+
+**Key Implementation Details:**
+
+**Swing Point Detection Algorithm:**
+```python
+# 5-bar swing high: high[i] > high[i±1, i±2, i±3, i±4, i±5]
+# 5-bar swing low: low[i] < low[i±1, i±2, i±3, i±4, i±5]
+```
+
+**Pattern Filtering Logic:**
+```python
+# Reversal patterns
+if pattern_type == 'bullish':
+    if timestamp not in swing_lows:
+        continue  # Ignore, not at swing low
+elif pattern_type == 'bearish':
+    if timestamp not in swing_highs:
+        continue  # Ignore, not at swing high
+
+# Continuation patterns
+if pattern_type == 'bullish' and weekly_trend == 'bearish':
+    continue  # Ignore, counter-trend
+if pattern_type == 'bearish' and weekly_trend == 'bullish':
+    continue  # Ignore, counter-trend
+```
+
+**Expected Impact:**
+- Reduces false signals from mid-trend candlestick patterns
+- Aligns candlestick analysis with swing trading methodology
+- Improves recommendation quality by filtering out low-probability setups
+- Matches order calculator logic for consistent signals
+
+**Files Modified:**
+- `backend/app/api/routes/analysis.py` - Added swing point detection and pattern filtering (lines 85-290)
+
+**Architecture Decisions:**
+- 5-bar lookback for swing points (balance between sensitivity and reliability)
+- Default to 'reversal' category for unknown patterns (conservative approach)
+- Filter patterns AFTER weekly trend check (proper sequencing)
+- Separate filtering logic for reversal vs continuation patterns
+
+**Test Results:**
+- ✅ Backend restarted successfully
+- ✅ No syntax errors or import issues
+- ✅ Server running on port 8000
+- ⏳ Functional testing pending (dashboard reload needed)
+
+**What's Still TODO for Phase 2B:**
+- Volume confirmation logic (lower priority)
+- Functional testing with MSFT example
+- Frontend dashboard testing
+
+**Time:** ~1 hour
+**Status:** Phase 2B Core Implementation COMPLETE ✅
+
+---
+
+**Session 9B: Phase 2C - Smart Technical Indicator Alignment**
+
+**Goal:** Align technical indicators with swing trading WITHOUT losing valid pullback entry opportunities
+
+**User Requirement:** "proccess 2C, and choose smart algorithm i dont want to loose entry oportuniny"
+
+**Smart Algorithm Design Philosophy:**
+Instead of HARD FILTERS (e.g., "price MUST be > 50 SMA"), implemented WEIGHTED SCORING system:
+- **Boost confidence** for ideal conditions (strong MA alignment, trend alignment)
+- **Reduce confidence** for risky conditions (counter-trend, chasing)
+- **Preserve opportunities** for valid pullbacks (RSI oversold in uptrend = GOOD entry)
+
+**Completed:**
+- ✅ Created `_evaluate_swing_trading_context()` function (180 lines)
+  - Smart MA alignment scoring (0.85x to 1.15x multiplier)
+  - Context-aware RSI logic (identifies pullback opportunities)
+  - MACD trend alignment checking
+  - Overall confidence adjustment: 0.65x to 1.25x range
+- ✅ Added 200 SMA calculation to technical_indicators.py
+- ✅ Integrated Phase 2C into recommendation logic
+- ✅ Tested backend restart - successful
+
+**Smart Algorithm Features:**
+
+**1. Moving Average Alignment (Most Important)**
+- **Strong Alignment** (bullish trend):
+  - Price > 50 SMA > 200 SMA → +15% confidence boost
+  - Perfect bullish structure
+- **Moderate Alignment**:
+  - Price > 50 SMA → +8% confidence boost
+  - Trend support holding
+- **Pullback Zone** (SMART!):
+  - Price between 20-50 SMA → NO penalty
+  - Valid pullback opportunity preserved
+- **Weak Position**:
+  - Price < 50 SMA in bullish trend → -15% confidence
+  - Deeper pullback, higher risk
+- **Counter-trend**:
+  - Price > 50 SMA in bearish weekly trend → -25% confidence
+  - Low probability setup
+
+**2. RSI Context (Opportunity Detection)**
+- **Bullish Weekly Trend:**
+  - RSI < 30 (oversold) → +12% boost for BUY (PULLBACK OPPORTUNITY!)
+  - RSI 30-55 → Neutral (healthy for continuation)
+  - RSI > 70 (overbought) → -10% for BUY (chasing, late entry)
+- **Bearish Weekly Trend:**
+  - RSI > 70 → +12% boost for SELL (short opportunity)
+  - RSI < 30 → -30% for BUY (catching falling knife)
+
+**3. MACD Alignment**
+- **Aligned with weekly trend:** +5% confidence
+- **Divergent (pullback):** NO penalty (could be entry)
+- **Counter-trend:** -20% confidence
+
+**4. Confidence Caps**
+- Minimum: 65% of original (never drop below 30% overall)
+- Maximum: 125% of original (cap at 100% overall)
+
+**Key Implementation Details:**
+
+```python
+# Phase 2C integration in _get_recommendation_for_stock():
+swing_context = _evaluate_swing_trading_context(
+    df=df,
+    weekly_trend=weekly_trend,
+    tech_recommendation=tech_recommendation,
+    recommendation=final_rec
+)
+
+# Apply smart confidence adjustment
+final_conf = final_conf * swing_context['confidence_adjustment']
+
+# Add detailed reasoning
+reasoning.extend(swing_context['reasoning'])
+```
+
+**Example Scenarios:**
+
+1. **Perfect Setup (Stock in uptrend, oversold pullback)**:
+   - Weekly: Bullish
+   - Price: Between 20-50 SMA (pullback)
+   - RSI: 28 (oversold)
+   - MACD: Bearish (pullback)
+   - Result: Confidence BOOSTED +12% (RSI opportunity), NO penalty for pullback
+
+2. **Risky Setup (Counter-trend)**:
+   - Weekly: Bearish
+   - Price: Above 50 SMA
+   - RSI: 35 (trying to catch bounce)
+   - Result: Confidence REDUCED -25% (counter-trend) -30% (RSI in downtrend) = -55% total (capped at -35%)
+
+3. **Chasing Entry**:
+   - Weekly: Bullish
+   - Price: Well above 50 SMA
+   - RSI: 78 (overbought)
+   - Result: Confidence REDUCED -10% (late entry warning)
+
+**Expected Impact:**
+- **Preserves pullback opportunities** (RSI oversold in uptrend = enhanced)
+- **Filters low-probability setups** (counter-trend, chasing)
+- **Provides transparency** (detailed reasoning for each adjustment)
+- **Aligns with order calculator** (consistent swing trading logic)
+
+**Files Modified:**
+- `backend/app/api/routes/analysis.py` (lines 181-583)
+  - Added `_evaluate_swing_trading_context()` helper (180 lines)
+  - Integrated Phase 2C after Phase 2A logic
+- `backend/app/services/technical_indicators.py` (line 821)
+  - Added 200 SMA calculation
+
+**Test Results:**
+- ✅ Backend restarted successfully
+- ✅ No syntax or import errors
+- ✅ Server running on port 8000
+- ⏳ Functional testing pending (dashboard reload needed)
+
+**Time:** ~1.5 hours
+**Status:** Phase 2C COMPLETE ✅
+
+**Next Steps:**
+1. Test Phase 2C on live dashboard
+2. Verify confidence adjustments work as expected
+3. Check that pullback opportunities are preserved
+4. Phase 2D/2E optional if requested
+
 ---
 
 ## 🚨 CRITICAL REMINDERS
@@ -1372,143 +1605,69 @@ A comprehensive code review identified **32 optimization opportunities** across 
 
 **END OF BACKUP DOCUMENT**
 
-**LAST MESSAGE**
- should we adjust whole analysis to swing trading?
+---
 
-● Excellent question! Yes, I think we absolutely should align the entire analysis system to swing trading. Right now there's a fundamental mismatch:
+## 📌 CURRENT SESSION STATUS
 
-  Current Problem:
+**LAST MESSAGE:**
+"proccess 2C, and choose smart algorithm i dont want to loose entry oportuniny"
 
-  1. Overall Recommendation (Chart Patterns + Candlesticks + Technical + ML + Sentiment):
-    - Gives equal weight to ALL signals
-    - Doesn't consider weekly trend
-    - Mixes day-trading signals with swing-trading signals
-    - Result: Says "BUY"
-  2. Order Calculator (Swing Trading Optimized):
-    - Checks weekly trend
-    - Validates swing structure
-    - Filters out counter-trend trades
-    - Result: Overrides to "HOLD"
+**RESPONSE:**
+Phase 2C (Smart Technical Indicator Alignment) has been successfully completed! Here's what was implemented:
 
-  This creates confusion and contradictory signals - exactly what you're experiencing!
+**✅ Completed in Session 9 (Phases 2B & 2C):**
 
-  ---
-  What Should Change for Swing Trading:
+### Session 9A: Phase 2B - Candlestick Pattern Filtering
+- Swing point detection (5-bar lookback)
+- Pattern categorization (30 reversal, 10 continuation)
+- Reversal patterns valid only at swing points
+- Continuation patterns aligned with weekly trend
 
-  1. Recommendation Engine (get_recommendation in analysis.py)
+### Session 9B: Phase 2C - Smart Technical Indicator Alignment ⭐
+**Philosophy:** WEIGHTED SCORING instead of HARD FILTERS to preserve pullback opportunities
 
-  Current: Combines all signals equally
-  # All signals weighted equally, no trend filter
-  final = combine(technical, ml, sentiment, patterns)
+**Key Features:**
+1. **Smart MA Alignment** (Most Important):
+   - Price > 50 SMA > 200 SMA → +15% confidence (perfect)
+   - Price between 20-50 SMA → NO penalty (pullback opportunity!)
+   - Price < 50 SMA in bearish trend → -15% to -25% confidence
 
-  Swing Trading Should:
-  # Weekly trend as PRIMARY filter
-  if weekly_trend == 'bearish':
-      filter_out_all_buy_signals()
+2. **Context-Aware RSI** (Opportunity Detection):
+   - RSI < 30 in BULLISH trend → +12% boost (PULLBACK ENTRY!)
+   - RSI > 70 in BULLISH trend → -10% (chasing warning)
+   - RSI < 30 in BEARISH trend → -30% (catching knife)
 
-  # Weight longer-term over short-term
-  weights = {
-      'weekly_trend': 0.30,      # 30% weight - MOST IMPORTANT
-      'daily_ma_alignment': 0.25, # 20/50/200 SMA trend
-      'chart_patterns': 0.20,     # Multi-week formations
-      'volume_profile': 0.15,     # Institutional levels
-      'technical': 0.05,          # Secondary confirmation
-      'sentiment': 0.05           # Tertiary filter
-  }
+3. **MACD Alignment**:
+   - Aligned with weekly → +5%
+   - Divergent (pullback) → NO penalty
+   - Counter-trend → -20%
 
-  2. Chart Pattern Detection
+**📊 Final Swing Trading Alignment Status:**
 
-  Current: Detects patterns on any timeframe
-  Swing Trading Should:
-  - Only use daily candles (no intraday)
-  - Require patterns to span 10+ days (not 2-3 day micro-patterns)
-  - Validate patterns against weekly trend
-  - Example: Triangle pattern forming for 3 weeks in bullish weekly trend = valid
-  - Example: 2-day flag in bearish weekly trend = ignore
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 2A | ✅ Complete | Weekly trend filter overrides BUY in bearish trend |
+| 2B | ✅ Complete | Chart patterns (10+ days) + Candlestick patterns (swing points) |
+| 2C | ✅ Complete | Smart technical alignment (preserves pullback opportunities) |
+| 2D | ⏳ Optional | ML retraining for 5-20 day predictions |
+| 2E | ⏳ Optional | Sentiment 7-day rolling average |
 
-  3. Candlestick Patterns
+**🎯 What This Achieves:**
+1. ✅ **Preserves entry opportunities:** RSI oversold in uptrend = BOOSTED confidence
+2. ✅ **Filters bad trades:** Counter-trend setups get reduced confidence
+3. ✅ **Transparency:** Detailed reasoning shows exactly why confidence was adjusted
+4. ✅ **Alignment:** Matches order calculator swing trading logic
 
-  Current: Triggers on any daily candlestick pattern
-  Swing Trading Should:
-  - Reversal patterns (hammer, engulfing) only valid at swing highs/lows
-  - Continuation patterns (flags, pennants) only in direction of weekly trend
-  - Require volume confirmation for swing setups
-  - Example: Bullish engulfing at swing low + weekly uptrend = valid
-  - Example: Bullish hammer mid-uptrend = ignore (not a swing entry)
+**🔬 Example: Perfect Pullback Entry**
+- Weekly trend: BULLISH
+- Price: Between 20-50 SMA (pullback to structure)
+- RSI: 28 (oversold)
+- Result: +12% confidence boost + NO pullback penalty = STRONG BUY SIGNAL
 
-  4. Technical Analysis
-
-  Current: Uses standard settings
-  Swing Trading Should:
-  - RSI: 14-period daily (ignore oversold in downtrend, overbought in uptrend)
-  - MACD: 12/26/9 (only trigger when aligned with weekly)
-  - Moving Averages: Prioritize 50/200 SMA over short-term MAs
-  - Trend Requirement: Price must be above 50 SMA for BUY signals
-  - Ignore short-term divergences that contradict weekly trend
-
-  5. ML Predictions
-
-  Current: Trained on next-day predictions?
-  Swing Trading Should:
-  - Predict 5-20 day forward returns (not next day)
-  - Train on swing trade outcomes (entry to 2.5:1 R/R target)
-  - Include weekly trend as feature
-  - Weight recent predictions less (avoid whipsaws)
-
-  6. Sentiment Analysis
-
-  Current: Reacts to daily news
-  Swing Trading Should:
-  - Aggregate sentiment over 5-7 days (weekly trend)
-  - Ignore single-day news spikes
-  - Focus on sustained sentiment shifts
-  - Example: 5 days of increasingly bullish news = valid
-  - Example: 1 viral tweet = ignore
-
-  ---
-  Proposed Implementation Plan:
-
-  Phase 2A: Align Recommendation Engine (High Priority)
-
-  1. Add weekly trend check to get_recommendation()
-  2. Override all BUY signals if weekly trend is bearish
-  3. Adjust confidence scores based on trend alignment
-  4. Add swing_trading_mode flag (for future flexibility)
-
-  Phase 2B: Filter Patterns (Medium Priority)
-
-  5. Add minimum pattern duration filter (10+ days)
-  6. Validate chart patterns against weekly trend
-  7. Validate candlestick patterns at swing points only
-
-  Phase 2C: Adjust Technical Indicators (Medium Priority)
-
-  8. Add MA trend alignment requirement (price > 50 SMA for BUY)
-  9. Weight 50/200 SMA more heavily than short-term indicators
-  10. Filter RSI/MACD signals by weekly trend
-
-  Phase 2D: Retrain ML (Lower Priority - Optional)
-
-  11. Retrain models for 5-20 day predictions
-  12. Add weekly trend as input feature
-
-  Phase 2E: Aggregate Sentiment (Lower Priority)
-
-  13. Change sentiment to 7-day rolling average
-  14. Reduce weight of single-day spikes
-
-  ---
-  Quick Win - What We Can Do Right Now:
-
-  I can implement Phase 2A immediately to fix the contradiction you're experiencing:
-
-  Add weekly trend filter to the overall recommendation so it matches the order calculator logic.
-
-  Would you like me to:
-  1. Start with Phase 2A (weekly trend filter in recommendation engine) - ~15 minutes
-  2. Do full Phase 2 (all swing trading adjustments) - ~2-3 hours
-  3. Just explain more first before we commit to changes
-
-  What's your preference?
+**✅ What to Test:**
+1. Reload frontend dashboard
+2. Check stocks with pullbacks in uptrends - should have BOOSTED confidence
+3. Check stocks counter-trending - should have REDUCED confidence
+4. Verify reasoning messages explain adjustments clearly
   
 > Next Claude instance: Start by reading this document in full. It contains everything you need to continue this project effectively. Update this document after every change - it's your responsibility to maintain project continuity.
