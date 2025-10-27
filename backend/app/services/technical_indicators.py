@@ -817,6 +817,9 @@ class TechnicalIndicators:
         df = TechnicalIndicators.calculate_adx(df, 14)
         df = TechnicalIndicators.calculate_parabolic_sar(df, 0.02, 0.2)
 
+        # Add 200 SMA for swing trading (Phase 2C)
+        df['sma_200'] = df['close'].rolling(window=200).mean()
+
         # Momentum Indicators
         df = TechnicalIndicators.calculate_rsi(df, rsi_period)
         df = TechnicalIndicators.calculate_stochastic(df, 14, 3)

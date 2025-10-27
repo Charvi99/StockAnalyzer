@@ -10,9 +10,12 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
+import logging
 
 from app.models.stock import Stock, StockPrice, ChartPattern, CandlestickPattern
 from app.services.technical_indicators import TechnicalIndicators
+
+logger = logging.getLogger(__name__)
 
 
 class OrderCalculatorService:
@@ -84,14 +87,38 @@ class OrderCalculatorService:
         # Calculate support and resistance levels (legacy method still useful)
         support_resistance = self._calculate_support_resistance(stock_id, lookback_days=90)
 
-        # Determine bias (bullish/bearish) from patterns
-        pattern_bias = self._determine_pattern_bias(recent_patterns, recent_candles)
+        # PHASE 2A: Get overall recommendation (includes weekly trend filter)
+        # Import here to avoid circular dependency
+        from app.api.routes.analysis import _get_recommendation_for_stock
 
-        # Override recommendation if weekly trend conflicts
-        if pattern_bias['recommendation'] == 'BUY' and weekly_trend['trend'] == 'bearish':
-            pattern_bias['recommendation'] = 'HOLD'
-            pattern_bias['confidence'] = pattern_bias['confidence'] * 0.5
-            pattern_bias['weekly_conflict'] = True
+        try:
+            overall_rec = _get_recommendation_for_stock(stock, self.db)
+
+            # Count patterns from actual data
+            bullish_chart = sum(1 for p in recent_patterns if p.signal == 'bullish')
+            bearish_chart = sum(1 for p in recent_patterns if p.signal == 'bearish')
+            bullish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bullish')
+            bearish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bearish')
+
+            pattern_bias = {
+                'recommendation': overall_rec.final_recommendation,
+                'confidence': overall_rec.overall_confidence,
+                'bullish_chart_count': bullish_chart,
+                'bearish_chart_count': bearish_chart,
+                'bullish_candle_count': bullish_candle,
+                'bearish_candle_count': bearish_candle,
+                'weekly_conflict': False  # Already handled in overall recommendation
+            }
+        except Exception as e:
+            # Fallback to pattern-only bias if overall recommendation fails
+            logger.warning(f"Could not get overall recommendation for stock {stock_id}, falling back to pattern bias: {e}")
+            pattern_bias = self._determine_pattern_bias(recent_patterns, recent_candles)
+
+            # Override recommendation if weekly trend conflicts (fallback logic)
+            if pattern_bias['recommendation'] == 'BUY' and weekly_trend['trend'] == 'bearish':
+                pattern_bias['recommendation'] = 'HOLD'
+                pattern_bias['confidence'] = pattern_bias['confidence'] * 0.5
+                pattern_bias['weekly_conflict'] = True
 
         # Calculate entry, stop loss, and take profit with swing trading context
         order_params = self._calculate_levels_v2(
@@ -911,18 +938,24 @@ class OrderCalculatorService:
             take_profit = entry_price + (stop_distance * risk_reward)
 
         # Cap TP if overextended from 200 SMA
-        if ma_context['overextended'] and ma_context['distance_from_sma200'] > 10:
+        if take_profit and ma_context['overextended'] and ma_context['distance_from_sma200'] and ma_context['distance_from_sma200'] > 10:
             max_tp = entry_price * 1.10  # Max 10% gain when overextended
             if take_profit > max_tp:
                 take_profit = max_tp
                 reasoning.append("TP capped - price overextended from 200 SMA")
 
         # Cap TP if price is above value area (extended from normal trading range)
-        if volume_profile and volume_profile.get('position_in_profile') == 'above_value_area':
+        if take_profit and volume_profile and volume_profile.get('position_in_profile') == 'above_value_area':
             max_tp_vp = entry_price * 1.08  # Max 8% gain when above value area
             if take_profit > max_tp_vp:
                 take_profit = max_tp_vp
                 reasoning.append("TP capped - price above value area (trading at premium)")
+
+        # Final safety check - ensure take_profit is never None
+        if take_profit is None:
+            stop_distance = abs(entry_price - stop_loss)
+            take_profit = entry_price + (stop_distance * 2.5)
+            reasoning.append("TP calculated using 2.5:1 R:R (fallback)")
 
         return {
             'entry_price': round(entry_price, 2),

@@ -169,6 +169,8 @@ StockAnalyzer/
 │   │   └── index.js
 │   ├── Dockerfile
 │   └── package.json
+├── backups/                       # Database backups
+│   └── README.md                  # Backup and restore instructions
 ├── database/
 │   └── init.sql                   # Database schema
 ├── docs/                          # Documentation
@@ -563,6 +565,44 @@ docker-compose exec backend ./migrate.sh downgrade
 ```
 
 📖 **Full Migration Guide**: See [docs/ALEMBIC_GUIDE.md](./docs/ALEMBIC_GUIDE.md) for detailed documentation
+
+### Database Backups
+
+Regular database backups are important to protect your stock data, detected patterns, and analysis history.
+
+**Quick Backup:**
+```bash
+# Create a backup (binary format - recommended)
+docker exec stock_analyzer_db pg_dump -U stockuser -d stock_analyzer -F c > backups/stock_analyzer_backup_$(date +%Y-%m-%d).dump
+
+# Create a backup (SQL format - human-readable)
+docker exec stock_analyzer_db pg_dump -U stockuser -d stock_analyzer --clean --if-exists > backups/stock_analyzer_backup_$(date +%Y-%m-%d).sql
+```
+
+**Quick Restore:**
+```bash
+# Stop backend first
+docker-compose stop backend
+
+# Restore from backup (SQL format)
+cat backups/stock_analyzer_backup_2025-10-22.sql | docker exec -i stock_analyzer_db psql -U stockuser -d stock_analyzer
+
+# Restart services
+docker-compose up -d backend
+```
+
+📖 **Full Backup Guide**: See [backups/README.md](./backups/README.md) for:
+- Detailed restore procedures
+- Automated backup setup (Task Scheduler / cron)
+- Binary vs SQL format comparison
+- Troubleshooting
+
+**What's Backed Up:**
+- All stock price data (OHLCV)
+- Detected patterns (candlestick & chart)
+- Technical indicators and analysis
+- ML predictions and performance metrics
+- User confirmations and settings
 
 ### Tables
 - **stocks** - Stock information (symbol, name, sector, industry)
