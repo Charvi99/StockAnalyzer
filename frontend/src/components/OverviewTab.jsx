@@ -1,8 +1,35 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import SignalRadar from './SignalRadar';
 import OrderCalculator from './OrderCalculator';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
 const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendationError }) => {
+  const [regimeData, setRegimeData] = useState(null);
+  const [regimeLoading, setRegimeLoading] = useState(false);
+
+  // Load market regime data
+  useEffect(() => {
+    const loadRegimeData = async () => {
+      if (!stock?.stock_id) return;
+
+      try {
+        setRegimeLoading(true);
+        const response = await axios.get(
+          `${API_URL}/api/v1/stocks/${stock.stock_id}/market-regime`
+        );
+        setRegimeData(response.data);
+      } catch (err) {
+        console.error('Error loading market regime for overview:', err);
+        // Silently fail - it's just for overview
+      } finally {
+        setRegimeLoading(false);
+      }
+    };
+
+    loadRegimeData();
+  }, [stock?.stock_id]);
   if (recommendationLoading) {
     return (
       <div className="overview-tab">
@@ -207,39 +234,43 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
             </div>
           )}
 
-          {/* Market Regime - NEW */}
-          <div className="stat-card highlight">
-            <div className="stat-card-header">
-              <span className="stat-icon">🔍</span>
-              <span className="stat-title">Market Regime</span>
-            </div>
-            <div className="stat-card-body">
-              <div className="stat-row">
-                <span className="stat-name">Available In</span>
-                <span className="stat-badge new">Risk Tools Tab</span>
+          {/* Market Regime - Show actual data */}
+          {regimeData && !regimeLoading && (
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <span className="stat-icon">🔍</span>
+                <span className="stat-title">Market Regime</span>
               </div>
-              <div className="stat-info">
-                TCR + MA + Volatility analysis shows if market is trending, channeling, or ranging
+              <div className="stat-card-body">
+                <div className="stat-row">
+                  <span className="stat-name">Structure</span>
+                  <span className={`stat-badge ${regimeData.regime}`}>
+                    {regimeData.regime === 'trend' ? 'TRENDING' :
+                     regimeData.regime === 'channel' ? 'CHANNELING' :
+                     regimeData.regime === 'range' ? 'RANGING' : 'N/A'}
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-name">Direction</span>
+                  <span className={`stat-badge ${regimeData.direction?.includes('bullish') ? 'buy' : regimeData.direction?.includes('bearish') ? 'sell' : 'hold'}`}>
+                    {regimeData.direction === 'bullish' ? 'BULLISH' :
+                     regimeData.direction === 'bearish' ? 'BEARISH' :
+                     regimeData.direction === 'bullish_weak' ? 'BULLISH (WEAK)' :
+                     regimeData.direction === 'bearish_weak' ? 'BEARISH (WEAK)' :
+                     'NEUTRAL'}
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-name">Volatility</span>
+                  <span className="stat-text">
+                    {regimeData.volatility_regime === 'low_vol' ? 'Low' :
+                     regimeData.volatility_regime === 'normal_vol' ? 'Normal' :
+                     regimeData.volatility_regime === 'high_vol' ? 'High' : 'N/A'}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-
-          {/* Risk Management Tools - NEW */}
-          <div className="stat-card highlight">
-            <div className="stat-card-header">
-              <span className="stat-icon">🔥</span>
-              <span className="stat-title">Risk Management</span>
-            </div>
-            <div className="stat-card-body">
-              <div className="stat-row">
-                <span className="stat-name">Available In</span>
-                <span className="stat-badge new">Risk Tools Tab</span>
-              </div>
-              <div className="stat-info">
-                Trailing stops, portfolio heat monitoring, and position sizing tools
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Reasoning */}
@@ -438,24 +469,19 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
           color: #92400e;
         }
 
-        .stat-badge.new {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          font-weight: 700;
-          letter-spacing: 0.5px;
+        .stat-badge.trend {
+          background: #d1fae5;
+          color: #065f46;
         }
 
-        .stat-card.highlight {
-          border: 2px solid #667eea;
-          background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+        .stat-badge.channel {
+          background: #dbeafe;
+          color: #1e40af;
         }
 
-        .stat-info {
-          font-size: 12px;
-          color: #6b7280;
-          line-height: 1.5;
-          margin-top: 8px;
-          font-style: italic;
+        .stat-badge.range {
+          background: #fef3c7;
+          color: #92400e;
         }
 
         .stat-number {

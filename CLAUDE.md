@@ -1,1 +1,0 @@
-- StockDetail.jsx is obsolite use StockDetailSideBySide.jsx
