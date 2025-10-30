@@ -3,6 +3,8 @@ from typing import Optional, List, Dict
 from sqlalchemy.orm import Session
 from app.models.stock import Stock, StockPrice
 from app.services.polygon_fetcher import PolygonFetcher
+from app.services.timeframe_service import TimeframeService
+from app.config.timeframe_config import TimeframeConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -51,53 +53,31 @@ class StockDataFetcher:
         return polygon.fetch_historical_data(symbol, period, interval, max_retries)
 
     @staticmethod
-    def save_stock_prices(db: Session, stock_id: int, prices_data: List[Dict]) -> int:
+    def save_stock_prices(db: Session, stock_id: int, prices_data: List[Dict], timeframe: str = "1d") -> int:
         """
-        Save stock prices to database
+        Save stock prices to database with timeframe support
 
         Args:
             db: Database session
             stock_id: ID of the stock
-            prices_data: List of price dictionaries
+            prices_data: List of price dictionaries (must include 'timeframe' or use timeframe param)
+            timeframe: Default timeframe if not in price_data (default: "1d")
 
         Returns:
             Number of records saved
         """
-        saved_count = 0
-
+        # Use TimeframeService for saving (handles upserts properly)
         try:
-            for price_data in prices_data:
-                # Check if price already exists
-                existing = db.query(StockPrice).filter(
-                    StockPrice.stock_id == stock_id,
-                    StockPrice.timestamp == price_data['timestamp']
-                ).first()
+            # Extract timeframe from first record if available, otherwise use parameter
+            tf = prices_data[0].get('timeframe', timeframe) if prices_data else timeframe
 
-                if existing:
-                    # Update existing record
-                    existing.open = price_data['open']
-                    existing.high = price_data['high']
-                    existing.low = price_data['low']
-                    existing.close = price_data['close']
-                    existing.volume = price_data['volume']
-                    existing.adjusted_close = price_data['adjusted_close']
-                else:
-                    # Create new record
-                    new_price = StockPrice(
-                        stock_id=stock_id,
-                        timestamp=price_data['timestamp'],
-                        open=price_data['open'],
-                        high=price_data['high'],
-                        low=price_data['low'],
-                        close=price_data['close'],
-                        volume=price_data['volume'],
-                        adjusted_close=price_data['adjusted_close']
-                    )
-                    db.add(new_price)
-                    saved_count += 1
+            saved_count = TimeframeService.save_price_data(
+                db=db,
+                stock_id=stock_id,
+                timeframe=tf,
+                prices=prices_data
+            )
 
-            db.commit()
-            logger.info(f"Saved {saved_count} new price records for stock_id {stock_id}")
             return saved_count
 
         except Exception as e:
@@ -111,7 +91,7 @@ class StockDataFetcher:
         stock_id: int,
         symbol: str,
         period: str = "1y",
-        interval: str = "1d"
+        interval: str = "1h"  # Changed default to 1h (base timeframe)
     ) -> Dict:
         """
         Fetch historical data and store in database (convenience method)
@@ -121,12 +101,27 @@ class StockDataFetcher:
             stock_id: ID of the stock
             symbol: Stock ticker symbol
             period: Data period
-            interval: Data interval
+            interval: Data interval (default: 1h for smart aggregation)
 
         Returns:
             Dictionary with operation results
         """
+        # Validate interval for base timeframe
+        if interval not in TimeframeConfig.ALL_TIMEFRAMES:
+            logger.warning(f"Interval {interval} not in configured timeframes, using 1h")
+            interval = TimeframeConfig.BASE_TIMEFRAME
+
+        # Only fetch base timeframe (1h), not aggregated timeframes
+        if TimeframeConfig.is_aggregated(interval):
+            return {
+                'success': False,
+                'message': f'{interval} is aggregated from {TimeframeConfig.BASE_TIMEFRAME}. Only fetch base timeframe.',
+                'records_fetched': 0,
+                'records_saved': 0
+            }
+
         # Fetch data
+        logger.info(f"Fetching {period} {interval} data for {symbol}")
         prices_data = StockDataFetcher.fetch_historical_data(symbol, period, interval)
 
         if not prices_data:
@@ -137,15 +132,18 @@ class StockDataFetcher:
                 'records_saved': 0
             }
 
-        # Save to database
+        # Save to database with timeframe
         try:
-            saved_count = StockDataFetcher.save_stock_prices(db, stock_id, prices_data)
+            saved_count = StockDataFetcher.save_stock_prices(
+                db, stock_id, prices_data, timeframe=interval
+            )
 
             return {
                 'success': True,
-                'message': f'Successfully fetched and stored data for {symbol}',
+                'message': f'Successfully fetched and stored {interval} data for {symbol}',
                 'records_fetched': len(prices_data),
-                'records_saved': saved_count
+                'records_saved': saved_count,
+                'timeframe': interval
             }
         except Exception as e:
             return {

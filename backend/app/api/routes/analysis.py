@@ -3,7 +3,7 @@
 API routes for technical analysis and predictions
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -22,6 +22,7 @@ from app.schemas.analysis import (
 )
 from app.services.technical_indicators import TechnicalIndicators
 from app.services.order_calculator import OrderCalculatorService
+from app.services.market_regime import MarketRegimeService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -637,6 +638,20 @@ def get_dashboard_analysis(db: Session = Depends(get_db)):
 
     dashboard_data = []
     for stock in stocks:
+        # Pre-check: Skip analysis if no price data available
+        prices = sorted(stock.prices, key=lambda p: p.timestamp) if stock.prices else []
+        if not prices or len(prices) < 50:
+            # Skip warning for stocks without data - just return error response silently
+            dashboard_data.append(RecommendationResponse(
+                stock_id=stock.id,
+                symbol=stock.symbol,
+                name=stock.name,
+                sector=stock.sector,
+                industry=stock.industry,
+                error=f"Insufficient price data for analysis. Have {len(prices)}, need at least 50."
+            ))
+            continue
+
         try:
             recommendation = _get_recommendation_for_stock(stock, db)
             dashboard_data.append(recommendation)
@@ -684,6 +699,20 @@ def get_dashboard_analysis_chunk(
 
     dashboard_data = []
     for stock in stocks:
+        # Pre-check: Skip analysis if no price data available
+        prices = sorted(stock.prices, key=lambda p: p.timestamp) if stock.prices else []
+        if not prices or len(prices) < 50:
+            # Skip warning for stocks without data - just return error response silently
+            dashboard_data.append(RecommendationResponse(
+                stock_id=stock.id,
+                symbol=stock.symbol,
+                name=stock.name,
+                sector=stock.sector,
+                industry=stock.industry,
+                error=f"Insufficient price data for analysis. Have {len(prices)}, need at least 50."
+            ))
+            continue
+
         try:
             recommendation = _get_recommendation_for_stock(stock, db)
             dashboard_data.append(recommendation)
@@ -943,3 +972,114 @@ async def calculate_order_parameters(
         logger.error(f"Order calculator error for stock {stock_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to calculate order parameters: {str(e)}")
 
+
+
+@router.post("/stocks/{stock_id}/trailing-stop")
+async def calculate_trailing_stop(
+    stock_id: int,
+    entry_price: float = Query(..., description="Original entry price"),
+    current_price: float = Query(..., description="Current market price"),
+    direction: str = Query(default='long', regex="^(long|short)$", description="Position direction"),
+    trailing_atr_multiplier: float = Query(default=1.0, ge=0.5, le=3.0, description="ATR multiplier for trailing stop"),
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate trailing stop-loss for an open position
+
+    Uses ATR-based trailing stop that protects profits while giving the trade room to breathe
+    """
+    try:
+        calculator = OrderCalculatorService(db)
+        result = calculator.calculate_trailing_stop_for_position(
+            stock_id=stock_id,
+            entry_price=entry_price,
+            current_price=current_price,
+            direction=direction,
+            trailing_atr_multiplier=trailing_atr_multiplier
+        )
+        return result
+    except ValueError as e:
+        logger.error(f"Trailing stop calculator error for stock {stock_id}: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Trailing stop calculator error for stock {stock_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to calculate trailing stop: {str(e)}")
+
+
+@router.post("/portfolio/risk")
+async def calculate_portfolio_risk(
+    open_positions: list[dict] = Body(..., description="List of open positions with entry_price, stop_loss, position_size"),
+    account_capital: float = Body(..., ge=100, description="Total account capital"),
+    max_portfolio_heat_percent: float = Body(default=6.0, ge=1.0, le=20.0, description="Maximum portfolio risk percentage"),
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate total portfolio risk (heat) across all open positions
+
+    Helps prevent over-leveraging by monitoring aggregate risk
+    """
+    try:
+        calculator = OrderCalculatorService(db)
+        result = calculator.calculate_portfolio_risk(
+            open_positions=open_positions,
+            account_capital=account_capital,
+            max_portfolio_heat_percent=max_portfolio_heat_percent
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Portfolio risk calculator error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to calculate portfolio risk: {str(e)}")
+
+
+@router.get("/stocks/{stock_id}/market-regime")
+async def get_market_regime(
+    stock_id: int,
+    lookback_periods: int = Query(default=100, ge=50, le=500, description="Number of periods to analyze"),
+    db: Session = Depends(get_db)
+):
+    """
+    Detect market regime using TCR (Trend/Channel/Range) + MA slope + Volatility analysis
+
+    Returns:
+        - regime: 'trend', 'channel', or 'range'
+        - direction: 'bullish', 'bearish', 'neutral', 'bullish_weak', 'bearish_weak'
+        - volatility_regime: 'low_vol', 'normal_vol', 'high_vol'
+        - adx: Average Directional Index (trend strength)
+        - ma20_slope: 20-period MA slope (percentage)
+        - ma50_slope: 50-period MA slope (percentage)
+        - recommendation: Trading recommendation based on regime
+        - reasoning: Explanation of the recommendation
+        - suggested_strategy: Strategy type to use
+
+    Regime Classification:
+        - Trend: ADX > 25 (strong directional movement)
+        - Channel: ADX 20-25 (moderate directional movement)
+        - Range: ADX < 20 (sideways movement)
+
+    Direction Classification:
+        - Bullish: MA20 and MA50 slopes positive + +DI > -DI
+        - Bearish: MA20 and MA50 slopes negative + -DI > +DI
+        - Neutral: Mixed signals
+
+    Volatility Classification:
+        - Low: ATR below 33rd percentile
+        - Normal: ATR between 33rd and 67th percentile
+        - High: ATR above 67th percentile
+    """
+    # Check if stock exists
+    stock = db.query(Stock).filter(Stock.id == stock_id).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"Stock with ID {stock_id} not found")
+
+    try:
+        regime_service = MarketRegimeService(db)
+        result = regime_service.detect_market_regime(
+            stock_id=stock_id,
+            lookback_periods=lookback_periods
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Market regime detection error for stock {stock_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to detect market regime: {str(e)}")

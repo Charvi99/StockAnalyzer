@@ -1649,8 +1649,7 @@ Phase 2C (Smart Technical Indicator Alignment) has been successfully completed! 
 | 2A | ✅ Complete | Weekly trend filter overrides BUY in bearish trend |
 | 2B | ✅ Complete | Chart patterns (10+ days) + Candlestick patterns (swing points) |
 | 2C | ✅ Complete | Smart technical alignment (preserves pullback opportunities) |
-| 2D | ⏳ Optional | ML retraining for 5-20 day predictions |
-| 2E | ⏳ Optional | Sentiment 7-day rolling average |
+
 
 **🎯 What This Achieves:**
 1. ✅ **Preserves entry opportunities:** RSI oversold in uptrend = BOOSTED confidence

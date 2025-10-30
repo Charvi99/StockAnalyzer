@@ -20,7 +20,7 @@ class ChartPatternDetectionRequest(BaseModel):
 
 
 class ChartPatternDetected(BaseModel):
-    """Schema for a detected chart pattern"""
+    """Schema for a detected chart pattern with multi-timeframe support"""
     pattern_name: str
     pattern_type: str  # reversal, continuation
     signal: str  # bullish, bearish, neutral
@@ -32,6 +32,21 @@ class ChartPatternDetected(BaseModel):
     confidence_score: float
     key_points: Dict[str, Any]
     trendlines: Dict[str, Any]
+
+    # Multi-timeframe fields
+    primary_timeframe: Optional[str] = Field(default='1d', description="Primary timeframe pattern detected on")
+    detected_on_timeframes: Optional[List[str]] = Field(default=['1d'], description="List of timeframes this pattern appears on")
+    confirmation_level: Optional[int] = Field(default=1, ge=1, le=3, description="Number of timeframes confirming this pattern (1-3)")
+    base_confidence: Optional[float] = Field(default=None, description="Original confidence before multi-timeframe adjustment")
+    adjusted_confidence: Optional[float] = Field(default=None, description="Confidence after multi-timeframe boost")
+    alignment_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="How well pattern aligns across timeframes (0.0-1.0)")
+    is_multi_timeframe_confirmed: Optional[bool] = Field(default=False, description="True if confirmed on 2+ timeframes")
+
+    # Volume analysis fields (Phase 2E)
+    volume_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Volume quality score (0.0-1.0)")
+    volume_quality: Optional[str] = Field(default=None, description="Volume quality label (excellent/good/average/weak)")
+    volume_ratio: Optional[float] = Field(default=None, description="Volume ratio at pattern completion (current/average)")
+    vwap_position: Optional[str] = Field(default=None, description="Price position relative to VWAP (above/below)")
 
 
 class ChartPatternDetectionResponse(BaseModel):
@@ -64,6 +79,12 @@ class ChartPatternInDB(BaseModel):
     confidence_score: float
     key_points: Optional[Dict[str, Any]] = None
     trendlines: Optional[Dict[str, Any]] = None
+    # Multi-timeframe fields
+    primary_timeframe: Optional[str] = '1d'
+    detected_on_timeframes: Optional[List[str]] = ['1d']
+    confirmation_level: Optional[int] = 1
+    base_confidence: Optional[float] = None
+    alignment_score: Optional[float] = None
     user_confirmed: Optional[bool] = None
     confirmed_at: Optional[datetime] = None
     confirmed_by: Optional[str] = None

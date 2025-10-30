@@ -41,6 +41,56 @@ class CandlestickPatternDetector:
         # Average body size for reference (20-period rolling)
         df['avg_body'] = df['body'].rolling(window=20, min_periods=1).mean()
 
+        # PHASE 1.1: Volume confirmation metrics
+        # Average volume over 20 periods
+        df['avg_volume'] = df['volume'].rolling(window=20, min_periods=1).mean()
+        # Volume ratio (current vs average)
+        df['volume_ratio'] = df['volume'] / df['avg_volume'].replace(0, 1)
+
+    def _calculate_volume_confidence_boost(self, candle_idx: int, pattern_type: str) -> Tuple[float, str]:
+        """
+        Calculate volume-based confidence boost for a pattern
+
+        Args:
+            candle_idx: Index of the pattern candle
+            pattern_type: 'bullish' or 'bearish'
+
+        Returns:
+            Tuple of (confidence_multiplier, volume_quality_label)
+        """
+        df = self.df
+        candle = df.iloc[candle_idx]
+
+        volume_ratio = candle['volume_ratio']
+
+        # Volume quality tiers (matching your chart pattern system)
+        if volume_ratio >= 2.0:
+            # Excellent: 2x+ average volume, strong confirmation
+            multiplier = 1.3
+            quality = 'excellent'
+        elif volume_ratio >= 1.5:
+            # Good: 1.5-2x average volume, decent support
+            multiplier = 1.15
+            quality = 'good'
+        elif volume_ratio >= 1.0:
+            # Average: 1-1.5x average volume, moderate
+            multiplier = 1.0
+            quality = 'average'
+        else:
+            # Weak: <1x average volume, CAUTION
+            multiplier = 0.7
+            quality = 'weak'
+
+        # For reversal patterns, check if next 1-2 candles have increasing volume
+        # (confirming the reversal)
+        if candle_idx < len(df) - 2:
+            next_candle_volume = df.iloc[candle_idx + 1]['volume']
+            if next_candle_volume > candle['volume'] * 1.1:
+                # Follow-through volume increases confidence
+                multiplier *= 1.05
+
+        return multiplier, quality
+
     def detect_all_patterns(self) -> List[Dict]:
         """Detect all 40 candlestick patterns"""
         patterns = []
@@ -114,11 +164,19 @@ class CandlestickPatternDetector:
             )
 
             if is_hammer:
+                # PHASE 1.1: Apply volume confirmation
+                base_confidence = 0.75
+                volume_multiplier, volume_quality = self._calculate_volume_confidence_boost(i, 'bullish')
+                final_confidence = min(base_confidence * volume_multiplier, 0.95)
+
                 patterns.append({
                     'pattern_name': 'Hammer',
                     'pattern_type': 'bullish',
                     'timestamp': candle['timestamp'],
-                    'confidence_score': 0.75,
+                    'confidence_score': final_confidence,
+                    'base_confidence': base_confidence,  # NEW: Original confidence
+                    'volume_quality': volume_quality,    # NEW: Volume quality label
+                    'volume_ratio': float(candle['volume_ratio']),  # NEW: Volume ratio
                     'candle_data': self._get_candle_data(i, 1)
                 })
 

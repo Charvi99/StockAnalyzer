@@ -57,16 +57,16 @@ export const fetchStockData = async (stockId, period = '1y', interval = '1d') =>
   return response.data;
 };
 
-export const getStockPrices = async (stockId, limit = 100, skip = 0) => {
+export const getStockPrices = async (stockId, limit = 100, skip = 0, timeframe = '1d') => {
   const response = await api.get(`/api/v1/stocks/${stockId}/prices`, {
-    params: { limit, skip }
+    params: { limit, skip, timeframe }
   });
   return response.data;
 };
 
-export const getStockPricesBySymbol = async (symbol, limit = 100, skip = 0) => {
+export const getStockPricesBySymbol = async (symbol, limit = 100, skip = 0, timeframe = '1d') => {
   const response = await api.get(`/api/v1/stocks/symbol/${symbol}/prices`, {
-    params: { limit, skip }
+    params: { limit, skip, timeframe }
   });
   return response.data;
 };

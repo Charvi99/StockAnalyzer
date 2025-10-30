@@ -14,6 +14,13 @@ import logging
 
 from app.models.stock import Stock, StockPrice, ChartPattern, CandlestickPattern
 from app.services.technical_indicators import TechnicalIndicators
+from app.utils.risk_utils import (
+    calculate_atr,
+    calculate_position_size,
+    calculate_risk_reward_ratio,
+    calculate_trailing_stop,
+    calculate_portfolio_heat
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,20 +141,25 @@ class OrderCalculatorService:
             weekly_trend=weekly_trend
         )
 
-        # Calculate position sizing
-        risk_amount = account_size * (risk_percentage / 100)
+        # Calculate position sizing using shared utility
+        position_sizing = calculate_position_size(
+            account_capital=account_size,
+            risk_per_trade_percent=risk_percentage,
+            entry_price=order_params['entry_price'],
+            stop_loss=order_params['stop_loss'],
+            max_position_value_percent=20.0
+        )
+
+        # Calculate risk/reward using shared utility
+        risk_reward = calculate_risk_reward_ratio(
+            entry_price=order_params['entry_price'],
+            stop_loss=order_params['stop_loss'],
+            take_profit=order_params['take_profit']
+        )
+
+        # Calculate percentages
         stop_loss_distance = abs(order_params['entry_price'] - order_params['stop_loss'])
-
-        if stop_loss_distance > 0:
-            position_size = risk_amount / stop_loss_distance
-            position_value = position_size * order_params['entry_price']
-        else:
-            position_size = 0
-            position_value = 0
-
-        # Calculate risk/reward
         profit_distance = abs(order_params['take_profit'] - order_params['entry_price'])
-        risk_reward = profit_distance / stop_loss_distance if stop_loss_distance > 0 else 0
 
         return {
             'symbol': stock.symbol,
@@ -158,11 +170,12 @@ class OrderCalculatorService:
             'stop_loss': order_params['stop_loss'],
             'take_profit': order_params['take_profit'],
             'risk_reward_ratio': round(risk_reward, 2),
-            'position_size': round(position_size, 2),
-            'position_value': round(position_value, 2),
-            'risk_amount': round(risk_amount, 2),
+            'position_size': position_sizing['position_size'],
+            'position_value': position_sizing['position_value'],
+            'risk_amount': position_sizing['risk_amount'],
             'stop_loss_percentage': round((stop_loss_distance / current_price) * 100, 2),
             'take_profit_percentage': round((profit_distance / current_price) * 100, 2),
+            'position_warnings': position_sizing['warnings'],
             'atr': round(atr, 2) if atr else None,
             'nearest_support': support_resistance['nearest_support'],
             'nearest_resistance': support_resistance['nearest_resistance'],
@@ -221,7 +234,7 @@ class OrderCalculatorService:
         return patterns
 
     def _calculate_atr(self, stock_id: int, period: int = 14) -> Optional[float]:
-        """Calculate Average True Range for volatility"""
+        """Calculate Average True Range for volatility using shared utility"""
         prices = self.db.query(StockPrice).filter(
             StockPrice.stock_id == stock_id
         ).order_by(StockPrice.timestamp.desc()).limit(period + 1).all()
@@ -232,19 +245,12 @@ class OrderCalculatorService:
         df = pd.DataFrame([{
             'high': float(p.high),
             'low': float(p.low),
-            'close': float(p.close)
+            'close': float(p.close),
+            'open': float(p.open)
         } for p in reversed(prices)])
 
-        # Calculate True Range
-        df['prev_close'] = df['close'].shift(1)
-        df['tr1'] = df['high'] - df['low']
-        df['tr2'] = abs(df['high'] - df['prev_close'])
-        df['tr3'] = abs(df['low'] - df['prev_close'])
-        df['true_range'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
-
-        # Calculate ATR
-        atr = df['true_range'].tail(period).mean()
-        return float(atr)
+        # Use shared utility function
+        return calculate_atr(df, period)
 
     def _calculate_support_resistance(self, stock_id: int, lookback_days: int = 90) -> Dict:
         """Calculate nearest support and resistance levels"""
@@ -443,10 +449,10 @@ class OrderCalculatorService:
             status = 'very_low'
 
         return {
-            'percentile': round(percentile, 1),
+            'percentile': round(float(percentile), 1),
             'status': status,
-            'atr_avg': np.mean(atrs),
-            'atr_current': current_atr
+            'atr_avg': float(np.mean(atrs)),
+            'atr_current': float(current_atr)
         }
 
     def _calculate_volume_weighted_sr(self, df: pd.DataFrame, current_price: float) -> Dict:
@@ -723,7 +729,7 @@ class OrderCalculatorService:
             'sma_200': round(sma_200, 2) if sma_200 else None,
             'distance_from_sma200': round(distance_from_sma200, 2) if distance_from_sma200 else None,
             'ma_trend': ma_trend,
-            'overextended': overextended
+            'overextended': bool(overextended)  # Convert numpy.bool_ to Python bool
         }
 
     def _check_weekly_trend(self, stock_id: int) -> Dict:
@@ -1045,3 +1051,72 @@ class OrderCalculatorService:
             'take_profit': round(take_profit, 2),
             'reasoning': reasoning
         }
+
+    def calculate_trailing_stop_for_position(
+        self,
+        stock_id: int,
+        entry_price: float,
+        current_price: float,
+        direction: str = 'long',
+        trailing_atr_multiplier: float = 1.0
+    ) -> Dict:
+        """
+        Calculate trailing stop for an open position
+
+        Args:
+            stock_id: Stock ID
+            entry_price: Original entry price
+            current_price: Current market price
+            direction: 'long' or 'short'
+            trailing_atr_multiplier: ATR multiplier for trailing stop
+
+        Returns:
+            Dictionary with trailing stop data
+        """
+        # Get recent price data for ATR calculation
+        prices = self.db.query(StockPrice).filter(
+            StockPrice.stock_id == stock_id
+        ).order_by(StockPrice.timestamp.desc()).limit(30).all()
+
+        if not prices:
+            raise ValueError(f"No price data for stock {stock_id}")
+
+        df = pd.DataFrame([{
+            'high': float(p.high),
+            'low': float(p.low),
+            'close': float(p.close),
+            'open': float(p.open)
+        } for p in reversed(prices)])
+
+        # Use shared utility
+        return calculate_trailing_stop(
+            df=df,
+            entry_price=entry_price,
+            current_price=current_price,
+            direction=direction,
+            trailing_atr_multiplier=trailing_atr_multiplier
+        )
+
+    def calculate_portfolio_risk(
+        self,
+        open_positions: list[Dict],
+        account_capital: float,
+        max_portfolio_heat_percent: float = 6.0
+    ) -> Dict:
+        """
+        Calculate total portfolio risk across all open positions
+
+        Args:
+            open_positions: List of dicts with 'entry_price', 'stop_loss', 'position_size'
+            account_capital: Total account capital
+            max_portfolio_heat_percent: Maximum allowed portfolio heat (default: 6%)
+
+        Returns:
+            Dictionary with portfolio risk metrics
+        """
+        # Use shared utility
+        return calculate_portfolio_heat(
+            open_positions=open_positions,
+            account_capital=account_capital,
+            max_portfolio_heat_percent=max_portfolio_heat_percent
+        )

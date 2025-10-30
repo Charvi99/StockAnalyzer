@@ -182,6 +182,18 @@ const OrderCalculator = ({ stockId, symbol }) => {
             </div>
           )}
 
+          {/* Position Warnings */}
+          {orderData.position_warnings && orderData.position_warnings.length > 0 && (
+            <div className="warnings-section">
+              <div className="warnings-title">⚠️ Position Warnings:</div>
+              <ul className="warnings-list">
+                {orderData.position_warnings.map((warning, idx) => (
+                  <li key={idx}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Reasoning */}
           {orderData.reasoning && orderData.reasoning.length > 0 && (
             <div className="reasoning">
@@ -420,6 +432,32 @@ const OrderCalculator = ({ stockId, symbol }) => {
 
         .sr-level.atr .sr-value {
           color: #667eea;
+        }
+
+        .warnings-section {
+          background: #fef3c7;
+          padding: 12px;
+          border-radius: 8px;
+          border-left: 4px solid #f59e0b;
+        }
+
+        .warnings-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: #92400e;
+          margin-bottom: 8px;
+        }
+
+        .warnings-list {
+          margin: 0;
+          padding-left: 20px;
+          font-size: 13px;
+          color: #92400e;
+          line-height: 1.6;
+        }
+
+        .warnings-list li {
+          margin-bottom: 4px;
         }
 
         .reasoning {

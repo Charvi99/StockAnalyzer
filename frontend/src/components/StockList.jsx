@@ -3,6 +3,7 @@ import { getDashboardAnalysis, getDashboardAnalysisChunk, getStocks, updateStock
 import StockDetailSideBySide from './StockDetailSideBySide';
 import AddStockModal from './AddStockModal';
 import StockCard from './StockCard';
+import IndicatorInfo from './IndicatorInfo';
 
 // Sector colors matching StockCard
 const SECTOR_CONFIG = {
@@ -41,6 +42,7 @@ const StockList = () => {
   const [batchFetching, setBatchFetching] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentSymbol: '' });
   const [batchDetecting, setBatchDetecting] = useState(false);
+  const [showInvestopedia, setShowInvestopedia] = useState(false);
   const [detectProgress, setDetectProgress] = useState({ current: 0, total: 0, currentSymbol: '', totalPatterns: 0 });
 
   // Progressive loading state
@@ -170,8 +172,8 @@ const StockList = () => {
     }
   };
 
-  const handleBatchFetch5Years = async () => {
-    if (!window.confirm(`Fetch 5 years of historical data for all ${stocks.length} stocks?\n\nThis will take approximately ${Math.ceil(stocks.length * 2 / 60)} minutes.\n\nYou can continue using the app while this runs in the background.`)) {
+  const handleBatchFetch6Months = async () => {
+    if (!window.confirm(`Fetch 6 months of 1-hour data for all ${stocks.length} stocks?\n\nThis will take approximately ${Math.ceil(stocks.length * 2 / 60)} minutes.\n\nYou can continue using the app while this runs in the background.`)) {
       return;
     }
 
@@ -191,7 +193,8 @@ const StockList = () => {
       });
 
       try {
-        await fetchStockData(stock.stock_id, '5y', '1d');
+        // Fetch 6 months of 1-hour data for swing trading
+        await fetchStockData(stock.stock_id, '6mo', '1h');
         successful++;
         console.log(`✓ ${stock.symbol} (${i + 1}/${stocks.length})`);
       } catch (err) {
@@ -254,19 +257,19 @@ const StockList = () => {
         </div>
         <div className="header-actions">
           <button
-            onClick={() => setGroupBySector(!groupBySector)}
-            className="toggle-group-btn"
-            title={groupBySector ? "Show all stocks" : "Group by sector"}
-          >
-            {groupBySector ? '📋 Show All' : '📊 Group by Sector'}
-          </button>
-          <button
-            onClick={handleBatchFetch5Years}
+            onClick={handleBatchFetch6Months}
             className="debug-btn"
             disabled={batchFetching || stocks.length === 0}
-            title="Fetch 5 years of historical data for all stocks"
+            title="Fetch 6 months"
           >
-            {batchFetching ? '⏳ Fetching...' : '🔧 Fetch 5Y Data'}
+            {batchFetching ? '⏳ Fetching...' : '🔧 Fetch 6M 1h Data'}
+          </button>
+          <button
+            onClick={() => setShowInvestopedia(true)}
+            className="investopedia-btn-main"
+            title="Learn about indicators, patterns & techniques"
+          >
+            📚 Investopedia
           </button>
           <button onClick={() => setShowAddModal(true)} className="add-stock-btn">
             + Add Stock
@@ -426,25 +429,6 @@ const StockList = () => {
         .header-actions {
           display: flex;
           gap: 12px;
-        }
-
-        .toggle-group-btn {
-          background: white;
-          color: #667eea;
-          border: 2px solid #667eea;
-          padding: 12px 20px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .toggle-group-btn:hover {
-          background: #667eea;
-          color: white;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
         .debug-btn {
@@ -626,17 +610,38 @@ const StockList = () => {
             flex-direction: column;
           }
 
-          .toggle-group-btn,
           .debug-btn,
-          .add-stock-btn {
+          .add-stock-btn,
+          .investopedia-btn-main {
             width: 100%;
           }
 
           .stocks-grid {
             grid-template-columns: 1fr;
           }
+
+          /* Investopedia Modal Styles */
+          .investopedia-btn-main {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+          }
+
+          .investopedia-btn-main:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+          }
         }
       `}</style>
+
+      {/* Investopedia Modal */}
+      {showInvestopedia && <IndicatorInfo onClose={() => setShowInvestopedia(false)} />}
     </div>
   );
 };

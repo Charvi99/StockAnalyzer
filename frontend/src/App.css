@@ -485,3 +485,177 @@ section {
   font-size: 0.8rem;
   color: #666;
 }
+
+/* Fetch Controls Styles */
+.fetch-hint {
+  margin: 8px 0 15px 0;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+}
+
+/* Timeframe Selector Styles */
+.timeframe-selector {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border: 2px solid #667eea;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.timeframe-selector h4 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.timeframe-hint {
+  margin: 0 0 15px 0;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+}
+
+.timeframe-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.timeframe-btn {
+  flex: 1;
+  min-width: 100px;
+  padding: 12px 20px;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.timeframe-btn:hover {
+  background: #f0f0f0;
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+}
+
+.timeframe-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.timeframe-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Multi-Timeframe Pattern Badge Styles */
+.multi-timeframe-badge {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px !important;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 20px;
+  font-weight: 600;
+  color: white !important;
+  box-shadow: 0 2px 6px rgba(245, 87, 108, 0.3);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.mtf-badge-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mtf-badge-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.mtf-badge-detail {
+  font-size: 10px;
+  opacity: 0.9;
+  font-weight: 400;
+}
+
+/* Pulsing glow animation for multi-timeframe badges */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 2px 6px rgba(245, 87, 108, 0.3);
+  }
+  50% {
+    box-shadow: 0 2px 12px rgba(245, 87, 108, 0.6);
+  }
+}
+
+/* Pattern Filter Styles */
+.pattern-filters {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  border: 1px solid #e5e7eb;
+}
+
+.filter-group {
+  margin-bottom: 15px;
+}
+
+.filter-group:last-child {
+  margin-bottom: 0;
+}
+
+.filter-group label {
+  display: block;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.filter-btn {
+  padding: 8px 16px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  color: #333;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.filter-btn:hover {
+  background: #f0f0f0;
+  border-color: #667eea;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.15);
+}
+
+.filter-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  transform: scale(1.02);
+  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+
+.filter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

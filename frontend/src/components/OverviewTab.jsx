@@ -206,6 +206,40 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
               </div>
             </div>
           )}
+
+          {/* Market Regime - NEW */}
+          <div className="stat-card highlight">
+            <div className="stat-card-header">
+              <span className="stat-icon">🔍</span>
+              <span className="stat-title">Market Regime</span>
+            </div>
+            <div className="stat-card-body">
+              <div className="stat-row">
+                <span className="stat-name">Available In</span>
+                <span className="stat-badge new">Risk Tools Tab</span>
+              </div>
+              <div className="stat-info">
+                TCR + MA + Volatility analysis shows if market is trending, channeling, or ranging
+              </div>
+            </div>
+          </div>
+
+          {/* Risk Management Tools - NEW */}
+          <div className="stat-card highlight">
+            <div className="stat-card-header">
+              <span className="stat-icon">🔥</span>
+              <span className="stat-title">Risk Management</span>
+            </div>
+            <div className="stat-card-body">
+              <div className="stat-row">
+                <span className="stat-name">Available In</span>
+                <span className="stat-badge new">Risk Tools Tab</span>
+              </div>
+              <div className="stat-info">
+                Trailing stops, portfolio heat monitoring, and position sizing tools
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Reasoning */}
@@ -402,6 +436,26 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
         .stat-badge.hold {
           background: #fef3c7;
           color: #92400e;
+        }
+
+        .stat-badge.new {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+
+        .stat-card.highlight {
+          border: 2px solid #667eea;
+          background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+        }
+
+        .stat-info {
+          font-size: 12px;
+          color: #6b7280;
+          line-height: 1.5;
+          margin-top: 8px;
+          font-style: italic;
         }
 
         .stat-number {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { detectPatterns, getPatterns, confirmPattern, deletePattern } from '../services/api';
+import { detectPatterns, getPatterns } from '../services/api';
 
-const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUpdated }) => {
+const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUpdated, onPatternHover, onPatternLeave }) => {
   const [patterns, setPatterns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -61,34 +61,6 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
     }
   };
 
-  const handleConfirmPattern = async (patternId, confirmed) => {
-    try {
-      await confirmPattern(patternId, confirmed, '', 'user');
-
-      // Update local state
-      setPatterns(prev => prev.map(p =>
-        p.id === patternId
-          ? { ...p, user_confirmed: confirmed, confirmed_at: new Date().toISOString() }
-          : p
-      ));
-    } catch (err) {
-      console.error('Error confirming pattern:', err);
-      alert('Failed to confirm pattern');
-    }
-  };
-
-  const handleDeletePattern = async (patternId) => {
-    if (!window.confirm('Are you sure you want to delete this pattern?')) return;
-
-    try {
-      await deletePattern(patternId);
-      setPatterns(prev => prev.filter(p => p.id !== patternId));
-    } catch (err) {
-      console.error('Error deleting pattern:', err);
-      alert('Failed to delete pattern');
-    }
-  };
-
   const getPatternTypeColor = (type) => {
     switch (type) {
       case 'bullish': return '#28a745';
@@ -101,14 +73,33 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
     return type === 'bullish' ? '📈' : type === 'bearish' ? '📉' : '➖';
   };
 
-  const filteredPatterns = patterns.filter(p => {
+  // Group patterns by timestamp and keep only the most confident one per timestamp
+  const deduplicatePatterns = (patternsArray) => {
+    const patternsByTimestamp = {};
+
+    patternsArray.forEach(pattern => {
+      const timestamp = new Date(pattern.timestamp).toISOString();
+
+      if (!patternsByTimestamp[timestamp]) {
+        patternsByTimestamp[timestamp] = pattern;
+      } else {
+        // Keep the pattern with higher confidence
+        if (pattern.confidence_score > patternsByTimestamp[timestamp].confidence_score) {
+          patternsByTimestamp[timestamp] = pattern;
+        }
+      }
+    });
+
+    return Object.values(patternsByTimestamp);
+  };
+
+  // First deduplicate, then filter by type
+  const deduplicatedPatterns = deduplicatePatterns(patterns);
+
+  const filteredPatterns = deduplicatedPatterns.filter(p => {
     if (filterType === 'all') return true;
     return p.pattern_type === filterType;
   });
-
-  const pendingCount = patterns.filter(p => p.user_confirmed === null).length;
-  const confirmedCount = patterns.filter(p => p.user_confirmed === true).length;
-  const rejectedCount = patterns.filter(p => p.user_confirmed === false).length;
 
   return (
     <div className="candlestick-patterns">
@@ -116,8 +107,8 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
         <div className="header-title">
           <span className="header-icon">🕯️</span>
           <h3>Candlestick Patterns</h3>
-          {patterns.length > 0 && (
-            <span className="pattern-count">({patterns.length})</span>
+          {deduplicatedPatterns.length > 0 && (
+            <span className="pattern-count">({deduplicatedPatterns.length})</span>
           )}
         </div>
         <div className="header-controls" onClick={(e) => e.stopPropagation()}>
@@ -164,33 +155,29 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
               className={`filter-btn ${filterType === 'all' ? 'active' : ''}`}
               onClick={() => setFilterType('all')}
             >
-              All ({patterns.length})
+              All ({deduplicatedPatterns.length})
             </button>
             <button
               className={`filter-btn ${filterType === 'bullish' ? 'active' : ''}`}
               onClick={() => setFilterType('bullish')}
             >
-              📈 Bullish ({patterns.filter(p => p.pattern_type === 'bullish').length})
+              📈 Bullish ({deduplicatedPatterns.filter(p => p.pattern_type === 'bullish').length})
             </button>
             <button
               className={`filter-btn ${filterType === 'bearish' ? 'active' : ''}`}
               onClick={() => setFilterType('bearish')}
             >
-              📉 Bearish ({patterns.filter(p => p.pattern_type === 'bearish').length})
+              📉 Bearish ({deduplicatedPatterns.filter(p => p.pattern_type === 'bearish').length})
             </button>
-          </div>
-
-          <div className="confirmation-stats">
-            <span className="conf-stat pending">⏳ Pending: {pendingCount}</span>
-            <span className="conf-stat confirmed">✅ Confirmed: {confirmedCount}</span>
-            <span className="conf-stat rejected">❌ Rejected: {rejectedCount}</span>
           </div>
 
           <div className="patterns-list">
             {filteredPatterns.map(pattern => (
               <div
                 key={pattern.id}
-                className={`pattern-card ${pattern.user_confirmed === true ? 'confirmed' : pattern.user_confirmed === false ? 'rejected' : 'pending'}`}
+                className="pattern-card"
+                onMouseEnter={() => onPatternHover && onPatternHover(pattern)}
+                onMouseLeave={() => onPatternLeave && onPatternLeave()}
               >
                 <div className="pattern-card-header">
                   <div className="pattern-title">
@@ -220,14 +207,6 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
                     <span className="label">Confidence:</span>
                     <span className="value">{(pattern.confidence_score * 100).toFixed(0)}%</span>
                   </div>
-                  {pattern.user_confirmed !== null && (
-                    <div className="info-item">
-                      <span className="label">Status:</span>
-                      <span className={`status ${pattern.user_confirmed ? 'confirmed' : 'rejected'}`}>
-                        {pattern.user_confirmed ? '✅ Confirmed' : '❌ Rejected'}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {expandedPattern === pattern.id && (
@@ -258,34 +237,6 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
                     )}
                   </div>
                 )}
-
-                <div className="pattern-actions">
-                  {pattern.user_confirmed === null && (
-                    <>
-                      <button
-                        className="btn-confirm"
-                        onClick={() => handleConfirmPattern(pattern.id, true)}
-                        title="Confirm this pattern is correct"
-                      >
-                        ✅ Confirm
-                      </button>
-                      <button
-                        className="btn-reject"
-                        onClick={() => handleConfirmPattern(pattern.id, false)}
-                        title="Reject this pattern as incorrect"
-                      >
-                        ❌ Reject
-                      </button>
-                    </>
-                  )}
-                  <button
-                    className="btn-delete"
-                    onClick={() => handleDeletePattern(pattern.id)}
-                    title="Delete this pattern"
-                  >
-                    🗑️ Delete
-                  </button>
-                </div>
               </div>
             ))}
           </div>
@@ -454,34 +405,6 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
           border-color: #667eea;
         }
 
-        .confirmation-stats {
-          display: flex;
-          gap: 15px;
-          margin-bottom: 15px;
-          font-size: 13px;
-        }
-
-        .conf-stat {
-          padding: 4px 12px;
-          border-radius: 4px;
-          font-weight: 500;
-        }
-
-        .conf-stat.pending {
-          background: #fff3cd;
-          color: #856404;
-        }
-
-        .conf-stat.confirmed {
-          background: #d4edda;
-          color: #155724;
-        }
-
-        .conf-stat.rejected {
-          background: #f8d7da;
-          color: #721c24;
-        }
-
         .patterns-list {
           display: flex;
           flex-direction: column;
@@ -646,48 +569,6 @@ const CandlestickPatterns = ({ stockId, symbol, onPatternsDetected, onPatternsUp
           gap: 4px;
           font-size: 11px;
           color: #333;
-        }
-
-        .pattern-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .pattern-actions button {
-          padding: 6px 12px;
-          border-radius: 4px;
-          border: none;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: 600;
-          transition: all 0.2s;
-        }
-
-        .btn-confirm {
-          background: #28a745;
-          color: white;
-        }
-
-        .btn-confirm:hover {
-          background: #218838;
-        }
-
-        .btn-reject {
-          background: #dc3545;
-          color: white;
-        }
-
-        .btn-reject:hover {
-          background: #c82333;
-        }
-
-        .btn-delete {
-          background: #6c757d;
-          color: white;
-        }
-
-        .btn-delete:hover {
-          background: #5a6268;
         }
 
         .error-message {

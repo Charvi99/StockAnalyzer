@@ -445,7 +445,18 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
         return '#3b82f6'; // Blue
       };
 
-      const primaryColor = pattern.signal === 'bullish' ? '#28a745' : pattern.signal === 'bearish' ? '#dc3545' : '#6c757d';
+      // Enhanced color for multi-timeframe patterns
+      const confirmationLevel = pattern.confirmation_level || 1;
+      let primaryColor = pattern.signal === 'bullish' ? '#28a745' : pattern.signal === 'bearish' ? '#dc3545' : '#6c757d';
+
+      // Brighten/intensify color for multi-timeframe patterns
+      if (confirmationLevel >= 3) {
+        // 3TF patterns: Most intense/bright colors
+        primaryColor = pattern.signal === 'bullish' ? '#00ff00' : pattern.signal === 'bearish' ? '#ff0000' : '#0066ff';
+      } else if (confirmationLevel >= 2) {
+        // 2TF patterns: Moderately bright
+        primaryColor = pattern.signal === 'bullish' ? '#33cc33' : pattern.signal === 'bearish' ? '#ff3333' : '#4488ff';
+      }
 
       // Draw peaks as markers if available - LARGER and MORE VISIBLE
       if (pattern.key_points?.peaks && Array.isArray(pattern.key_points.peaks)) {
@@ -481,13 +492,16 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
       const startTime = Math.floor(new Date(pattern.start_date).getTime() / 1000);
       const endTime = Math.floor(new Date(pattern.end_date).getTime() / 1000);
 
+      // Add multi-timeframe indicator to marker text
+      const mtfLabel = confirmationLevel >= 3 ? ' 🔥3TF' : confirmationLevel >= 2 ? ' ✅2TF' : '';
+
       allMarkers.push({
         time: startTime,
         position: 'aboveBar',
         color: primaryColor,
         shape: 'arrowDown',
-        text: `${pattern.pattern_name} START`,
-        size: 3, // Very large for visibility
+        text: `${pattern.pattern_name}${mtfLabel} START`,
+        size: confirmationLevel >= 2 ? 4 : 3, // Larger for multi-timeframe
       });
 
       allMarkers.push({
@@ -495,8 +509,8 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
         position: 'aboveBar',
         color: primaryColor,
         shape: 'arrowDown',
-        text: `${pattern.pattern_name} END`,
-        size: 3, // Very large for visibility
+        text: `${pattern.pattern_name}${mtfLabel} END`,
+        size: confirmationLevel >= 2 ? 4 : 3, // Larger for multi-timeframe
       });
 
       // Draw trendlines if available
@@ -576,21 +590,36 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
       return;
     }
 
-    // Zoom to the highlighted pattern's time range with generous padding
-    const startDate = new Date(highlightedPattern.start_date);
-    const endDate = new Date(highlightedPattern.end_date);
+    // Check if this is a candlestick pattern (single timestamp) or chart pattern (start/end dates)
+    if (highlightedPattern.timestamp && !highlightedPattern.start_date) {
+      // Candlestick pattern - zoom to area around the single timestamp
+      const patternDate = new Date(highlightedPattern.timestamp);
+      const patternTime = Math.floor(patternDate.getTime() / 1000);
 
-    // Calculate pattern duration to determine appropriate padding
-    const patternDurationDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+      // Show 7 days before and after the candlestick pattern (14 days total)
+      const paddingSeconds = 7 * 24 * 60 * 60;
 
-    // Use 30% of pattern duration as padding, minimum 7 days
-    const paddingDays = Math.max(7, Math.ceil(patternDurationDays * 0.3));
-    const paddingSeconds = paddingDays * 24 * 60 * 60;
+      chart.timeScale().setVisibleRange({
+        from: patternTime - paddingSeconds,
+        to: patternTime + paddingSeconds,
+      });
+    } else if (highlightedPattern.start_date && highlightedPattern.end_date) {
+      // Chart pattern - zoom to the pattern's time range with padding
+      const startDate = new Date(highlightedPattern.start_date);
+      const endDate = new Date(highlightedPattern.end_date);
 
-    chart.timeScale().setVisibleRange({
-      from: Math.floor(startDate.getTime() / 1000) - paddingSeconds,
-      to: Math.floor(endDate.getTime() / 1000) + paddingSeconds,
-    });
+      // Calculate pattern duration to determine appropriate padding
+      const patternDurationDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+
+      // Use 30% of pattern duration as padding, minimum 7 days
+      const paddingDays = Math.max(7, Math.ceil(patternDurationDays * 0.3));
+      const paddingSeconds = paddingDays * 24 * 60 * 60;
+
+      chart.timeScale().setVisibleRange({
+        from: Math.floor(startDate.getTime() / 1000) - paddingSeconds,
+        to: Math.floor(endDate.getTime() / 1000) + paddingSeconds,
+      });
+    }
 
   }, [highlightedPattern, prices]);
 

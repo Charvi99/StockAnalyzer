@@ -30,7 +30,16 @@
       "Bash(timeout 15 bash:*)",
       "Bash(docker-compose ps:*)",
       "Bash(awk:*)",
-      "Bash(timeout 5 bash:*)"
+      "Bash(timeout 5 bash:*)",
+      "Bash(timeout 40 bash -c \"sleep 30 && docker-compose logs frontend --tail=25 | grep -E '(Compiled|Failed|webpack|warning|error)' | tail -15\":*)",
+      "Bash(timeout 40 bash:*)",
+      "Bash(timeout 50 bash:*)",
+      "Bash(for stock_id in 5 13 15 22 26)",
+      "Bash(do echo \"Stock $stock_id:\")",
+      "Bash(done)",
+      "Bash(docker-compose exec:*)",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol"
     ],
     "deny": [],
     "ask": []

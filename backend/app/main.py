@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions
+from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions, risk_management
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ app.include_router(sentiment.router)  # Sentiment routes already have prefix="/a
 app.include_router(patterns.router, prefix="/api/v1")  # Candlestick pattern detection
 app.include_router(chart_patterns.router, prefix="/api/v1")  # Chart pattern detection
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])  # Trading strategies
+app.include_router(risk_management.router, tags=["risk-management"])  # PHASE 1.2: Risk management & position sizing
 
 
 @app.get("/")
