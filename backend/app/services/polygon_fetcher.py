@@ -73,7 +73,7 @@ class PolygonFetcher:
         Convert interval string to Polygon timespan and multiplier
 
         Args:
-            interval: Interval string (1d, 1wk, 1mo, daily, weekly, monthly)
+            interval: Interval string (1h, 1d, 1wk, 1mo, daily, weekly, monthly, etc.)
 
         Returns:
             Tuple of (multiplier, timespan)
@@ -81,6 +81,15 @@ class PolygonFetcher:
         interval = interval.lower()
 
         interval_map = {
+            # Intraday
+            '1m': (1, 'minute'),
+            '5m': (5, 'minute'),
+            '15m': (15, 'minute'),
+            '30m': (30, 'minute'),
+            '1h': (1, 'hour'),
+            '2h': (2, 'hour'),
+            '4h': (4, 'hour'),
+            # Daily and above
             '1d': (1, 'day'),
             'daily': (1, 'day'),
             '1wk': (1, 'week'),
@@ -182,6 +191,7 @@ class PolygonFetcher:
 
                     prices.append({
                         'timestamp': timestamp,
+                        'timeframe': interval,  # Include timeframe for multi-timeframe support
                         'open': float(bar.open),
                         'high': float(bar.high),
                         'low': float(bar.low),

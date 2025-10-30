@@ -6,6 +6,9 @@ import ChartPatterns from './ChartPatterns';
 import TradingStrategies from './TradingStrategies';
 import SentimentAnalysis from './SentimentAnalysis';
 import OverviewTab from './OverviewTab';
+import TrailingStopCalculator from './TrailingStopCalculator';
+import PortfolioHeatMonitor from './PortfolioHeatMonitor';
+import MarketRegime from './MarketRegime';
 import { fetchStockData, getStockPrices, getRecommendation } from '../services/api';
 import './StockDetailSideBySide.css';
 
@@ -15,8 +18,8 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState(null);
   const [fetchResult, setFetchResult] = useState(null);
-  const [period, setPeriod] = useState('1y');
-  const [interval, setInterval] = useState('1d');
+  const [period, setPeriod] = useState('1mo'); // Default to 1 month for swing trading
+  const [timeframe, setTimeframe] = useState('1d'); // Chart display timeframe
   const [recommendation, setRecommendation] = useState(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendationError, setRecommendationError] = useState(null);
@@ -46,8 +49,10 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
     try {
       setLoading(true);
       setError(null);
-      // Load 10 years of data (3650 days) to ensure we get all available historical data
-      const data = await getStockPrices(stock.stock_id, 3650);
+      // Fetch large amount of data - let backend handle aggregation based on timeframe
+      // For 1h: up to 8760 bars/year, for 1d: 365 bars/year, etc.
+      const limit = timeframe === '1h' ? 8760 : timeframe === '4h' ? 2190 : 3650;
+      const data = await getStockPrices(stock.stock_id, limit, 0, timeframe);
       setPrices(data.prices);
     } catch (err) {
       setError('Failed to load price data');
@@ -55,7 +60,7 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
     } finally {
       setLoading(false);
     }
-  }, [stock.stock_id]);
+  }, [stock.stock_id, timeframe]);
 
   const loadRecommendation = useCallback(async () => {
     try {
@@ -81,10 +86,15 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
       setError(null);
       setFetchResult(null);
 
-      const result = await fetchStockData(stock.stock_id, period, interval);
+      // Fetch 1h data for swing trading (base timeframe for smart aggregation)
+      const result = await fetchStockData(stock.stock_id, period, '1h');
       setFetchResult(result);
 
       if (result.success) {
+        // Small delay to ensure data is saved to database
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Reload prices and recommendation with fresh data
         await loadPrices();
         await loadRecommendation();
       }
@@ -118,51 +128,36 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
               {stock.industry && <span> | {stock.industry}</span>}
             </p>
           </div>
-          <button onClick={onClose} className="close-btn-sbs">×</button>
+          <div className="header-actions">
+            <button onClick={onClose} className="close-btn-sbs">×</button>
+          </div>
         </div>
 
         <div className="fetch-controls-sbs">
           {/* Left Section - Fetch Data Controls */}
           <div className="controls-left-section">
-            <div className="control-group-sbs">
+            <div className="fetch-controls-row">
               <label>Period:</label>
-              <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-                <option value="1d">1 Day</option>
-                <option value="5d">5 Days</option>
-                <option value="1mo">1 Month</option>
-                <option value="3mo">3 Months</option>
-                <option value="6mo">6 Months</option>
-                <option value="1y">1 Year</option>
-                <option value="2y">2 Years</option>
-                <option value="5y">5 Years</option>
-                <option value="max">Max</option>
+              <select value={period} onChange={(e) => setPeriod(e.target.value)} className="period-select-sbs">
+                <option value="1mo">1 Month (~730 bars)</option>
+                <option value="3mo">3 Months (~2,190 bars)</option>
+                <option value="6mo">6 Months (~4,380 bars)</option>
+                <option value="1y">1 Year (~8,760 bars)</option>
+                <option value="2y">2 Years (~17,520 bars)</option>
               </select>
-            </div>
 
-            <div className="control-group-sbs">
-              <label>Interval:</label>
-              <select value={interval} onChange={(e) => setInterval(e.target.value)}>
-                <option value="1m">1 Minute</option>
-                <option value="5m">5 Minutes</option>
-                <option value="15m">15 Minutes</option>
-                <option value="1h">1 Hour</option>
-                <option value="1d">1 Day</option>
-                <option value="1wk">1 Week</option>
-                <option value="1mo">1 Month</option>
-              </select>
+              <button onClick={handleFetchData} disabled={fetching} className="fetch-btn-sbs">
+                {fetching ? 'Fetching 1h Data...' : 'Fetch Data'}
+              </button>
             </div>
-
-            <button onClick={handleFetchData} disabled={fetching} className="fetch-btn-sbs">
-              {fetching ? 'Fetching...' : 'Fetch Data'}
-            </button>
 
             {fetchResult && (
               <div className={`fetch-result-sbs ${fetchResult.success ? 'success' : 'error'}`}>
-                <span>{fetchResult.message}</span>
+                <p>{fetchResult.message}</p>
                 {fetchResult.success && (
-                  <span className="fetch-stats-sbs">
-                    {' '}| Fetched: {fetchResult.records_fetched} | Saved: {fetchResult.records_saved} new
-                  </span>
+                  <p className="fetch-stats-sbs">
+                    Fetched: {fetchResult.records_fetched} hourly bars | Saved: {fetchResult.records_saved} new records
+                  </p>
                 )}
               </div>
             )}
@@ -226,6 +221,12 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                 >
                   💭 Sentiment Analysis
                 </button>
+                <button
+                  className={`tab-btn-sbs ${activeTab === 'risk-tools' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('risk-tools')}
+                >
+                  🔥 Risk Tools
+                </button>
               </div>
 
               <div className="tab-content-sbs">
@@ -249,6 +250,8 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                     symbol={stock.symbol}
                     onPatternsDetected={setPatterns}
                     onPatternsUpdated={loadRecommendation}
+                    onPatternHover={handlePatternHover}
+                    onPatternLeave={handlePatternLeave}
                   />
                 )}
 
@@ -273,10 +276,29 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
                     onSentimentUpdated={loadRecommendation}
                   />
                 )}
+
+                {activeTab === 'risk-tools' && (
+                  <div className="risk-tools-container">
+                    <MarketRegime
+                      stockId={stock.stock_id}
+                      symbol={stock.symbol}
+                    />
+                    <div style={{ marginTop: '20px' }}>
+                      <TrailingStopCalculator
+                        stockId={stock.stock_id}
+                        symbol={stock.symbol}
+                        currentPrice={prices.length > 0 ? prices[prices.length - 1].close : 0}
+                      />
+                    </div>
+                    <div style={{ marginTop: '20px' }}>
+                      <PortfolioHeatMonitor />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="keyboard-hints-sbs">
-                <strong>⌨️ Keyboard Shortcuts:</strong> Y/C = Confirm | N/R = Reject | Delete/X = Remove | ↑↓ = Navigate
+                <strong>⌨️ Keyboard Shortcuts:</strong> ↑↓ = Navigate Patterns
               </div>
             </div>
 
@@ -295,6 +317,52 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
 
                 {rightPanelTab === 'chart' && (
                   <div className="chart-only-view">
+                    {/* Timeframe Selector - Moved to Chart Section */}
+                    <div className="timeframe-selector">
+                      <h4>📊 Chart Display Timeframe</h4>
+                      <p className="timeframe-hint">
+                        Switch between timeframes (aggregated from 1h base data).
+                        Showing {prices.length} {timeframe} bars.
+                      </p>
+                      <div className="timeframe-buttons">
+                        <button
+                          className={`timeframe-btn ${timeframe === '1h' ? 'active' : ''}`}
+                          onClick={() => setTimeframe('1h')}
+                          title="Hourly candles - Best for day trading"
+                        >
+                          1 Hour
+                        </button>
+                        <button
+                          className={`timeframe-btn ${timeframe === '4h' ? 'active' : ''}`}
+                          onClick={() => setTimeframe('4h')}
+                          title="4-hour candles - Good for swing trading"
+                        >
+                          4 Hours
+                        </button>
+                        <button
+                          className={`timeframe-btn ${timeframe === '1d' ? 'active' : ''}`}
+                          onClick={() => setTimeframe('1d')}
+                          title="Daily candles - Standard timeframe"
+                        >
+                          1 Day
+                        </button>
+                        <button
+                          className={`timeframe-btn ${timeframe === '1w' ? 'active' : ''}`}
+                          onClick={() => setTimeframe('1w')}
+                          title="Weekly candles - Trend analysis"
+                        >
+                          1 Week
+                        </button>
+                        <button
+                          className={`timeframe-btn ${timeframe === '1mo' ? 'active' : ''}`}
+                          onClick={() => setTimeframe('1mo')}
+                          title="Monthly candles - Long-term trends"
+                        >
+                          1 Month
+                        </button>
+                      </div>
+                    </div>
+
                     <StockChart
                       prices={prices}
                       symbol={stock.symbol}

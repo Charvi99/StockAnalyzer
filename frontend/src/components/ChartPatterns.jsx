@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { detectChartPatterns, getChartPatterns, confirmChartPattern, deleteChartPattern } from '../services/api';
+import { detectChartPatterns, getChartPatterns } from '../services/api';
 
 const ChartPatterns = forwardRef(({
   stockId,
@@ -24,6 +24,7 @@ const ChartPatterns = forwardRef(({
   });
   const [filterType, setFilterType] = useState('all'); // 'all', 'reversal', 'continuation'
   const [filterSignal, setFilterSignal] = useState('all'); // 'all', 'bullish', 'bearish', 'neutral'
+  const [filterTimeframe, setFilterTimeframe] = useState('all'); // 'all', '1h', '4h', '1d', '2TF+', '3TF'
   const [expandedPattern, setExpandedPattern] = useState(null);
   const [visiblePatterns, setVisiblePatterns] = useState(new Set()); // Track which patterns are visible on chart
   const [isExpanded, setIsExpanded] = useState(true); // Collapsible section state
@@ -37,11 +38,8 @@ const ChartPatterns = forwardRef(({
   const [minRSquared, setMinRSquared] = useState(0); // Minimum R² (0 = disabled)
   const [focusedPatternIndex, setFocusedPatternIndex] = useState(0); // For keyboard navigation
 
-  // Expose methods to parent via ref
-  useImperativeHandle(ref, () => ({
-    confirmPattern: handleConfirmPattern,
-    deletePattern: handleDeletePattern
-  }), []);
+  // Expose methods to parent via ref (empty for now - confirmations removed)
+  useImperativeHandle(ref, () => ({}), []);
 
   const loadPatterns = useCallback(async () => {
     setLoading(true);
@@ -145,42 +143,52 @@ const ChartPatterns = forwardRef(({
     }
   };
 
-  const handleConfirmPattern = async (patternId, confirmed) => {
-    try {
-      await confirmChartPattern(patternId, confirmed, '', 'user');
-
-      // Update local state
-      setPatterns(prev => prev.map(p =>
-        p.id === patternId
-          ? { ...p, user_confirmed: confirmed, confirmed_at: new Date().toISOString() }
-          : p
-      ));
-    } catch (err) {
-      console.error('Error confirming pattern:', err);
-      alert('Failed to confirm pattern');
-    }
-  };
-
-  const handleDeletePattern = async (patternId) => {
-    if (!window.confirm('Are you sure you want to delete this pattern?')) return;
-
-    try {
-      await deleteChartPattern(patternId);
-      setPatterns(prev => prev.filter(p => p.id !== patternId));
-    } catch (err) {
-      console.error('Error deleting pattern:', err);
-      alert('Failed to delete pattern');
-    }
-  };
+  // Confirmation/deletion handlers removed - no longer needed for multi-timeframe approach
 
   // Filter patterns based on type and signal
+  // Calculate pattern counts for filters
+  const counts = {
+    all: patterns.length,
+    reversal: patterns.filter(p => p.pattern_type === 'reversal').length,
+    continuation: patterns.filter(p => p.pattern_type === 'continuation').length,
+    bullish: patterns.filter(p => p.signal === 'bullish').length,
+    bearish: patterns.filter(p => p.signal === 'bearish').length,
+    neutral: patterns.filter(p => p.signal === 'neutral').length,
+    '1h': patterns.filter(p => (p.detected_on_timeframes || ['1d']).includes('1h')).length,
+    '4h': patterns.filter(p => (p.detected_on_timeframes || ['1d']).includes('4h')).length,
+    '1d': patterns.filter(p => (p.detected_on_timeframes || ['1d']).includes('1d')).length,
+    '2TF+': patterns.filter(p => (p.confirmation_level || 1) >= 2).length,
+    '3TF': patterns.filter(p => (p.confirmation_level || 1) >= 3).length,
+  };
+
   const filteredPatterns = patterns.filter(p => {
+    // Filter by pattern type
     if (filterType !== 'all' && p.pattern_type !== filterType) return false;
+
+    // Filter by signal
     if (filterSignal !== 'all' && p.signal !== filterSignal) return false;
+
+    // Filter by timeframe
+    if (filterTimeframe !== 'all') {
+      const detectedOn = p.detected_on_timeframes || ['1d'];
+      const confirmationLevel = p.confirmation_level || 1;
+
+      if (filterTimeframe === '3TF') {
+        // Show only patterns detected on all 3 timeframes
+        if (confirmationLevel < 3) return false;
+      } else if (filterTimeframe === '2TF+') {
+        // Show patterns detected on 2 or more timeframes
+        if (confirmationLevel < 2) return false;
+      } else {
+        // Show patterns detected on specific timeframe (1h, 4h, 1d)
+        if (!detectedOn.includes(filterTimeframe)) return false;
+      }
+    }
+
     return true;
   });
 
-  // Keyboard shortcuts handler
+  // Keyboard shortcuts handler - simplified (confirmation/deletion removed)
   useEffect(() => {
     if (!enableKeyboardShortcuts || filteredPatterns.length === 0) return;
 
@@ -190,29 +198,7 @@ const ChartPatterns = forwardRef(({
         return;
       }
 
-      const currentPattern = filteredPatterns[focusedPatternIndex];
-      if (!currentPattern) return;
-
       switch(e.key.toLowerCase()) {
-        case 'y':
-        case 'c':
-          // Confirm pattern
-          if (currentPattern.user_confirmed !== true) {
-            handleConfirmPattern(currentPattern.id, true);
-          }
-          break;
-        case 'n':
-        case 'r':
-          // Reject pattern
-          if (currentPattern.user_confirmed !== false) {
-            handleConfirmPattern(currentPattern.id, false);
-          }
-          break;
-        case 'delete':
-        case 'x':
-          // Delete pattern
-          handleDeletePattern(currentPattern.id);
-          break;
         case 'arrowdown':
           // Navigate to next pattern
           e.preventDefault();
@@ -260,9 +246,7 @@ const ChartPatterns = forwardRef(({
     }
   };
 
-  const pendingCount = patterns.filter(p => p.user_confirmed === null).length;
-  const confirmedCount = patterns.filter(p => p.user_confirmed === true).length;
-  const rejectedCount = patterns.filter(p => p.user_confirmed === false).length;
+  // Confirmation counts removed - using multi-timeframe approach instead
 
   return (
     <div className="chart-patterns">
@@ -465,19 +449,19 @@ const ChartPatterns = forwardRef(({
                 className={`filter-btn ${filterType === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterType('all')}
               >
-                All
+                All ({counts.all})
               </button>
               <button
                 className={`filter-btn ${filterType === 'reversal' ? 'active' : ''}`}
                 onClick={() => setFilterType('reversal')}
               >
-                🔄 Reversal
+                🔄 Reversal ({counts.reversal})
               </button>
               <button
                 className={`filter-btn ${filterType === 'continuation' ? 'active' : ''}`}
                 onClick={() => setFilterType('continuation')}
               >
-                ➡️ Continuation
+                ➡️ Continuation ({counts.continuation})
               </button>
             </div>
             <div className="filter-group">
@@ -486,34 +470,69 @@ const ChartPatterns = forwardRef(({
                 className={`filter-btn ${filterSignal === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterSignal('all')}
               >
-                All
+                All ({counts.all})
               </button>
               <button
                 className={`filter-btn ${filterSignal === 'bullish' ? 'active' : ''}`}
                 onClick={() => setFilterSignal('bullish')}
               >
-                📈 Bullish
+                📈 Bullish ({counts.bullish})
               </button>
               <button
                 className={`filter-btn ${filterSignal === 'bearish' ? 'active' : ''}`}
                 onClick={() => setFilterSignal('bearish')}
               >
-                📉 Bearish
+                📉 Bearish ({counts.bearish})
               </button>
               <button
                 className={`filter-btn ${filterSignal === 'neutral' ? 'active' : ''}`}
                 onClick={() => setFilterSignal('neutral')}
               >
-                ➖ Neutral
+                ➖ Neutral ({counts.neutral})
+              </button>
+            </div>
+            <div className="filter-group">
+              <label>Timeframe:</label>
+              <button
+                className={`filter-btn ${filterTimeframe === 'all' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('all')}
+              >
+                All ({counts.all})
+              </button>
+              <button
+                className={`filter-btn ${filterTimeframe === '3TF' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('3TF')}
+              >
+                🔥 3TF ({counts['3TF']})
+              </button>
+              <button
+                className={`filter-btn ${filterTimeframe === '2TF+' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('2TF+')}
+              >
+                ✅ 2TF+ ({counts['2TF+']})
+              </button>
+              <button
+                className={`filter-btn ${filterTimeframe === '1d' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('1d')}
+              >
+                1d ({counts['1d']})
+              </button>
+              <button
+                className={`filter-btn ${filterTimeframe === '4h' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('4h')}
+              >
+                4h ({counts['4h']})
+              </button>
+              <button
+                className={`filter-btn ${filterTimeframe === '1h' ? 'active' : ''}`}
+                onClick={() => setFilterTimeframe('1h')}
+              >
+                1h ({counts['1h']})
               </button>
             </div>
           </div>
 
-          <div className="confirmation-stats">
-            <span className="conf-stat pending">⏳ Pending: {pendingCount}</span>
-            <span className="conf-stat confirmed">✅ Confirmed: {confirmedCount}</span>
-            <span className="conf-stat rejected">❌ Rejected: {rejectedCount}</span>
-          </div>
+          {/* Confirmation stats removed - showing multi-timeframe confirmation instead */}
 
           <div className="patterns-list">
             {filteredPatterns.map((pattern, index) => (
@@ -571,11 +590,18 @@ const ChartPatterns = forwardRef(({
                     <span className="label">Confidence:</span>
                     <span className="value">{(pattern.confidence_score * 100).toFixed(0)}%</span>
                   </div>
-                  {pattern.user_confirmed !== null && (
-                    <div className="info-item">
-                      <span className="label">Status:</span>
-                      <span className={`status ${pattern.user_confirmed ? 'confirmed' : 'rejected'}`}>
-                        {pattern.user_confirmed ? '✅ Confirmed' : '❌ Rejected'}
+
+                  {/* Multi-timeframe confirmation badge */}
+                  {pattern.confirmation_level && pattern.confirmation_level >= 2 && (
+                    <div className="info-item multi-timeframe-badge">
+                      <span className="mtf-badge-icon">
+                        {pattern.confirmation_level === 3 ? '🔥' : '✅'}
+                      </span>
+                      <span className="mtf-badge-text">
+                        {pattern.confirmation_level}TF
+                      </span>
+                      <span className="mtf-badge-detail" title={`Detected on: ${pattern.detected_on_timeframes ? pattern.detected_on_timeframes.join(', ') : 'multiple timeframes'}`}>
+                        {pattern.detected_on_timeframes && `(${pattern.detected_on_timeframes.join(', ')})`}
                       </span>
                     </div>
                   )}
@@ -588,6 +614,142 @@ const ChartPatterns = forwardRef(({
                       <h5>Pattern Visualization:</h5>
                       <div className="schematic-diagram">
                         {getPatternSchematic(pattern.pattern_name, pattern.signal)}
+                      </div>
+                    </div>
+
+                    {/* Multi-Timeframe & Volume Analysis */}
+                    <div className="pattern-quality-metrics">
+                      <h5>📊 Quality Analysis:</h5>
+                      <div className="quality-metrics-grid">
+                        {/* Multi-Timeframe Confirmation */}
+                        {pattern.confirmation_level && (
+                          <div className="quality-section">
+                            <div className="section-header">
+                              <span className="section-icon">🎯</span>
+                              <span className="section-title">Multi-Timeframe Confirmation</span>
+                            </div>
+                            <div className="metrics-grid">
+                              <div className="metric-item">
+                                <span className="metric-label">Confirmation Level:</span>
+                                <span className={`metric-value ${pattern.confirmation_level >= 3 ? 'excellent' : pattern.confirmation_level >= 2 ? 'good' : 'moderate'}`}>
+                                  {pattern.confirmation_level}TF
+                                  {pattern.confirmation_level === 3 && ' 🔥'}
+                                  {pattern.confirmation_level === 2 && ' ✅'}
+                                </span>
+                                <span className="metric-hint">
+                                  {pattern.confirmation_level === 3 && '✓ Confirmed on all 3 timeframes'}
+                                  {pattern.confirmation_level === 2 && '✓ Confirmed on 2 timeframes'}
+                                  {pattern.confirmation_level === 1 && '○ Single timeframe only'}
+                                </span>
+                              </div>
+                              <div className="metric-item">
+                                <span className="metric-label">Detected On:</span>
+                                <span className="metric-value">
+                                  {pattern.detected_on_timeframes ? pattern.detected_on_timeframes.join(', ') : pattern.primary_timeframe || '1d'}
+                                </span>
+                              </div>
+                              {pattern.alignment_score !== undefined && (
+                                <div className="metric-item">
+                                  <span className="metric-label">Alignment Score:</span>
+                                  <span className={`metric-value ${pattern.alignment_score >= 0.8 ? 'excellent' : pattern.alignment_score >= 0.6 ? 'good' : 'moderate'}`}>
+                                    {(pattern.alignment_score * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="metric-hint">
+                                    {pattern.alignment_score >= 0.8 && '✓ Excellent alignment'}
+                                    {pattern.alignment_score >= 0.6 && pattern.alignment_score < 0.8 && '✓ Good alignment'}
+                                    {pattern.alignment_score < 0.6 && '○ Moderate alignment'}
+                                  </span>
+                                </div>
+                              )}
+                              {pattern.base_confidence && (
+                                <div className="metric-item">
+                                  <span className="metric-label">Base Confidence:</span>
+                                  <span className="metric-value">
+                                    {(pattern.base_confidence * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="metric-hint">Before timeframe boost</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Volume Analysis */}
+                        {pattern.volume_score !== undefined && (
+                          <div className="quality-section">
+                            <div className="section-header">
+                              <span className="section-icon">📈</span>
+                              <span className="section-title">Volume Analysis</span>
+                            </div>
+                            <div className="metrics-grid">
+                              <div className="metric-item">
+                                <span className="metric-label">Volume Quality:</span>
+                                <span className={`metric-value ${
+                                  pattern.volume_quality === 'excellent' ? 'excellent' :
+                                  pattern.volume_quality === 'good' ? 'good' :
+                                  pattern.volume_quality === 'weak' ? 'poor' : 'moderate'
+                                }`}>
+                                  {pattern.volume_quality === 'excellent' && '🔥 Excellent'}
+                                  {pattern.volume_quality === 'good' && '✅ Good'}
+                                  {pattern.volume_quality === 'average' && '➖ Average'}
+                                  {pattern.volume_quality === 'weak' && '⚠️ Weak'}
+                                  {!pattern.volume_quality && '❓ Unknown'}
+                                </span>
+                                <span className="metric-hint">
+                                  {pattern.volume_quality === 'excellent' && '✓ Strong volume confirmation'}
+                                  {pattern.volume_quality === 'good' && '✓ Decent volume support'}
+                                  {pattern.volume_quality === 'average' && '○ Moderate volume'}
+                                  {pattern.volume_quality === 'weak' && '✗ Low volume - caution'}
+                                  {!pattern.volume_quality && 'Volume data unavailable'}
+                                </span>
+                              </div>
+                              {pattern.volume_ratio !== undefined && (
+                                <div className="metric-item">
+                                  <span className="metric-label">Volume Ratio:</span>
+                                  <span className={`metric-value ${pattern.volume_ratio >= 2.0 ? 'excellent' : pattern.volume_ratio >= 1.5 ? 'good' : pattern.volume_ratio >= 1.0 ? 'moderate' : 'poor'}`}>
+                                    {pattern.volume_ratio.toFixed(1)}x
+                                  </span>
+                                  <span className="metric-hint">
+                                    {pattern.volume_ratio >= 2.0 && '✓ 2x+ avg volume'}
+                                    {pattern.volume_ratio >= 1.5 && pattern.volume_ratio < 2.0 && '✓ 1.5x+ avg volume'}
+                                    {pattern.volume_ratio >= 1.0 && pattern.volume_ratio < 1.5 && '○ Average volume'}
+                                    {pattern.volume_ratio < 1.0 && '✗ Below average'}
+                                  </span>
+                                </div>
+                              )}
+                              {pattern.vwap_position && (
+                                <div className="metric-item">
+                                  <span className="metric-label">VWAP Position:</span>
+                                  <span className={`metric-value ${pattern.vwap_position === 'above' ? 'good' : pattern.vwap_position === 'below' ? 'moderate' : ''}`}>
+                                    {pattern.vwap_position === 'above' && '↑ Above VWAP'}
+                                    {pattern.vwap_position === 'below' && '↓ Below VWAP'}
+                                    {pattern.vwap_position === 'unknown' && '❓ Unknown'}
+                                  </span>
+                                  <span className="metric-hint">
+                                    {pattern.vwap_position === 'above' && pattern.signal === 'bullish' && '✓ Bullish alignment'}
+                                    {pattern.vwap_position === 'below' && pattern.signal === 'bearish' && '✓ Bearish alignment'}
+                                    {pattern.vwap_position === 'above' && pattern.signal === 'bearish' && '⚠️ Counter-trend'}
+                                    {pattern.vwap_position === 'below' && pattern.signal === 'bullish' && '⚠️ Counter-trend'}
+                                  </span>
+                                </div>
+                              )}
+                              {pattern.volume_score !== undefined && (
+                                <div className="metric-item">
+                                  <span className="metric-label">Volume Score:</span>
+                                  <span className={`metric-value ${pattern.volume_score >= 0.8 ? 'excellent' : pattern.volume_score >= 0.6 ? 'good' : pattern.volume_score >= 0.4 ? 'moderate' : 'poor'}`}>
+                                    {(pattern.volume_score * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="metric-hint">Overall volume rating</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="validation-tip">
+                              💡 <strong>Tip:</strong> Volume confirmation is critical for breakouts. Look for 1.5x+ average volume and alignment with VWAP.
+                              {pattern.volume_quality === 'weak' && ' ⚠️ This pattern has weak volume - be cautious.'}
+                              {pattern.volume_quality === 'excellent' && ' 🔥 Strong volume confirms this pattern!'}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -659,33 +821,7 @@ const ChartPatterns = forwardRef(({
                   </div>
                 )}
 
-                <div className="pattern-actions">
-                  {pattern.user_confirmed === null && (
-                    <>
-                      <button
-                        className="btn-confirm"
-                        onClick={() => handleConfirmPattern(pattern.id, true)}
-                        title="Confirm this pattern is correct"
-                      >
-                        ✅ Confirm
-                      </button>
-                      <button
-                        className="btn-reject"
-                        onClick={() => handleConfirmPattern(pattern.id, false)}
-                        title="Reject this pattern as incorrect"
-                      >
-                        ❌ Reject
-                      </button>
-                    </>
-                  )}
-                  <button
-                    className="btn-delete"
-                    onClick={() => handleDeletePattern(pattern.id)}
-                    title="Delete this pattern"
-                  >
-                    🗑️ Delete
-                  </button>
-                </div>
+                {/* Pattern action buttons removed - using automated multi-timeframe validation */}
               </div>
             ))}
           </div>
@@ -1360,6 +1496,59 @@ const ChartPatterns = forwardRef(({
         }
 
         .validation-tip strong {
+          font-weight: 700;
+        }
+
+        /* Pattern Quality Metrics */
+        .pattern-quality-metrics {
+          margin-bottom: 16px;
+          background: #ffffff;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 14px;
+        }
+
+        .pattern-quality-metrics h5 {
+          margin: 0 0 12px 0;
+          color: #333;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .quality-metrics-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .quality-section {
+          background: #f9fafb;
+          border-radius: 6px;
+          padding: 12px;
+          border: 1px solid #e5e7eb;
+        }
+
+        .section-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 10px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .section-icon {
+          font-size: 16px;
+        }
+
+        .section-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: #374151;
+        }
+
+        .metric-value.excellent {
+          color: #059669;
           font-weight: 700;
         }
 

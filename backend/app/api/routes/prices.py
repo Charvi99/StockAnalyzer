@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+import pandas as pd
 from app.db.database import get_db
 from app.models.stock import Stock, StockPrice
 from app.schemas.stock import (
@@ -12,6 +13,8 @@ from app.schemas.stock import (
     LatestPriceResponse
 )
 from app.services.stock_fetcher import StockDataFetcher
+from app.services.timeframe_service import TimeframeService
+from app.config.timeframe_config import TimeframeConfig
 
 router = APIRouter(prefix="/stocks", tags=["prices"])
 
@@ -23,11 +26,14 @@ def fetch_stock_data(
     db: Session = Depends(get_db)
 ):
     """
-    Fetch historical stock data from Yahoo Finance and store in database
+    Fetch historical stock data from Polygon.io and store in database
+
+    **Smart Aggregation Strategy**: Only fetches base timeframe (1h).
+    Higher timeframes (2h, 4h, 1d, 1w, 1mo) are aggregated on-the-fly.
 
     - **stock_id**: ID of the stock to fetch data for
     - **period**: Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
-    - **interval**: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
+    - **interval**: Data interval - use "1h" (base timeframe)
     """
     # Get stock from database
     stock = db.query(Stock).filter(Stock.id == stock_id).first()
@@ -58,6 +64,7 @@ def fetch_stock_data(
 @router.get("/{stock_id}/prices", response_model=StockPriceListResponse)
 def get_stock_prices(
     stock_id: int,
+    timeframe: str = Query(default="1d", regex="^(1h|2h|4h|1d|1w|1mo)$"),
     limit: int = Query(default=100, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     start_date: Optional[datetime] = None,
@@ -65,9 +72,13 @@ def get_stock_prices(
     db: Session = Depends(get_db)
 ):
     """
-    Retrieve historical prices for a stock
+    Retrieve historical prices for a stock with multi-timeframe support
+
+    **Smart Aggregation**: Supports all timeframes (1h, 2h, 4h, 1d, 1w, 1mo).
+    Higher timeframes are aggregated from 1h base data automatically.
 
     - **stock_id**: ID of the stock
+    - **timeframe**: Timeframe (1h, 2h, 4h, 1d, 1w, 1mo) - default: 1d
     - **limit**: Maximum number of records to return (1-10000)
     - **skip**: Number of records to skip (for pagination)
     - **start_date**: Filter prices from this date onwards
@@ -81,41 +92,82 @@ def get_stock_prices(
             detail=f"Stock with id {stock_id} not found"
         )
 
-    # Build query
-    query = db.query(StockPrice).filter(StockPrice.stock_id == stock_id)
+    # Use smart aggregation to get data
+    try:
+        df = TimeframeService.get_price_data_smart(
+            db=db,
+            stock_id=stock_id,
+            timeframe=timeframe
+        )
 
-    # Apply date filters
-    if start_date:
-        query = query.filter(StockPrice.timestamp >= start_date)
-    if end_date:
-        query = query.filter(StockPrice.timestamp <= end_date)
+        if df.empty:
+            return StockPriceListResponse(
+                stock_id=stock_id,
+                symbol=stock.symbol,
+                prices=[],
+                total_records=0,
+                period_start=None,
+                period_end=None
+            )
 
-    # Get total count
-    total_records = query.count()
+        # Apply date filters
+        if start_date:
+            df = df[df.index >= start_date]
+        if end_date:
+            df = df[df.index <= end_date]
 
-    # Get prices ordered by timestamp descending (most recent first)
-    prices = query.order_by(StockPrice.timestamp.desc()).offset(skip).limit(limit).all()
+        # Get total count before pagination
+        total_records = len(df)
 
-    # Get period boundaries
-    period_start = None
-    period_end = None
-    if prices:
-        period_end = prices[0].timestamp  # Most recent (first in desc order)
-        period_start = prices[-1].timestamp  # Oldest (last in desc order)
+        # Sort by timestamp descending (most recent first)
+        df = df.sort_index(ascending=False)
 
-    return StockPriceListResponse(
-        stock_id=stock_id,
-        symbol=stock.symbol,
-        prices=prices,
-        total_records=total_records,
-        period_start=period_start,
-        period_end=period_end
-    )
+        # Apply pagination
+        df = df.iloc[skip:skip+limit]
+
+        # Convert DataFrame to list of dictionaries
+        prices_list = []
+        for timestamp, row in df.iterrows():
+            prices_list.append({
+                'id': 0,  # Not applicable for aggregated data
+                'stock_id': stock_id,
+                'timeframe': timeframe,
+                'timestamp': timestamp,
+                'open': float(row['open']),
+                'high': float(row['high']),
+                'low': float(row['low']),
+                'close': float(row['close']),
+                'volume': int(row['volume']),
+                'adjusted_close': float(row['close'])
+            })
+
+        # Get period boundaries
+        period_start = None
+        period_end = None
+        if prices_list:
+            period_end = prices_list[0]['timestamp']  # Most recent
+            period_start = prices_list[-1]['timestamp']  # Oldest
+
+        return StockPriceListResponse(
+            stock_id=stock_id,
+            symbol=stock.symbol,
+            prices=prices_list,
+            total_records=total_records,
+            period_start=period_start,
+            period_end=period_end
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving prices: {str(e)}"
+        )
 
 
 @router.get("/symbol/{symbol}/prices", response_model=StockPriceListResponse)
 def get_stock_prices_by_symbol(
     symbol: str,
+    timeframe: str = Query(default="1d", regex="^(1h|2h|4h|1d|1w|1mo)$"),
     limit: int = Query(default=100, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     start_date: Optional[datetime] = None,
@@ -123,9 +175,13 @@ def get_stock_prices_by_symbol(
     db: Session = Depends(get_db)
 ):
     """
-    Retrieve historical prices for a stock by symbol
+    Retrieve historical prices for a stock by symbol with multi-timeframe support
+
+    **Smart Aggregation**: Supports all timeframes (1h, 2h, 4h, 1d, 1w, 1mo).
+    Higher timeframes are aggregated from 1h base data automatically.
 
     - **symbol**: Stock ticker symbol (e.g., 'AAPL')
+    - **timeframe**: Timeframe (1h, 2h, 4h, 1d, 1w, 1mo) - default: 1d
     - **limit**: Maximum number of records to return (1-10000)
     - **skip**: Number of records to skip (for pagination)
     - **start_date**: Filter prices from this date onwards
@@ -140,7 +196,7 @@ def get_stock_prices_by_symbol(
         )
 
     # Use the existing endpoint logic
-    return get_stock_prices(stock.id, limit, skip, start_date, end_date, db)
+    return get_stock_prices(stock.id, timeframe, limit, skip, start_date, end_date, db)
 
 
 @router.get("/{stock_id}/latest", response_model=LatestPriceResponse)

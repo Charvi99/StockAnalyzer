@@ -34,7 +34,8 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
   const handleFetchData = async () => {
     try {
       setIsFetchingData(true);
-      await fetchStockData(stock.stock_id, '1y', '1d');
+      // Fetch 1 month of 1-hour data for swing trading
+      await fetchStockData(stock.stock_id, '1mo', '1h');
       onAnalysisComplete(); // This will trigger a refresh of the dashboard data
     } catch (err) {
       console.error('Fetch data error:', err);

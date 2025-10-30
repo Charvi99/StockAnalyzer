@@ -29,8 +29,11 @@ class Stock(Base):
 class StockPrice(Base):
     __tablename__ = "stock_prices"
 
-    timestamp = Column(TIMESTAMP, primary_key=True)
+    # Composite primary key: (stock_id, timeframe, timestamp)
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), primary_key=True)
+    timeframe = Column(String(10), primary_key=True)  # '1m', '5m', '15m', '1h', '4h', '1d', '1w'
+    timestamp = Column(TIMESTAMP, primary_key=True)
+
     id = Column(Integer, server_default=text("nextval('stock_prices_id_seq'::regclass)"))
     open = Column(DECIMAL(12, 4))
     high = Column(DECIMAL(12, 4))
@@ -38,6 +41,14 @@ class StockPrice(Base):
     close = Column(DECIMAL(12, 4))
     volume = Column(BigInteger)
     adjusted_close = Column(DECIMAL(12, 4))
+
+    # Add constraint for valid timeframes
+    __table_args__ = (
+        CheckConstraint(
+            "timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w', '1mo')",
+            name="check_valid_timeframe"
+        ),
+    )
 
     # Relationship
     stock = relationship("Stock", back_populates="prices")
@@ -159,6 +170,14 @@ class ChartPattern(Base):
     confidence_score = Column(DECIMAL(5, 4), default=0.5)
     key_points = Column(JSONB)  # Support/resistance levels, peaks, troughs
     trendlines = Column(JSONB)  # Line coordinates for visualization
+
+    # Multi-timeframe analysis fields
+    primary_timeframe = Column(String(10), default='1d')  # Primary timeframe detected on
+    detected_on_timeframes = Column(JSONB)  # List of timeframes: ['1h', '4h', '1d']
+    confirmation_level = Column(Integer, default=1)  # 1=single, 2=two, 3=three timeframes
+    base_confidence = Column(DECIMAL(5, 4))  # Original confidence before boost
+    alignment_score = Column(DECIMAL(5, 4))  # Cross-timeframe alignment (0.0-1.0)
+
     user_confirmed = Column(Boolean, default=None, nullable=True)
     confirmed_at = Column(TIMESTAMP, nullable=True)
     confirmed_by = Column(String(100), nullable=True)

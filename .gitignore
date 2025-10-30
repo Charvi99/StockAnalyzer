@@ -138,6 +138,11 @@ site/
 CLAUDE_BACKUP.md.bak
 *.backup
 
+# Database backups
+backups/*.dump
+backups/*.sql
+!backups/README.md
+
 # Cache
 .cache/
 .sass-cache/
@@ -161,3 +166,4 @@ CLAUDE_BACKUP.md.bak
 .vercel
 .next
 out
+nul

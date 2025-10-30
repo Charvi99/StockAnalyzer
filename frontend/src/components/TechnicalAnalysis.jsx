@@ -401,9 +401,6 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
       <div className="analysis-header">
         <h3>📊 Technical Analysis</h3>
         <div className="header-buttons">
-          <button onClick={() => setShowInfoModal(true)} className="btn-info" title="Learn about indicators">
-            ℹ️ Indicator Guide
-          </button>
           <button onClick={fetchAnalysis} disabled={loading} className="btn-analyze">
             {loading ? 'Refreshing...' : 'Refresh Analysis'}
           </button>

@@ -36,6 +36,7 @@ class StockResponse(StockBase):
 # Stock Price Schemas
 class StockPriceBase(BaseModel):
     timestamp: datetime
+    timeframe: str = Field(default="1d", description="Timeframe: 1h, 2h, 4h, 1d, 1w, 1mo")
     open: Optional[Decimal] = None
     high: Optional[Decimal] = None
     low: Optional[Decimal] = None
@@ -83,7 +84,7 @@ class HealthCheckResponse(BaseModel):
 # Data Fetching Schemas
 class FetchDataRequest(BaseModel):
     period: str = Field(default="1y", description="Data period: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max")
-    interval: str = Field(default="1d", description="Data interval: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo")
+    interval: str = Field(default="1h", description="Data interval (base timeframe only): 1h")
 
 
 class FetchDataResponse(BaseModel):
@@ -91,6 +92,7 @@ class FetchDataResponse(BaseModel):
     message: str
     records_fetched: int
     records_saved: int
+    timeframe: Optional[str] = None
 
 
 class StockPriceListResponse(BaseModel):
