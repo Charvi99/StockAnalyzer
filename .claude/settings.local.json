@@ -39,7 +39,8 @@
       "Bash(done)",
       "Bash(docker-compose exec:*)",
       "mcp__serena__get_symbols_overview",
-      "mcp__serena__find_symbol"
+      "mcp__serena__find_symbol",
+      "mcp__serena__write_memory"
     ],
     "deny": [],
     "ask": []
