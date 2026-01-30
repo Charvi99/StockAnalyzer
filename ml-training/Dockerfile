@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY scripts/ /app/scripts/
-COPY notebooks/ /app/notebooks/
+# COPY notebooks/ /app/notebooks/  # Commented out - directory doesn't exist
 
 # Create outputs directory
 RUN mkdir -p /app/outputs/{features,models,logs,validation}
