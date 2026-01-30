@@ -14,8 +14,41 @@ class Stock(Base):
     sector = Column(String(100))
     industry = Column(String(100))
     is_tracked = Column(Boolean, default=True, server_default='true')
+
+    # Priority system fields
+    priority = Column(String(10), default='medium', server_default='medium', nullable=False)
+    priority_score = Column(DECIMAL(8, 2), default=50.0, server_default='50.0', nullable=False)
+    priority_updated_at = Column(TIMESTAMP, nullable=True)
+
+    # Statistics for priority calculation
+    avg_volume_30d = Column(BigInteger, nullable=True)
+    avg_price_30d = Column(DECIMAL(12, 4), nullable=True)
+    volatility_30d = Column(DECIMAL(8, 4), nullable=True)
+    pattern_count_30d = Column(Integer, default=0, server_default='0', nullable=False)
+    last_pattern_date = Column(TIMESTAMP, nullable=True)
+
+    # Fetch timing fields (for countdown timer)
+    last_fetch_at = Column(TIMESTAMP, nullable=True)
+    next_fetch_at = Column(TIMESTAMP, nullable=True)
+
+    # Analysis tracking fields - track when each analysis component was last executed
+    last_chart_pattern_detection = Column(TIMESTAMP, nullable=True)
+    last_candlestick_detection = Column(TIMESTAMP, nullable=True)
+    last_sentiment_analysis = Column(TIMESTAMP, nullable=True)
+    last_technical_analysis = Column(TIMESTAMP, nullable=True)
+    last_ml_prediction = Column(TIMESTAMP, nullable=True)
+
+    # Overall analysis status
+    analysis_complete = Column(Boolean, default=False, server_default='false', nullable=False)
+    analysis_score = Column(DECIMAL(3, 2), default=0.00, server_default='0.00', nullable=False)
+    last_comprehensive_analysis = Column(TIMESTAMP, nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("priority IN ('high', 'medium', 'low')", name="check_priority_value"),
+    )
 
     # Relationships
     prices = relationship("StockPrice", back_populates="stock", cascade="all, delete-orphan")
@@ -24,6 +57,10 @@ class Stock(Base):
     sentiment_scores = relationship("SentimentScore", back_populates="stock", cascade="all, delete-orphan")
     candlestick_patterns = relationship("CandlestickPattern", back_populates="stock", cascade="all, delete-orphan")
     chart_patterns = relationship("ChartPattern", back_populates="stock", cascade="all, delete-orphan")
+    news = relationship("News", back_populates="stock", cascade="all, delete-orphan")
+    dividends = relationship("Dividend", back_populates="stock", cascade="all, delete-orphan")
+    splits = relationship("StockSplit", back_populates="stock", cascade="all, delete-orphan")
+    short_interest_data = relationship("ShortInterest", back_populates="stock", cascade="all, delete-orphan")
 
 
 class StockPrice(Base):
@@ -93,13 +130,35 @@ class PredictionPerformance(Base):
 
 
 class TechnicalIndicator(Base):
+    """
+    Cache table for pre-computed technical indicators.
+
+    Stores ALL 35 indicators as JSONB for fast dashboard loading.
+    Updated when price data is fetched (background task).
+    """
     __tablename__ = "technical_indicators"
 
     id = Column(Integer, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False)
-    indicator_name = Column(String(50), nullable=False)
-    value = Column(DECIMAL(12, 4))
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    timeframe = Column(String(10), nullable=False, server_default='1d')  # '1d', '1w', '1mo'
+
+    # Store ALL 35 indicators as JSONB (efficient storage + indexing)
+    indicators = Column(JSONB, nullable=False)  # {"RSI": {...}, "MACD": {...}, ...}
+
+    # Pre-computed recommendation
+    recommendation = Column(String(10), nullable=True)  # BUY/SELL/HOLD
+    confidence = Column(DECIMAL(5, 4), nullable=True)  # 0.0-1.0
+    reasoning = Column(Text, nullable=True)
+    signals = Column(JSONB, nullable=True)  # {"buy": 8, "sell": 2, "hold": 2}
+
+    # Cache metadata
+    calculated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    price_hash = Column(String(32), nullable=True)  # MD5 hash for cache invalidation
+
+    # Unique constraint: one cache entry per stock per timeframe
+    __table_args__ = (
+        UniqueConstraint('stock_id', 'timeframe', name='uq_tech_ind_stock_timeframe'),
+    )
 
     # Relationship
     stock = relationship("Stock", back_populates="indicators")

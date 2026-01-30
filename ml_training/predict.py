@@ -57,7 +57,8 @@ class PatternPredictor:
         # Normalize using pattern's metadata
         price_range = pattern_data['price_max'] - pattern_data['price_min']
         if price_range > 0:
-            ohlc_array[:, :4] = (ohlc_array[:, :4] - pattern_data['price_min']) / price_range
+            ohlc_array[:, :4] = (ohlc_array[:, :4] -
+                                 pattern_data['price_min']) / price_range
 
         if pattern_data['volume_max'] > 0:
             ohlc_array[:, 4] = ohlc_array[:, 4] / pattern_data['volume_max']
@@ -92,7 +93,7 @@ def fetch_pattern_from_api(pattern_id, padding_candles=5):
     """Fetch single pattern from API for prediction"""
     import requests
 
-    url = f"http://localhost:8000/api/v1/chart-patterns/export/training-data"
+    url = f"http://localhost:8080/api/v1/chart-patterns/export/training-data"
     params = {
         'padding_candles': padding_candles,
         'confirmed_only': False  # Get all patterns
@@ -112,15 +113,16 @@ def fetch_pattern_from_api(pattern_id, padding_candles=5):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Predict pattern validity using trained model')
+    parser = argparse.ArgumentParser(
+        description='Predict pattern validity using trained model')
     parser.add_argument('--model', choices=['lstm', 'gru'], default='lstm',
-                       help='Model to use for prediction')
+                        help='Model to use for prediction')
     parser.add_argument('--pattern-id', type=int,
-                       help='Pattern ID to fetch from API')
+                        help='Pattern ID to fetch from API')
     parser.add_argument('--json', type=str,
-                       help='JSON file with pattern data')
+                        help='JSON file with pattern data')
     parser.add_argument('--padding', type=int, default=5,
-                       help='Padding candles (for API fetch)')
+                        help='Padding candles (for API fetch)')
 
     args = parser.parse_args()
 
@@ -145,7 +147,8 @@ def main():
     print(f"  Stock:        {pattern_data.get('stock_symbol', 'N/A')}")
     print(f"  Pattern Name: {pattern_data.get('pattern_name', 'N/A')}")
     print(f"  Signal:       {pattern_data.get('signal', 'N/A')}")
-    print(f"  Candles:      {pattern_data.get('total_candles', len(pattern_data.get('ohlc_data', [])))}")
+    print(
+        f"  Candles:      {pattern_data.get('total_candles', len(pattern_data.get('ohlc_data', [])))}")
 
     if 'user_confirmed' in pattern_data and pattern_data['user_confirmed'] is not None:
         actual_label = 'True Pattern' if pattern_data['user_confirmed'] else 'False Pattern'

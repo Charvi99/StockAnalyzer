@@ -32,7 +32,7 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 
 # Start backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 Keep database and frontend in Docker:

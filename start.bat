@@ -2,8 +2,8 @@
 echo Starting Stock Analyzer...
 echo.
 echo Frontend: http://localhost:3000
-echo Backend API: http://localhost:8000
-echo API Docs: http://localhost:8000/docs
+echo Backend API: http://localhost:8080
+echo API Docs: http://localhost:8080/docs
 echo.
 
 docker-compose up --build

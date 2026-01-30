@@ -11,7 +11,8 @@ import json
 from datetime import datetime
 
 # API Base URL
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
+
 
 def test_multi_timeframe_detection():
     """Test multi-timeframe pattern detection"""
@@ -22,7 +23,8 @@ def test_multi_timeframe_detection():
 
     # Step 1: Get a test stock (AAPL - stock_id 1)
     print("\n1. Getting test stock (AAPL)...")
-    response = requests.get(f"{BASE_URL}/api/v1/stocks/", params={'tracked_only': False})
+    response = requests.get(
+        f"{BASE_URL}/api/v1/stocks/", params={'tracked_only': False})
 
     if response.status_code != 200:
         print(f"[ERROR] Failed to fetch stocks: {response.status_code}")
@@ -77,7 +79,8 @@ def test_multi_timeframe_detection():
     if len(prices_1h) < 100:
         print(f"[WARNING] Insufficient 1h data ({len(prices_1h)} candles)")
         print("   Please fetch 1h data first using the UI or:")
-        print(f"   POST {BASE_URL}/stocks/{stock_id}/fetch?period=1mo&interval=1h")
+        print(
+            f"   POST {BASE_URL}/stocks/{stock_id}/fetch?period=1mo&interval=1h")
         return False
 
     # Step 3: Detect chart patterns with multi-timeframe analysis
@@ -152,12 +155,18 @@ def test_multi_timeframe_detection():
 
         for i, pattern in enumerate(patterns_with_mtf[:3], 1):  # Show top 3
             print(f"\n   Pattern #{i}: {pattern['pattern_name']}")
-            print(f"   - Type: {pattern['pattern_type']} | Signal: {pattern['signal']}")
-            print(f"   - Base Confidence: {pattern.get('base_confidence', 0):.2%}")
-            print(f"   - Adjusted Confidence: {pattern.get('adjusted_confidence', pattern['confidence_score']):.2%}")
-            print(f"   - Confirmation Level: {pattern.get('confirmation_level', 1)}TF")
-            print(f"   - Detected on: {', '.join(pattern.get('detected_on_timeframes', ['1d']))}")
-            print(f"   - Alignment Score: {pattern.get('alignment_score', 0):.2f}")
+            print(
+                f"   - Type: {pattern['pattern_type']} | Signal: {pattern['signal']}")
+            print(
+                f"   - Base Confidence: {pattern.get('base_confidence', 0):.2%}")
+            print(
+                f"   - Adjusted Confidence: {pattern.get('adjusted_confidence', pattern['confidence_score']):.2%}")
+            print(
+                f"   - Confirmation Level: {pattern.get('confirmation_level', 1)}TF")
+            print(
+                f"   - Detected on: {', '.join(pattern.get('detected_on_timeframes', ['1d']))}")
+            print(
+                f"   - Alignment Score: {pattern.get('alignment_score', 0):.2f}")
             print(f"   - Start: {pattern['start_date']}")
             print(f"   - End: {pattern['end_date']}")
     else:
@@ -176,8 +185,10 @@ def test_multi_timeframe_detection():
             if base_conf and adjusted_conf:
                 boost = adjusted_conf / base_conf
                 print(f"\n   {pattern['pattern_name']}: {conf_level}TF")
-                print(f"   - Base: {base_conf:.2%} → Adjusted: {adjusted_conf:.2%}")
-                print(f"   - Boost: {boost:.2f}x ({(boost - 1) * 100:.0f}% increase)")
+                print(
+                    f"   - Base: {base_conf:.2%} → Adjusted: {adjusted_conf:.2%}")
+                print(
+                    f"   - Boost: {boost:.2f}x ({(boost - 1) * 100:.0f}% increase)")
 
                 # Validate boost is within expected range
                 if conf_level == 2:
@@ -191,15 +202,18 @@ def test_multi_timeframe_detection():
                     expected_max = 1.2
 
                 if expected_min <= boost <= expected_max:
-                    print(f"   [OK] Boost within expected range ({expected_min:.1f}x - {expected_max:.1f}x)")
+                    print(
+                        f"   [OK] Boost within expected range ({expected_min:.1f}x - {expected_max:.1f}x)")
                 else:
-                    print(f"   [WARNING] Boost outside expected range ({expected_min:.1f}x - {expected_max:.1f}x)")
+                    print(
+                        f"   [WARNING] Boost outside expected range ({expected_min:.1f}x - {expected_max:.1f}x)")
 
     print("\n" + "=" * 80)
     print("[OK] Multi-Timeframe Detection Test Complete!")
     print("=" * 80)
 
     return True
+
 
 if __name__ == "__main__":
     try:

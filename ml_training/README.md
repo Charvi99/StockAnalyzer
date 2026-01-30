@@ -7,7 +7,7 @@ Proof-of-concept training pipeline for LSTM and GRU models to recognize chart pa
 ### 1. Export Training Data
 
 ```bash
-curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
+curl "http://localhost:8080/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
 ```
 
 ### 2. Install Dependencies

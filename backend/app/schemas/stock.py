@@ -28,6 +28,10 @@ class StockResponse(StockBase):
     is_tracked: bool
     created_at: datetime
     updated_at: datetime
+    
+    # Fetch timing fields (for countdown timer)
+    last_fetch_at: Optional[datetime] = None
+    next_fetch_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

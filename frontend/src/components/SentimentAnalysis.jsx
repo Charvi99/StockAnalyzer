@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { analyzeSentiment, getSentimentHistory, getLatestSentiment } from '../services/api';
+import { analyzeSentiment, getSentimentHistory, getLatestSentiment, getNewsWithReasoning } from '../services/api';
 
 const SentimentAnalysis = ({ stockId, symbol, onSentimentUpdated }) => {
   const [analyzing, setAnalyzing] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingNews, setLoadingNews] = useState(false);
   const [latestSentiment, setLatestSentiment] = useState(null);
   const [sentimentHistory, setSentimentHistory] = useState([]);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [newsWithReasoning, setNewsWithReasoning] = useState([]);
   const [error, setError] = useState(null);
   const [params, setParams] = useState({
     limit_per_ticker: 50,
@@ -34,10 +36,23 @@ const SentimentAnalysis = ({ stockId, symbol, onSentimentUpdated }) => {
     }
   }, [stockId]);
 
+  const loadNewsWithReasoning = useCallback(async () => {
+    try {
+      setLoadingNews(true);
+      const data = await getNewsWithReasoning(stockId, 20);
+      setNewsWithReasoning(data.articles || []);
+    } catch (err) {
+      console.log('No news with reasoning yet');
+    } finally {
+      setLoadingNews(false);
+    }
+  }, [stockId]);
+
   useEffect(() => {
     loadLatestSentiment();
     loadSentimentHistory();
-  }, [loadLatestSentiment, loadSentimentHistory]);
+    loadNewsWithReasoning();
+  }, [loadLatestSentiment, loadSentimentHistory, loadNewsWithReasoning]);
 
   const handleAnalyze = async () => {
     try {
@@ -251,6 +266,59 @@ const SentimentAnalysis = ({ stockId, symbol, onSentimentUpdated }) => {
                     -{item.negative_count}
                   </span>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* News with Sentiment Reasoning from Polygon API */}
+      {loadingNews ? (
+        <div className="sentiment-news-reasoning">
+          <h4>Recent News with Sentiment Analysis</h4>
+          <div className="loading-sbs">Loading news...</div>
+        </div>
+      ) : newsWithReasoning.length > 0 && (
+        <div className="sentiment-news-reasoning">
+          <h4>Recent News with Sentiment Analysis ({newsWithReasoning.length})</h4>
+          <div className="news-reasoning-list">
+            {newsWithReasoning.map((article, idx) => (
+              <div key={idx} className="news-reasoning-article">
+                <div className="news-reasoning-header">
+                  <span
+                    className="news-sentiment-badge"
+                    style={{
+                      backgroundColor: article.sentiment === 'positive' ? '#dcfce7' :
+                                     article.sentiment === 'negative' ? '#fee2e2' : '#f3f4f6',
+                      color: article.sentiment === 'positive' ? '#166534' :
+                             article.sentiment === 'negative' ? '#991b1b' : '#374151'
+                    }}
+                  >
+                    {article.sentiment === 'positive' ? '📈 Positive' :
+                     article.sentiment === 'negative' ? '📉 Negative' : '📊 Neutral'}
+                  </span>
+                  <span className="news-score">
+                    Score: {article.sentiment_score?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+                <h5 className="news-reasoning-title">
+                  <a href={article.article_url} target="_blank" rel="noopener noreferrer">
+                    {article.title}
+                  </a>
+                </h5>
+                <div className="news-reasoning-meta">
+                  <span>{article.publisher}</span>
+                  <span>{new Date(article.published_utc).toLocaleDateString()}</span>
+                </div>
+                {article.sentiment_reasoning && (
+                  <div className="sentiment-reasoning-box">
+                    <div className="reasoning-label">💡 Polygon AI Reasoning:</div>
+                    <div className="reasoning-text">{article.sentiment_reasoning}</div>
+                  </div>
+                )}
+                {article.description && (
+                  <p className="news-reasoning-description">{article.description}</p>
+                )}
               </div>
             ))}
           </div>
@@ -534,6 +602,121 @@ const SentimentAnalysis = ({ stockId, symbol, onSentimentUpdated }) => {
           justify-content: flex-end;
           font-size: 14px;
           font-weight: 600;
+        }
+
+        .sentiment-news-reasoning {
+          margin-top: 24px;
+        }
+
+        .sentiment-news-reasoning h4 {
+          margin: 0 0 16px 0;
+          font-size: 18px;
+          color: #111827;
+        }
+
+        .news-reasoning-list {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          max-height: 600px;
+          overflow-y: auto;
+        }
+
+        .news-reasoning-article {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          border: 1px solid #e5e7eb;
+          transition: all 0.2s;
+        }
+
+        .news-reasoning-article:hover {
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+          border-color: #d1d5db;
+        }
+
+        .news-reasoning-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .news-sentiment-badge {
+          padding: 4px 12px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .news-score {
+          font-size: 12px;
+          color: #6b7280;
+          font-weight: 600;
+        }
+
+        .news-reasoning-title {
+          margin: 0 0 12px 0;
+          font-size: 17px;
+          line-height: 1.4;
+        }
+
+        .news-reasoning-title a {
+          color: #111827;
+          text-decoration: none;
+          transition: color 0.2s;
+        }
+
+        .news-reasoning-title a:hover {
+          color: #667eea;
+        }
+
+        .news-reasoning-meta {
+          display: flex;
+          gap: 16px;
+          font-size: 13px;
+          color: #9ca3af;
+          margin-bottom: 12px;
+        }
+
+        .sentiment-reasoning-box {
+          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+          border-left: 4px solid #0ea5e9;
+          border-radius: 8px;
+          padding: 16px;
+          margin: 12px 0;
+        }
+
+        .reasoning-label {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0369a1;
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .reasoning-text {
+          font-size: 14px;
+          color: #374151;
+          line-height: 1.6;
+          font-style: italic;
+        }
+
+        .news-reasoning-description {
+          font-size: 14px;
+          color: #6b7280;
+          line-height: 1.5;
+          margin: 12px 0 0 0;
+        }
+
+        .loading-sbs {
+          text-align: center;
+          padding: 20px;
+          color: #9ca3af;
         }
       `}</style>
     </div>

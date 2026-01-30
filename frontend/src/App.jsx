@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StockList from './components/StockList';
+import MarketStatus from './components/MarketStatus';
 import { checkHealth } from './services/api';
 import './App.css';
 
@@ -23,40 +24,46 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Stock Analyzer</h1>
-        <div className="health-status">
-          {healthStatus && (
-            <span className={`status ${healthStatus.status}`}>
-              API Status: {healthStatus.status}
-              {healthStatus.database && ` | DB: ${healthStatus.database}`}
-            </span>
-          )}
+        <div className="header-top">
+          <h1>Stock Analyzer</h1>
+          <div className="health-status">
+            {healthStatus && (
+              <span className={`status ${healthStatus.status}`}>
+                API Status: {healthStatus.status}
+                {healthStatus.database && ` | DB: ${healthStatus.database}`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Market Status Bar */}
+        <div className="market-status-container">
+          <MarketStatus />
         </div>
       </header>
 
       <main className="App-main">
         <div className="container">
-          <section className="intro">
-            <h2>Welcome to Stock Analyzer</h2>
-            <p>
-              This application helps you analyze and predict stock market trends.
-              Phase 1 setup is complete with a working backend API and database.
-            </p>
-          </section>
-
           <section className="stocks-section">
             <StockList />
           </section>
 
           <section className="info">
-            <h3>What's Next?</h3>
-            <ul>
-              <li><strong>Phase 2:</strong> Data Pipeline - Fetch and store historical stock data</li>
-              <li><strong>Phase 3:</strong> Analysis & Predictions - Implement ML models</li>
-              <li><strong>Phase 4:</strong> Comparison & Tracking - Track prediction accuracy</li>
-              <li><strong>Phase 5:</strong> Enhancement - Advanced features and authentication</li>
-            </ul>
-          </section>
+              <h3>Project Team</h3>
+              <ul>
+                  <li>
+                      <strong>[Jakub Charvat]</strong>
+                      <p>Role: Lead Developer</p>
+                      <p>Connect: <a href="[https://github.com/Charvi99]">GitHub</a> | <a href="mailto:[jakubcharvat99@gmail.com]">Email</a></p>
+                  </li>
+                  <li>
+                      <strong>[Claude AI]</strong>
+                      <p>Ultra developer</p>
+                      <p>Connect: <a href="[https://claude.ai/new]">Claude page</a></p>
+                  </li>
+                  {/* Add more list items for each co-creator */}
+                </ul>
+            </section>
         </div>
       </main>
     </div>

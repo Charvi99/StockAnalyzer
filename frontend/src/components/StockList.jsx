@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { getDashboardAnalysis, getDashboardAnalysisChunk, getStocks, updateStock, fetchStockData, detectChartPatterns } from '../services/api';
+import { getDashboardAnalysisChunk, getStocks, updateStock, fetchStockData, checkAnalysisCompleteness, triggerBatchAnalysis, getRecentUpdates, getAnalysisByIds } from '../services/api';
 import StockDetailSideBySide from './StockDetailSideBySide';
 import AddStockModal from './AddStockModal';
 import StockCard from './StockCard';
 import IndicatorInfo from './IndicatorInfo';
+import { ToastContainer } from './Toast';
 
 // Sector colors matching StockCard
 const SECTOR_CONFIG = {
@@ -37,18 +38,42 @@ const StockList = () => {
   const [error, setError] = useState(null);
   const [selectedStock, setSelectedStock] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [groupBySector, setGroupBySector] = useState(true);
+  const [groupBySector] = useState(true); // Always group by sector for better organization
   const [collapsedSectors, setCollapsedSectors] = useState(new Set());
   const [batchFetching, setBatchFetching] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentSymbol: '' });
-  const [batchDetecting, setBatchDetecting] = useState(false);
   const [showInvestopedia, setShowInvestopedia] = useState(false);
-  const [detectProgress, setDetectProgress] = useState({ current: 0, total: 0, currentSymbol: '', totalPatterns: 0 });
 
   // Progressive loading state
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ loaded: 0, total: 0 });
-  const [stocksWithoutAnalysis, setStocksWithoutAnalysis] = useState(new Set());
+
+  // Auto-trigger state (Phase 2)
+  const [autoTriggerActive, setAutoTriggerActive] = useState(false);
+  const [autoTriggerProgress, setAutoTriggerProgress] = useState({ triggered: 0, total: 0, message: '' });
+  const [analyzingStockIds, setAnalyzingStockIds] = useState(new Set());
+
+  // Auto-refresh state (for real-time updates after analysis)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  // Filter and search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterRecommendation, setFilterRecommendation] = useState('ALL'); // ALL, BUY, HOLD, SELL
+  const [filterConfidence, setFilterConfidence] = useState(0); // 0-100
+
+  // Toast notifications (Phase 4)
+  const [toasts, setToasts] = useState([]);
+
+  // Helper function to show toast notifications
+  const showToast = (message, type = 'info', duration = 3000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type, duration }]);
+  };
+
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -87,7 +112,6 @@ const StockList = () => {
 
       // Show stocks immediately with loading state
       setStocks(initialStocks);
-      setStocksWithoutAnalysis(new Set(initialStocks.map(s => s.stock_id)));
       setAnalysisProgress({ loaded: 0, total: basicStocks.length });
       setLoading(false); // Done loading structure, now loading analysis
 
@@ -118,11 +142,6 @@ const StockList = () => {
           // Update progress
           loadedCount += chunkData.length;
           setAnalysisProgress({ loaded: loadedCount, total: totalStocks });
-          setStocksWithoutAnalysis(prev => {
-            const newSet = new Set(prev);
-            chunkData.forEach(stock => newSet.delete(stock.stock_id));
-            return newSet;
-          });
 
           console.log(`Progress: ${loadedCount}/${totalStocks} stocks analyzed`);
         } catch (chunkErr) {
@@ -133,6 +152,57 @@ const StockList = () => {
 
       console.log('All analysis data loaded!');
       setLoadingAnalysis(false);
+
+      // STEP 3: Check completeness and auto-trigger analysis for incomplete stocks
+      try {
+        console.log('Step 3: Checking analysis completeness...');
+        const stockIds = basicStocks.map(s => s.id);
+        const completenessResult = await checkAnalysisCompleteness(stockIds, 24, 0.80, false);
+
+        console.log(`Completeness check: ${completenessResult.total_checked} stocks checked, ${completenessResult.needs_analysis_count} need analysis`);
+
+        if (completenessResult.needs_analysis_count > 0) {
+          const incompleteStockIds = completenessResult.stocks
+            .filter(s => s.needs_refresh)
+            .map(s => s.stock_id);
+
+          console.log(`Auto-triggering analysis for ${incompleteStockIds.length} incomplete stocks...`);
+          setAutoTriggerActive(true);
+          setAutoTriggerProgress({
+            triggered: 0,
+            total: incompleteStockIds.length,
+            message: 'Preparing background analysis...'
+          });
+
+          // Mark stocks as analyzing
+          setAnalyzingStockIds(new Set(incompleteStockIds));
+
+          // Trigger batch analysis
+          const triggerResult = await triggerBatchAnalysis(incompleteStockIds);
+          console.log(`✅ Triggered analysis for ${triggerResult.triggered_count} stocks`);
+
+          setAutoTriggerProgress({
+            triggered: triggerResult.triggered_count,
+            total: incompleteStockIds.length,
+            message: `Running analysis for ${triggerResult.triggered_count} stocks...`
+          });
+
+          // Keep the indicator visible for 30 seconds, then auto-hide
+          // Clear analyzing status after 60 seconds (analysis should be done by then)
+          setTimeout(() => {
+            setAutoTriggerActive(false);
+          }, 30000);
+
+          setTimeout(() => {
+            setAnalyzingStockIds(new Set());
+          }, 60000);
+        } else {
+          console.log('✅ All stocks have fresh analysis data, no auto-trigger needed');
+        }
+      } catch (autoTriggerErr) {
+        console.error('❌ Auto-trigger check failed:', autoTriggerErr);
+        // Don't show error to user - this is a background operation
+      }
 
     } catch (err) {
       setError('Failed to fetch dashboard data');
@@ -145,6 +215,99 @@ const StockList = () => {
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  // Phase 4: Efficient polling - Only fetch changed stocks using recent-updates & get-by-ids
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+
+    // Track last poll time
+    let lastPollTime = new Date().toISOString();
+
+    const checkForUpdates = async () => {
+      try {
+        console.log('🔍 [POLL] Checking for updates since:', lastPollTime);
+
+        // PHASE 4: Efficient check - only get IDs of updated stocks
+        const recentUpdates = await getRecentUpdates(lastPollTime);
+        console.log('📊 [POLL] Recent updates response:', recentUpdates);
+
+        if (recentUpdates.count > 0) {
+          console.log(`🔄 [POLL] ${recentUpdates.count} stocks updated, fetching full data...`);
+
+          // Fetch only the updated stocks
+          const updatedStockIds = recentUpdates.updates.map(u => u.stock_id);
+          console.log('📦 [POLL] Fetching stock IDs:', updatedStockIds);
+
+          const updatedData = await getAnalysisByIds(updatedStockIds);
+          console.log('✅ [POLL] Received updated data:', updatedData);
+
+          // Log specific fields for debugging
+          updatedData.stocks.forEach(s => {
+            console.log(`📈 [POLL] ${s.symbol}:`, {
+              analysis_score: s.analysis_score,
+              analysis_complete: s.analysis_complete,
+              final_recommendation: s.final_recommendation,
+              technical_recommendation: s.technical_recommendation
+            });
+          });
+
+          // Merge updates into existing stocks array (preserve scroll position)
+          setStocks(prevStocks => {
+            console.log('🔄 [POLL] Merging updates into state...');
+            const updatedMap = new Map(updatedData.stocks.map(s => [s.stock_id, s]));
+            const newStocks = prevStocks.map(stock => {
+              if (updatedMap.has(stock.stock_id)) {
+                const updated = updatedMap.get(stock.stock_id);
+                console.log(`✏️ [POLL] Updating ${stock.symbol}:`, {
+                  old_score: stock.analysis_score,
+                  new_score: updated.analysis_score,
+                  old_recommendation: stock.final_recommendation,
+                  new_recommendation: updated.final_recommendation
+                });
+                return { ...updated, _loading: false };
+              }
+              return stock;
+            });
+            console.log('✅ [POLL] State merge complete');
+            return newStocks;
+          });
+
+          // Show toast notification
+          const symbols = recentUpdates.updates.map(u => u.symbol).slice(0, 3).join(', ');
+          const message = recentUpdates.count === 1
+            ? `${symbols} updated`
+            : recentUpdates.count <= 3
+            ? `${symbols} updated`
+            : `${symbols} and ${recentUpdates.count - 3} more updated`;
+
+          showToast(message, 'success', 4000);
+          console.log(`🎉 [POLL] Toast shown: "${message}"`);
+
+          console.log(`✅ [POLL] Update complete for stocks:`,
+            recentUpdates.updates.map(u => u.symbol).join(', '));
+
+          setLastRefresh(new Date());
+
+          // Update last poll time to now
+          lastPollTime = new Date().toISOString();
+          console.log('⏰ [POLL] Next poll will check from:', lastPollTime);
+        } else {
+          console.log('⏭️ [POLL] No new analysis data, skipping refresh');
+        }
+      } catch (err) {
+        console.error('❌ [POLL] Auto-refresh check failed:', err);
+        console.error('❌ [POLL] Error details:', err.message, err.stack);
+      }
+    };
+
+    // Check immediately on mount
+    checkForUpdates();
+
+    // Then check every 30 seconds
+    const refreshInterval = setInterval(checkForUpdates, 30000);
+
+    return () => clearInterval(refreshInterval);
+  }, [autoRefreshEnabled]);
 
   const handleStockAdded = async (newStock) => {
     try {
@@ -173,7 +336,7 @@ const StockList = () => {
   };
 
   const handleBatchFetch6Months = async () => {
-    if (!window.confirm(`Fetch 6 months of 1-hour data for all ${stocks.length} stocks?\n\nThis will take approximately ${Math.ceil(stocks.length * 2 / 60)} minutes.\n\nYou can continue using the app while this runs in the background.`)) {
+    if (!window.confirm(`Fetch 1 months of 1-hour data for all ${stocks.length} stocks?\n\nThis will take approximately ${Math.ceil(stocks.length * 2 / 60)} minutes.\n\nYou can continue using the app while this runs in the background.`)) {
       return;
     }
 
@@ -193,8 +356,8 @@ const StockList = () => {
       });
 
       try {
-        // Fetch 6 months of 1-hour data for swing trading
-        await fetchStockData(stock.stock_id, '6mo', '1h');
+        // Fetch 1 months of 1-hour data for swing trading
+        await fetchStockData(stock.stock_id, '1mo', '1h');
         successful++;
         console.log(`✓ ${stock.symbol} (${i + 1}/${stocks.length})`);
       } catch (err) {
@@ -218,6 +381,51 @@ const StockList = () => {
     fetchDashboardData();
   };
 
+  // Force immediate analysis for HIGH priority stocks
+  const handleForceAnalysis = async () => {
+    if (autoTriggerActive) {
+      showToast('⚠️ Analysis already in progress', 'warning', 3000);
+      return;
+    }
+
+    try {
+      setAutoTriggerActive(true);
+      setAutoTriggerProgress({ triggered: 0, total: 0, message: 'Fetching HIGH priority stocks...' });
+
+      // Get all stock IDs (backend will filter by priority)
+      const stockIds = stocks.map(s => s.stock_id);
+
+      showToast('🚀 Triggering analysis for HIGH priority stocks...', 'info', 3000);
+
+      // Trigger batch analysis with HIGH priority override
+      const result = await triggerBatchAnalysis(stockIds, 'high');
+
+      setAutoTriggerProgress({
+        triggered: result.triggered_count,
+        total: result.triggered_count,
+        message: `✅ Triggered ${result.triggered_count} HIGH priority analyses`
+      });
+
+      showToast(`✅ ${result.triggered_count} analyses triggered! Watch the cards for updates.`, 'success', 5000);
+
+      // Mark triggered stocks as analyzing
+      const triggeredIds = new Set(result.tasks.map(t => t.stock_id));
+      setAnalyzingStockIds(triggeredIds);
+
+      // Reset after 2 seconds
+      setTimeout(() => {
+        setAutoTriggerActive(false);
+        setAutoTriggerProgress({ triggered: 0, total: 0, message: '' });
+      }, 2000);
+
+    } catch (err) {
+      console.error('Force analysis failed:', err);
+      showToast(`❌ Force analysis failed: ${err.message}`, 'error', 5000);
+      setAutoTriggerActive(false);
+      setAutoTriggerProgress({ triggered: 0, total: 0, message: '' });
+    }
+  };
+
   const toggleSectorCollapse = (sector) => {
     setCollapsedSectors(prev => {
       const newSet = new Set(prev);
@@ -230,8 +438,35 @@ const StockList = () => {
     });
   };
 
+  // Apply filters and search
+  const filteredStocks = stocks.filter(stock => {
+    // Search filter (symbol or name)
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const symbolMatch = stock.symbol?.toLowerCase().includes(query);
+      const nameMatch = stock.name?.toLowerCase().includes(query);
+      if (!symbolMatch && !nameMatch) return false;
+    }
+
+    // Recommendation filter
+    if (filterRecommendation !== 'ALL') {
+      // API returns final_recommendation field, not recommendation
+      if (stock.final_recommendation !== filterRecommendation) return false;
+    }
+
+    // Confidence filter
+    if (filterConfidence > 0) {
+      // API returns overall_confidence field (0-1), not confidence (0-100)
+      // Convert to percentage for comparison
+      const confidence = (stock.overall_confidence || 0) * 100;
+      if (confidence < filterConfidence) return false;
+    }
+
+    return true;
+  });
+
   // Group stocks by sector
-  const stocksBySector = stocks.reduce((acc, stock) => {
+  const stocksBySector = filteredStocks.reduce((acc, stock) => {
     const sector = stock.sector || 'Uncategorized';
     if (!acc[sector]) {
       acc[sector] = [];
@@ -257,12 +492,30 @@ const StockList = () => {
         </div>
         <div className="header-actions">
           <button
+            onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            className={autoRefreshEnabled ? 'refresh-btn active' : 'refresh-btn'}
+            title={autoRefreshEnabled ? 'Auto-refresh ON (every 30s)' : 'Auto-refresh OFF'}
+          >
+            {autoRefreshEnabled ? '🔄 Live' : '⏸️ Paused'}
+            {lastRefresh && <span className="last-refresh" style={{ fontSize: '0.7em', marginLeft: '4px' }}>
+              {new Date(lastRefresh).toLocaleTimeString()}
+            </span>}
+          </button>
+          <button
             onClick={handleBatchFetch6Months}
             className="debug-btn"
             disabled={batchFetching || stocks.length === 0}
             title="Fetch 6 months"
           >
-            {batchFetching ? '⏳ Fetching...' : '🔧 Fetch 6M 1h Data'}
+            {batchFetching ? '⏳ Fetching...' : '🔧 Fetch 1M 1h Data'}
+          </button>
+          <button
+            onClick={handleForceAnalysis}
+            className="force-analysis-btn"
+            disabled={autoTriggerActive || stocks.length === 0}
+            title="Force immediate analysis for HIGH priority stocks"
+          >
+            {autoTriggerActive ? '⚡ Analyzing...' : '⚡ Force Analysis'}
           </button>
           <button
             onClick={() => setShowInvestopedia(true)}
@@ -274,6 +527,106 @@ const StockList = () => {
           <button onClick={() => setShowAddModal(true)} className="add-stock-btn">
             + Add Stock
           </button>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="filters-container">
+        <div className="search-box">
+          <span className="search-icon">🔍</span>
+          <input
+            type="text"
+            placeholder="Search stocks by symbol or name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="search-input"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="clear-search"
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="filter-section">
+          <div className="filter-group">
+            <label>Recommendation:</label>
+            <div className="recommendation-buttons">
+              <button
+                onClick={() => setFilterRecommendation('ALL')}
+                className={filterRecommendation === 'ALL' ? 'filter-btn active' : 'filter-btn'}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFilterRecommendation('BUY')}
+                className={filterRecommendation === 'BUY' ? 'filter-btn active buy' : 'filter-btn'}
+              >
+                🟢 BUY
+              </button>
+              <button
+                onClick={() => setFilterRecommendation('HOLD')}
+                className={filterRecommendation === 'HOLD' ? 'filter-btn active hold' : 'filter-btn'}
+              >
+                🟡 HOLD
+              </button>
+              <button
+                onClick={() => setFilterRecommendation('SELL')}
+                className={filterRecommendation === 'SELL' ? 'filter-btn active sell' : 'filter-btn'}
+              >
+                🔴 SELL
+              </button>
+            </div>
+          </div>
+
+          <div className="filter-group">
+            <label>
+              Minimum Confidence: {filterConfidence}%
+              {filterConfidence > 0 && (
+                <button
+                  onClick={() => setFilterConfidence(0)}
+                  className="reset-filter"
+                  title="Reset confidence filter"
+                >
+                  Reset
+                </button>
+              )}
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={filterConfidence}
+              onChange={(e) => setFilterConfidence(Number(e.target.value))}
+              className="confidence-slider"
+            />
+            <div className="slider-labels">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="filter-summary">
+          Showing {filteredStocks.length} of {stocks.length} stocks
+          {(searchQuery || filterRecommendation !== 'ALL' || filterConfidence > 0) && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setFilterRecommendation('ALL');
+                setFilterConfidence(0);
+              }}
+              className="clear-all-filters"
+            >
+              Clear all filters
+            </button>
+          )}
         </div>
       </div>
 
@@ -312,6 +665,26 @@ const StockList = () => {
             <div
               className="progress-fill"
               style={{ width: `${(analysisProgress.loaded / analysisProgress.total) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Trigger Progress Indicator (Phase 2) */}
+      {autoTriggerActive && autoTriggerProgress.total > 0 && (
+        <div className="batch-progress-bar auto-trigger-progress">
+          <div className="progress-info">
+            <span className="progress-text">
+              🤖 {autoTriggerProgress.message} ({autoTriggerProgress.triggered}/{autoTriggerProgress.total})
+            </span>
+            <span className="progress-percent">
+              Background
+            </span>
+          </div>
+          <div className="progress-track">
+            <div
+              className="progress-fill auto-trigger"
+              style={{ width: `${(autoTriggerProgress.triggered / autoTriggerProgress.total) * 100}%` }}
             ></div>
           </div>
         </div>
@@ -357,6 +730,7 @@ const StockList = () => {
                         onViewDetails={() => setSelectedStock(stock)}
                         onUntrack={handleUntrack}
                         onAnalysisComplete={fetchDashboardData}
+                        isAnalyzing={analyzingStockIds.has(stock.stock_id)}
                       />
                     ))}
                   </div>
@@ -375,6 +749,7 @@ const StockList = () => {
               onViewDetails={() => setSelectedStock(stock)}
               onUntrack={handleUntrack}
               onAnalysisComplete={fetchDashboardData}
+              isAnalyzing={analyzingStockIds.has(stock.stock_id)}
             />
           ))}
         </div>
@@ -384,6 +759,7 @@ const StockList = () => {
         <StockDetailSideBySide
           stock={selectedStock}
           onClose={() => setSelectedStock(null)}
+          initialRecommendation={selectedStock}
         />
       )}
 
@@ -565,6 +941,11 @@ const StockList = () => {
           border-left: 4px solid #f59e0b;
         }
 
+        .batch-progress-bar.auto-trigger-progress {
+          border-left-color: #667eea;
+          background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
+        }
+
         .progress-info {
           display: flex;
           justify-content: space-between;
@@ -598,6 +979,290 @@ const StockList = () => {
           border-radius: 4px;
         }
 
+        .progress-fill.auto-trigger {
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        }
+        .refresh-btn {
+          background: #f3f4f6; /* Neutral background */
+          color: #4b5563;
+          border: 1px solid #d1d5db;
+          padding: 12px 20px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .refresh-btn:hover {
+          background: #e5e7eb;
+        }
+
+        .refresh-btn.active {
+          background: #10b981; /* Distinct color for 'Live' state */
+          color: white;
+          border-color: #059669;
+        }
+
+        .refresh-btn.active .last-refresh {
+          color: white;
+        }
+        /* ---------------------------------------------------- */
+
+        /* --- Move investopedia-btn-main styles here (New Block) --- */
+        .investopedia-btn-main {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .investopedia-btn-main:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        /* ================================================
+           SEARCH AND FILTERS
+           ================================================ */
+        .filters-container {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          margin-bottom: 24px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+          border-left: 4px solid #667eea;
+        }
+
+        .search-box {
+          position: relative;
+          margin-bottom: 24px;
+        }
+
+        .search-icon {
+          position: absolute;
+          left: 16px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 18px;
+          pointer-events: none;
+          opacity: 0.5;
+        }
+
+        .search-input {
+          width: 100%;
+          padding: 14px 48px 14px 48px;
+          font-size: 15px;
+          border: 2px solid #e5e7eb;
+          border-radius: 10px;
+          outline: none;
+          transition: all 0.2s;
+        }
+
+        .search-input:focus {
+          border-color: #667eea;
+          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .clear-search {
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: #f3f4f6;
+          border: none;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 14px;
+          color: #6b7280;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .clear-search:hover {
+          background: #e5e7eb;
+          color: #374151;
+        }
+
+        .filter-section {
+          display: flex;
+          gap: 32px;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+        }
+
+        .filter-group {
+          flex: 1;
+          min-width: 280px;
+        }
+
+        .filter-group label {
+          display: block;
+          font-weight: 600;
+          color: #374151;
+          font-size: 14px;
+          margin-bottom: 12px;
+        }
+
+        .recommendation-buttons {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .filter-btn {
+          flex: 1;
+          min-width: 80px;
+          padding: 10px 16px;
+          background: #f9fafb;
+          border: 2px solid #e5e7eb;
+          border-radius: 8px;
+          color: #374151;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          text-align: center;
+        }
+
+        .filter-btn:hover {
+          background: #f3f4f6;
+          border-color: #d1d5db;
+        }
+
+        .filter-btn.active {
+          background: #667eea;
+          border-color: #667eea;
+          color: white;
+          transform: scale(1.05);
+          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .filter-btn.active.buy {
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          border-color: #10b981;
+        }
+
+        .filter-btn.active.hold {
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+          border-color: #f59e0b;
+        }
+
+        .filter-btn.active.sell {
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          border-color: #ef4444;
+        }
+
+        .confidence-slider {
+          width: 100%;
+          height: 8px;
+          -webkit-appearance: none;
+          appearance: none;
+          background: linear-gradient(to right, #e5e7eb 0%, #667eea 100%);
+          border-radius: 4px;
+          outline: none;
+          cursor: pointer;
+        }
+
+        .confidence-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          background: #667eea;
+          border-radius: 50%;
+          cursor: pointer;
+          box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4);
+          transition: all 0.2s;
+        }
+
+        .confidence-slider::-webkit-slider-thumb:hover {
+          transform: scale(1.2);
+          box-shadow: 0 3px 10px rgba(102, 126, 234, 0.6);
+        }
+
+        .confidence-slider::-moz-range-thumb {
+          width: 20px;
+          height: 20px;
+          background: #667eea;
+          border-radius: 50%;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4);
+          transition: all 0.2s;
+        }
+
+        .confidence-slider::-moz-range-thumb:hover {
+          transform: scale(1.2);
+          box-shadow: 0 3px 10px rgba(102, 126, 234, 0.6);
+        }
+
+        .slider-labels {
+          display: flex;
+          justify-content: space-between;
+          margin-top: 8px;
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .reset-filter {
+          margin-left: 12px;
+          padding: 4px 10px;
+          background: #f3f4f6;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #6b7280;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .reset-filter:hover {
+          background: #e5e7eb;
+          color: #374151;
+        }
+
+        .filter-summary {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 16px;
+          border-top: 1px solid #e5e7eb;
+          font-size: 14px;
+          color: #6b7280;
+          font-weight: 600;
+        }
+
+        .clear-all-filters {
+          padding: 8px 16px;
+          background: #fee2e2;
+          color: #dc2626;
+          border: 1px solid #fecaca;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .clear-all-filters:hover {
+          background: #fecaca;
+          border-color: #fca5a5;
+        }
+
         @media (max-width: 768px) {
           .stock-list-header {
             flex-direction: column;
@@ -612,36 +1277,19 @@ const StockList = () => {
 
           .debug-btn,
           .add-stock-btn,
-          .investopedia-btn-main {
-            width: 100%;
-          }
+
 
           .stocks-grid {
             grid-template-columns: 1fr;
-          }
-
-          /* Investopedia Modal Styles */
-          .investopedia-btn-main {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-          }
-
-          .investopedia-btn-main:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
           }
         }
       `}</style>
 
       {/* Investopedia Modal */}
       {showInvestopedia && <IndicatorInfo onClose={() => setShowInvestopedia(false)} />}
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
   );
 };

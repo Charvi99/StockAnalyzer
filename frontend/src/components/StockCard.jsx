@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { fetchStockData, getDashboardAnalysis } from '../services/api';
+import { fetchStockData } from '../services/api';
+import FetchCountdown from './FetchCountdown';
 
 // Sector colors and icons
 const SECTOR_CONFIG = {
@@ -27,9 +28,44 @@ const getSectorConfig = (sector) => {
   return SECTOR_CONFIG[sector] || { color: '#6b7280', icon: '📊', bgLight: '#f3f4f6' };
 };
 
-const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
+// Priority configuration
+const PRIORITY_CONFIG = {
+  'high': {
+    color: '#dc2626',
+    bgLight: '#fee2e2',
+    icon: '🔥',
+    label: 'High Priority',
+    description: 'Updated hourly'
+  },
+  'medium': {
+    color: '#f59e0b',
+    bgLight: '#fef3c7',
+    icon: '⚡',
+    label: 'Medium Priority',
+    description: 'Updated every 4h'
+  },
+  'low': {
+    color: '#6b7280',
+    bgLight: '#f3f4f6',
+    icon: '📊',
+    label: 'Low Priority',
+    description: 'Updated daily'
+  },
+};
+
+const getPriorityConfig = (priority) => {
+  return PRIORITY_CONFIG[priority] || PRIORITY_CONFIG['medium'];
+};
+
+const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete, isAnalyzing }) => {
   const [isFetchingData, setIsFetchingData] = useState(false);
   const sectorConfig = getSectorConfig(stock.sector);
+  const priorityConfig = getPriorityConfig(stock.priority);
+
+  // Calculate completeness score (0-100)
+  const completenessScore = stock.analysis_score !== undefined
+    ? Math.round(stock.analysis_score * 100)
+    : 0;
 
   const handleFetchData = async () => {
     try {
@@ -58,8 +94,56 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
     }
   };
 
+  // Helper function to get signal badge styling
+  const getSignalBadgeStyle = (signalType) => {
+    switch (signalType) {
+      case 'dividend_exit':
+        return {
+          borderColor: '#ef4444',
+          background: '#fee2e2',
+          color: '#dc2626',
+          icon: '💰'
+        };
+      case 'dividend_entry':
+        return {
+          borderColor: '#10b981',
+          background: '#d1fae5',
+          color: '#059669',
+          icon: '💰'
+        };
+      case 'split_entry':
+        return {
+          borderColor: '#3b82f6',
+          background: '#dbeafe',
+          color: '#1d4ed8',
+          icon: '✂️'
+        };
+      case 'split_exit':
+        return {
+          borderColor: '#ef4444',
+          background: '#fee2e2',
+          color: '#dc2626',
+          icon: '✂️'
+        };
+      case 'split_reentry':
+        return {
+          borderColor: '#10b981',
+          background: '#d1fae5',
+          color: '#059669',
+          icon: '✂️'
+        };
+      default:
+        return {
+          borderColor: '#6b7280',
+          background: '#f3f4f6',
+          color: '#6b7280',
+          icon: '📊'
+        };
+    }
+  };
+
   return (
-    <div className="stock-card">
+    <div className={`stock-card ${isAnalyzing ? 'analyzing' : ''}`}>
       {/* Loading overlay for progressive loading */}
       {stock._loading && (
         <div className="loading-overlay">
@@ -68,8 +152,25 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
         </div>
       )}
 
+      {/* Analyzing indicator - pulsing badge */}
+      {isAnalyzing && (
+        <div className="analyzing-badge">
+          <div className="analyzing-spinner"></div>
+          <span>Analyzing...</span>
+        </div>
+      )}
+
       {/* Colored top border for sector indication */}
       <div className="sector-indicator" style={{ background: sectorConfig.color }}></div>
+
+      {/* Fetch countdown timer (top-right corner) */}
+      {stock.next_fetch_at && (
+        <FetchCountdown
+          nextFetchAt={stock.next_fetch_at}
+          lastFetchAt={stock.last_fetch_at}
+          compact={true}
+        />
+      )}
 
       <div className="stock-card-header">
         <div className="title-section">
@@ -80,6 +181,18 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
           <p className="company-name">{stock.name || 'N/A'}</p>
         </div>
         <div className="stock-meta">
+          {/* Completeness Score Badge */}
+          <span
+            className="completeness-badge"
+            style={{
+              background: completenessScore >= 80 ? '#d1fae5' : completenessScore >= 50 ? '#fef3c7' : '#fee2e2',
+              color: completenessScore >= 80 ? '#059669' : completenessScore >= 50 ? '#d97706' : '#dc2626',
+              borderColor: completenessScore >= 80 ? '#10b981' : completenessScore >= 50 ? '#f59e0b' : '#ef4444'
+            }}
+            title={`Analysis completeness: ${completenessScore}%`}
+          >
+            {completenessScore >= 80 ? '✓' : completenessScore >= 50 ? '⚠' : '✗'} {completenessScore}%
+          </span>
           <span
             className="sector-badge"
             style={{
@@ -90,6 +203,19 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
           >
             {stock.sector || 'N/A'}
           </span>
+          {stock.priority && (
+            <span
+              className="priority-badge"
+              style={{
+                background: priorityConfig.bgLight,
+                color: priorityConfig.color,
+                borderColor: priorityConfig.color
+              }}
+              title={`${priorityConfig.label} - ${priorityConfig.description}`}
+            >
+              {priorityConfig.icon} {stock.priority}
+            </span>
+          )}
           {stock.industry && (
             <span className="industry-badge">
               {stock.industry}
@@ -113,6 +239,39 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
         </div>
       ) : stock.final_recommendation ? (
         <div className="analysis-section">
+          {/* Dividend/Split Signal Badge - Prominent Display */}
+          {stock.dividend_split_signal && (
+            <div
+              className="dividend-split-badge"
+              style={{
+                borderColor: getSignalBadgeStyle(stock.dividend_split_signal.signal_type).borderColor,
+                background: getSignalBadgeStyle(stock.dividend_split_signal.signal_type).background,
+                color: getSignalBadgeStyle(stock.dividend_split_signal.signal_type).color
+              }}
+              title={stock.dividend_split_signal.reasoning}
+            >
+              <div className="signal-header">
+                <span className="signal-icon">
+                  {getSignalBadgeStyle(stock.dividend_split_signal.signal_type).icon}
+                </span>
+                <span className="signal-title">
+                  {stock.dividend_split_signal.signal_type.includes('dividend') ? 'DIVIDEND' : 'SPLIT'} SIGNAL
+                </span>
+              </div>
+              <div className="signal-body">
+                <div className="signal-days">
+                  {stock.dividend_split_signal.days_until >= 0
+                    ? `${stock.dividend_split_signal.days_until} days until event`
+                    : `${Math.abs(stock.dividend_split_signal.days_until)} days since event`
+                  }
+                </div>
+                <div className="signal-strength-badge">
+                  {stock.dividend_split_signal.signal_strength}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div
             className="recommendation-badge"
             style={{
@@ -134,7 +293,7 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
 
           <div className="signals-grid">
             <div className="signal-item">
-              <div className="signal-label">Technical</div>
+              <div className="signal-label">📊 Technical</div>
               <div
                 className="signal-value"
                 style={{ color: getRecommendationColor(stock.technical_recommendation) }}
@@ -143,16 +302,31 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
               </div>
             </div>
             <div className="signal-item">
-              <div className="signal-label">ML Model</div>
+              <div className="signal-label">📈 Chart Patterns</div>
               <div
                 className="signal-value"
-                style={{ color: getRecommendationColor(stock.ml_recommendation) }}
+                style={{ color: getRecommendationColor(stock.chart_pattern_signal) }}
               >
-                {stock.ml_recommendation || 'N/A'}
+                {stock.chart_pattern_signal || 'N/A'}
+                {stock.chart_pattern_count > 0 && (
+                  <span className="count-badge"> ({stock.chart_pattern_count})</span>
+                )}
               </div>
             </div>
             <div className="signal-item">
-              <div className="signal-label">Sentiment</div>
+              <div className="signal-label">🕯️ Candlestick</div>
+              <div
+                className="signal-value"
+                style={{ color: getRecommendationColor(stock.candlestick_signal) }}
+              >
+                {stock.candlestick_signal || 'N/A'}
+                {stock.candlestick_pattern_count > 0 && (
+                  <span className="count-badge"> ({stock.candlestick_pattern_count})</span>
+                )}
+              </div>
+            </div>
+            <div className="signal-item">
+              <div className="signal-label">💭 Sentiment</div>
               <div className="signal-value">
                 {stock.sentiment_index !== null
                   ? stock.sentiment_index.toFixed(0)
@@ -161,9 +335,18 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
               </div>
             </div>
             <div className="signal-item">
-              <div className="signal-label">Price</div>
+              <div className="signal-label">💰 Price</div>
               <div className="signal-value">
                 ${stock.current_price?.toFixed(2) || 'N/A'}
+              </div>
+            </div>
+            <div className="signal-item">
+              <div className="signal-label">🤖 ML Model</div>
+              <div
+                className="signal-value"
+                style={{ color: getRecommendationColor(stock.ml_recommendation) }}
+              >
+                {stock.ml_recommendation || 'N/A'}
               </div>
             </div>
           </div>
@@ -196,6 +379,59 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
         .stock-card:hover {
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
           transform: translateY(-2px);
+        }
+
+        /* Pulsing animation for analyzing state */
+        .stock-card.analyzing {
+          animation: pulse-card 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-card {
+          0%, 100% {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          }
+          50% {
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+          }
+        }
+
+        /* Analyzing badge */
+        .analyzing-badge {
+          position: absolute;
+          top: 16px;
+          left: 16px;
+          z-index: 15;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 8px 14px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+          animation: pulse-analyzing 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-analyzing {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          50% {
+            transform: scale(1.05);
+            opacity: 0.9;
+          }
+        }
+
+        .analyzing-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top-color: white;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
         }
 
         .loading-overlay {
@@ -287,7 +523,37 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
           margin-left: 12px;
         }
 
+        .completeness-badge {
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 12px;
+          border: 2px solid;
+          white-space: nowrap;
+          animation: fade-in 0.3s ease-out;
+        }
+
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(-4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
         .sector-badge {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 4px 10px;
+          border-radius: 12px;
+          border: 1px solid;
+          white-space: nowrap;
+        }
+
+        .priority-badge {
           font-size: 11px;
           font-weight: 600;
           padding: 4px 10px;
@@ -347,6 +613,68 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
           padding: 20px;
         }
 
+        /* Dividend/Split Signal Badge */
+        .dividend-split-badge {
+          border: 2px solid;
+          border-radius: 12px;
+          padding: 14px;
+          margin-bottom: 16px;
+          cursor: pointer;
+          transition: all 0.2s;
+          animation: pulse-badge 2s infinite;
+        }
+
+        .dividend-split-badge:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        @keyframes pulse-badge {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.85;
+          }
+        }
+
+        .signal-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .signal-icon {
+          font-size: 18px;
+        }
+
+        .signal-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+
+        .signal-body {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .signal-days {
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .signal-strength-badge {
+          background: rgba(0, 0, 0, 0.1);
+          padding: 4px 10px;
+          border-radius: 8px;
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+
         .recommendation-badge {
           border: 2px solid;
           border-radius: 12px;
@@ -398,6 +726,11 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete }) => {
           font-size: 16px;
           font-weight: 700;
           color: #111827;
+        }
+
+        .count-badge {
+          font-size: 12px;
+          color: #6b7280;
         }
 
         .card-actions {

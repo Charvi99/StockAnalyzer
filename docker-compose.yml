@@ -30,8 +30,10 @@ services:
       DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
       PYTHONUNBUFFERED: 1
       POLYGON_API_KEY: ${POLYGON_API_KEY:-demo}  # Set in .env file
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
-      - "8000:8000"
+      - "8080:8080"
     volumes:
       - ./backend:/app
       - backend_models:/app/ml/models
@@ -48,10 +50,10 @@ services:
       dockerfile: Dockerfile
     container_name: stock_analyzer_frontend
     environment:
-      REACT_APP_API_URL: http://127.0.0.1:8000
+      REACT_APP_API_URL: http://127.0.0.1:8080
       HOST: 0.0.0.0
     ports:
-      - "3333:3000"
+      - "3000:3000"  # Use standard React port (outside dynamic range)
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
@@ -60,7 +62,96 @@ services:
     stdin_open: true
     tty: true
 
+  # ============================================
+  # REDIS - Message Broker + Result Backend
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: stock_analyzer_redis
+    restart: unless-stopped
+    ports:
+      - "7379:6379"  # Redis on high port (7xxx = safe zone, above Windows conflicts)
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # CELERY WORKER - Background Task Execution
+  # ============================================
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_analyzer_celery_worker
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=7 --queues=fetcher,processor,maintenance
+    environment:
+      DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-demo}
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backend_models:/app/ml/models
+
+  # ============================================
+  # CELERY BEAT - Periodic Task Scheduler
+  # ============================================
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_analyzer_celery_beat
+    restart: unless-stopped
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      - database
+      - redis
+    volumes:
+      - ./backend:/app
+
+  # ============================================
+  # FLOWER - Celery Monitoring Dashboard
+  # ============================================
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_analyzer_flower
+    restart: unless-stopped
+    command: celery -A app.celery_app flower --port=5555
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      - redis
+      - celery_worker
+    ports:
+      - "5555:5555"  # Standard Flower port (safe from Windows dynamic range)
+
 volumes:
   postgres_data:
   backend_models:
   frontend_node_modules:
+  redis_data:

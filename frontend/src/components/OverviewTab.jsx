@@ -3,7 +3,7 @@ import axios from 'axios';
 import SignalRadar from './SignalRadar';
 import OrderCalculator from './OrderCalculator';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendationError }) => {
   const [regimeData, setRegimeData] = useState(null);
@@ -230,6 +230,66 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
                     {((recommendation.chart_pattern_confidence || 0) * 100).toFixed(0)}%
                   </span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dividend & Split Signals */}
+          {recommendation.dividend_split_signal && (
+            <div
+              className="stat-card dividend-split-card"
+              style={{
+                borderLeft: `4px solid ${
+                  recommendation.dividend_split_signal.signal_type?.includes('entry') ? '#10b981' :
+                  recommendation.dividend_split_signal.signal_type?.includes('exit') ? '#ef4444' :
+                  '#3b82f6'
+                }`
+              }}
+            >
+              <div className="stat-card-header">
+                <span className="stat-icon">
+                  {recommendation.dividend_split_signal.signal_type?.includes('dividend') ? '💰' : '✂️'}
+                </span>
+                <span className="stat-title">
+                  {recommendation.dividend_split_signal.signal_type?.includes('dividend') ? 'Dividend Signal' : 'Split Signal'}
+                </span>
+              </div>
+              <div className="stat-card-body">
+                <div className="stat-row">
+                  <span className="stat-name">Type</span>
+                  <span className={`stat-badge ${
+                    recommendation.dividend_split_signal.signal_type?.includes('entry') ? 'buy' :
+                    recommendation.dividend_split_signal.signal_type?.includes('exit') ? 'sell' :
+                    'hold'
+                  }`}>
+                    {recommendation.dividend_split_signal.signal_type?.toUpperCase().replace('_', ' ') || 'N/A'}
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-name">Timing</span>
+                  <span className="stat-text">
+                    {recommendation.dividend_split_signal.days_until >= 0
+                      ? `${recommendation.dividend_split_signal.days_until} days`
+                      : `${Math.abs(recommendation.dividend_split_signal.days_until)} days ago`
+                    }
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-name">Strength</span>
+                  <span className="stat-text" style={{
+                    color: recommendation.dividend_split_signal.signal_strength === 'strong' ? '#10b981' :
+                           recommendation.dividend_split_signal.signal_strength === 'moderate' ? '#f59e0b' : '#6b7280',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase'
+                  }}>
+                    {recommendation.dividend_split_signal.signal_strength || 'N/A'}
+                  </span>
+                </div>
+                {recommendation.dividend_split_signal.reasoning && (
+                  <div className="signal-reasoning">
+                    {recommendation.dividend_split_signal.reasoning}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -524,6 +584,31 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
 
         .reasoning-list li {
           margin-bottom: 6px;
+        }
+
+        /* Dividend/Split Signal Card */
+        .dividend-split-card {
+          animation: pulse-card 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-card {
+          0%, 100% {
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+          }
+          50% {
+            box-shadow: 0 0 10px 2px rgba(59, 130, 246, 0.3);
+          }
+        }
+
+        .signal-reasoning {
+          margin-top: 12px;
+          padding: 12px;
+          background: white;
+          border-radius: 6px;
+          font-size: 12px;
+          color: #374151;
+          line-height: 1.6;
+          border-left: 3px solid #3b82f6;
         }
 
         .radar-section, .calculator-section {

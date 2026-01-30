@@ -178,6 +178,14 @@ class RecommendationResponse(BaseModel):
     name: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
+    
+    # Priority system fields
+    priority: Optional[str] = None  # 'high', 'medium', 'low'
+    priority_score: Optional[float] = None  # 0-100
+    
+    # Fetch timing fields (for countdown timer)
+    last_fetch_at: Optional[datetime] = None
+    next_fetch_at: Optional[datetime] = None
     current_price: Optional[float] = None
     timestamp: Optional[datetime] = None
 
@@ -206,11 +214,119 @@ class RecommendationResponse(BaseModel):
     chart_pattern_confidence: Optional[float] = None
     chart_pattern_count: Optional[int] = None
 
+    # Dividend & split signals (if available)
+    dividend_split_signal: Optional[Dict] = None
+
     # Overall recommendation
     final_recommendation: Optional[str] = None
     overall_confidence: Optional[float] = None
     reasoning: Optional[List[str]] = None
     risk_level: Optional[str] = None  # LOW, MEDIUM, HIGH
 
+    # Analysis completeness (Phase 2)
+    analysis_score: Optional[float] = None  # 0.0-1.0 completeness score
+    analysis_complete: Optional[bool] = None  # True if score >= 0.80
+
     # Error field
     error: Optional[str] = None
+
+
+# ============================================================================
+# Analysis Completeness Schemas (Phase 2)
+# ============================================================================
+
+class ComponentCompletenessDetail(BaseModel):
+    """Detailed completeness info for a single analysis component"""
+    last_analyzed: Optional[datetime] = None
+    age_hours: Optional[float] = None
+    is_stale: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AnalysisCompletenessResponse(BaseModel):
+    """
+    Response showing analysis completeness for a single stock
+
+    Used by check-completeness endpoint to determine which stocks need analysis
+    """
+    stock_id: int
+    symbol: str
+    analysis_score: float = Field(..., ge=0.0, le=1.0, description="Completeness score 0.0-1.0")
+    analysis_complete: bool
+    needs_refresh: bool
+    last_comprehensive_analysis: Optional[datetime] = None
+    missing_components: List[str] = Field(default_factory=list, description="List of missing/stale components")
+
+    # Optional detailed component breakdown
+    components: Optional[Dict[str, ComponentCompletenessDetail]] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BatchCompletenessRequest(BaseModel):
+    """Request to check completeness for multiple stocks"""
+    stock_ids: List[int] = Field(..., description="List of stock IDs to check")
+    max_age_hours: int = Field(default=24, description="Max age in hours for data to be considered fresh")
+    min_score_threshold: float = Field(default=0.80, ge=0.0, le=1.0, description="Minimum acceptable score")
+    include_component_details: bool = Field(default=False, description="Include detailed component breakdown")
+
+
+class BatchCompletenessResponse(BaseModel):
+    """Response with completeness info for multiple stocks"""
+    total_checked: int
+    needs_analysis_count: int
+    stocks: List[AnalysisCompletenessResponse]
+
+
+class TriggerAnalysisRequest(BaseModel):
+    """Request to trigger analysis for specific stocks"""
+    stock_ids: List[int] = Field(..., description="List of stock IDs to analyze")
+    priority_override: Optional[str] = Field(default=None, description="Override priority: high, medium, low")
+
+
+class TriggeredTask(BaseModel):
+    """Info about a triggered analysis task"""
+    stock_id: int
+    symbol: str
+    task_id: str
+    priority: str
+
+
+class TriggerAnalysisResponse(BaseModel):
+    """Response after triggering batch analysis"""
+    triggered_count: int
+    tasks: List[TriggeredTask]
+    message: str
+
+
+# ============================================================================
+# Phase 4: Real-Time Updates (Polling)
+# ============================================================================
+
+class RecentUpdate(BaseModel):
+    """Info about a recently updated stock"""
+    stock_id: int
+    symbol: str
+    updated_at: datetime
+    components_updated: List[str] = Field(default_factory=list, description="Which analysis components were updated")
+
+
+class RecentUpdatesResponse(BaseModel):
+    """Response with recently updated stocks"""
+    count: int
+    updates: List[RecentUpdate]
+    since: datetime
+
+
+class GetByIdsRequest(BaseModel):
+    """Request to fetch analysis for specific stock IDs"""
+    stock_ids: List[int] = Field(..., description="List of stock IDs to fetch")
+
+
+class GetByIdsResponse(BaseModel):
+    """Response with analysis for specific stocks"""
+    count: int
+    stocks: List[RecommendationResponse]

@@ -16,4 +16,6 @@ alembic upgrade head
 
 echo "Starting application..."
 # Start the FastAPI application
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Removed --reload to prevent memory issues with file watcher
+# Use docker-compose restart backend when code changes
+exec uvicorn app.main:app --host 0.0.0.0 --port 8080

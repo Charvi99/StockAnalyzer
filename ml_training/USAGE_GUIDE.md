@@ -38,10 +38,10 @@ That's it! The script will:
 
 ```bash
 # Export with 5 candles padding (default)
-curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
+curl "http://localhost:8080/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
 
 # Or with more padding for more context
-curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?padding_candles=10" > training_data.json
+curl "http://localhost:8080/api/v1/chart-patterns/export/training-data?padding_candles=10" > training_data.json
 ```
 
 **What you get:**
@@ -325,15 +325,15 @@ stocks=("AAPL" "MSFT" "GOOGL" "TSLA" "AMZN")
 
 for stock in "${stocks[@]}"; do
   # Create stock and fetch data
-  curl -X POST "http://localhost:8000/api/v1/stocks" \
+  curl -X POST "http://localhost:8080/api/v1/stocks" \
     -d "{\"symbol\": \"$stock\", \"name\": \"$stock Inc.\"}"
 
   # Fetch historical data
-  curl -X POST "http://localhost:8000/api/v1/stocks/$id/fetch" \
+  curl -X POST "http://localhost:8080/api/v1/stocks/$id/fetch" \
     -d "{\"period\": \"2y\", \"interval\": \"1d\"}"
 
   # Detect patterns (exclude recent 90 days for training)
-  curl -X POST "http://localhost:8000/api/v1/stocks/$id/detect-chart-patterns" \
+  curl -X POST "http://localhost:8080/api/v1/stocks/$id/detect-chart-patterns" \
     -d "{\"exclude_recent_days\": 90}"
 done
 ```

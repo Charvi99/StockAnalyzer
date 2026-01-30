@@ -6,7 +6,7 @@ echo.
 
 REM Step 1: Export training data
 echo [1/4] Exporting training data from API...
-curl -s "http://localhost:8000/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
+curl -s "http://localhost:8080/api/v1/chart-patterns/export/training-data?padding_candles=5" > training_data.json
 if %errorlevel% neq 0 (
     echo ERROR: Failed to export training data. Is the backend running?
     pause

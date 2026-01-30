@@ -2,12 +2,13 @@ import requests
 import time
 from datetime import datetime
 
+
 def test_progressive_loading():
     print(f"\n{'='*70}")
     print(f"PROGRESSIVE LOADING TEST - {datetime.now().strftime('%H:%M:%S')}")
     print(f"{'='*70}\n")
 
-    base_url = "http://localhost:8000/api/v1"
+    base_url = "http://localhost:8080/api/v1"
 
     # STEP 1: Load basic stock info (FAST)
     print("STEP 1: Loading basic stock info...")
@@ -50,7 +51,8 @@ def test_progressive_loading():
 
         # First chunk shows immediately
         if chunk_num == 0:
-            print(f"  -> First batch of tiles updated! ({chunk_time:.2f}s from start)\n")
+            print(
+                f"  -> First batch of tiles updated! ({chunk_time:.2f}s from start)\n")
 
     step2_time = time.time() - step2_start
     total_time = step1_time + step2_time
@@ -58,15 +60,18 @@ def test_progressive_loading():
     print(f"\n{'='*70}")
     print(f"RESULTS")
     print(f"{'='*70}")
-    print(f"Step 1 (Basic Info):    {step1_time:.2f}s  <- USER SEES SOMETHING!")
+    print(
+        f"Step 1 (Basic Info):    {step1_time:.2f}s  <- USER SEES SOMETHING!")
     print(f"Step 2 (Analysis):      {step2_time:.2f}s  <- Progressive updates")
     print(f"Total Time:             {total_time:.2f}s")
     print(f"\nUser Experience:")
     print(f"  * Page shows content in:     {step1_time:.2f}s")
-    print(f"  * First tiles analyzed in:   ~{step1_time + (step2_time/chunks_needed):.2f}s")
+    print(
+        f"  * First tiles analyzed in:   ~{step1_time + (step2_time/chunks_needed):.2f}s")
     print(f"  * All tiles complete in:     {total_time:.2f}s")
     print(f"\nOld approach would take ~95-115 seconds with blank screen!")
     print(f"{'='*70}\n")
+
 
 if __name__ == "__main__":
     test_progressive_loading()

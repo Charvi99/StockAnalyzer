@@ -73,7 +73,7 @@ Once running, test the API:
 
 ```bash
 # Test stock data fetch (AAPL = Apple)
-curl -X POST http://localhost:8000/api/v1/stocks/1/fetch \
+curl -X POST http://localhost:8080/api/v1/stocks/1/fetch \
   -H "Content-Type: application/json" \
   -d '{"period":"1mo","interval":"1d"}'
 ```
@@ -220,12 +220,12 @@ Once you're ready to expand, Polygon.io supports:
 
 ```bash
 # Fetch initial data (one-time)
-curl -X POST http://localhost:8000/api/v1/stocks/1/fetch \
+curl -X POST http://localhost:8080/api/v1/stocks/1/fetch \
   -H "Content-Type: application/json" \
   -d '{"period":"1y","interval":"1d"}'
 
 # Daily updates (fetch only new data)
-curl -X POST http://localhost:8000/api/v1/stocks/1/fetch \
+curl -X POST http://localhost:8080/api/v1/stocks/1/fetch \
   -H "Content-Type: application/json" \
   -d '{"period":"1d","interval":"1d"}'
 ```
@@ -273,10 +273,10 @@ Get your free API key now and start analyzing stocks! 📈
 POLYGON_API_KEY=your_key_here
 
 # Test connection
-curl http://localhost:8000/health
+curl http://localhost:8080/health
 
 # Fetch data
-curl -X POST http://localhost:8000/api/v1/stocks/1/fetch \
+curl -X POST http://localhost:8080/api/v1/stocks/1/fetch \
   -H "Content-Type: application/json" \
   -d '{"period":"1mo","interval":"1d"}'
 

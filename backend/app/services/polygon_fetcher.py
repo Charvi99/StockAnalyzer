@@ -30,7 +30,9 @@ class PolygonFetcher:
             logger.warning("Get your free key at: https://polygon.io/")
 
         self.client = RESTClient(api_key=self.api_key)
-        self.rate_limit_delay = 12  # seconds (5 requests/minute = 12s between requests for free tier)
+        # Rate limit: 100 requests/minute for Stocks Starter plan = 0.6s between requests
+        # Using 1s to be safe and avoid hitting limit
+        self.rate_limit_delay = 1  # seconds (100 requests/minute for Starter plan)
 
     def _parse_period_to_dates(self, period: str) -> tuple:
         """
@@ -290,3 +292,252 @@ class PolygonFetcher:
         except Exception as e:
             logger.error(f"Error fetching previous close for {symbol} from Polygon: {str(e)}")
             return None
+
+    def get_market_status(self) -> Optional[Dict]:
+        """
+        Get current market status from Polygon.io
+        
+        Returns:
+            Dictionary with market status information:
+            - market: Market name (e.g., "stocks")
+            - serverTime: Current server time
+            - exchanges: Dict of exchange statuses (NYSE, NASDAQ, etc.)
+            - currencies: Dict of currency market statuses
+        """
+        try:
+            logger.info("Fetching market status from Polygon.io")
+            
+            # Use Polygon REST client to get market status
+            status = self.client.get_market_status()
+            
+            if not status:
+                logger.warning("No market status returned from Polygon")
+                return None
+            
+            return {
+                'market': getattr(status, 'market', 'stocks'),
+                'serverTime': getattr(status, 'serverTime', None),
+                'exchanges': getattr(status, 'exchanges', {}),
+                'currencies': getattr(status, 'currencies', {}),
+                'early_hours': getattr(status, 'earlyHours', False),
+                'after_hours': getattr(status, 'afterHours', False)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching market status from Polygon: {str(e)}")
+            return None
+
+    def get_market_holidays(self) -> Optional[List[Dict]]:
+        """
+        Get upcoming market holidays from Polygon.io
+        
+        Returns:
+            List of holiday dictionaries with date, name, status, etc.
+        """
+        try:
+            logger.info("Fetching market holidays from Polygon.io")
+            
+            # Use Polygon REST client to get market holidays
+            holidays = self.client.get_market_holidays()
+            
+            if not holidays:
+                logger.warning("No market holidays returned from Polygon")
+                return []
+            
+            # Convert to our format
+            result = []
+            for holiday in holidays:
+                result.append({
+                    'date': getattr(holiday, 'date', None),
+                    'name': getattr(holiday, 'name', 'Unknown Holiday'),
+                    'status': getattr(holiday, 'status', None),
+                    'exchange': getattr(holiday, 'exchange', 'NYSE')
+                })
+            
+            logger.info(f"✅ Fetched {len(result)} market holidays")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error fetching market holidays from Polygon: {str(e)}")
+            return []
+
+    def fetch_news(self, symbol: str, limit: int = 10, published_after: str = None) -> list:
+        """
+        Fetch news articles for a stock symbol
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Max number of articles to fetch (default 10)
+            published_after: ISO format date string (e.g., '2024-01-01') to filter articles after this date
+
+        Returns:
+            List of news article dictionaries
+
+        Example:
+            fetcher = PolygonFetcher(api_key='your_api_key')
+            articles = fetcher.fetch_news('AAPL', limit=10)
+        """
+        try:
+            logger.info(f"Fetching news for {symbol}, limit={limit}")
+
+            # Build request params
+            params = {
+                'ticker': symbol.upper(),
+                'limit': limit,
+                'sort': 'published_utc',
+                'order': 'desc'
+            }
+
+            if published_after:
+                params['published_utc.gte'] = published_after
+
+            # Use Polygon REST client to fetch news
+            # Note: Polygon Python client doesn't have a clean news method yet,
+            # so we'll use the REST API directly via requests
+            import requests
+
+            url = 'https://api.polygon.io/v2/reference/news'
+            params['apiKey'] = self.api_key
+
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if data.get('status') != 'OK':
+                logger.error(f"Polygon news API error: {data.get('error', 'Unknown error')}")
+                return []
+
+            articles = data.get('results', [])
+            logger.info(f"Fetched {len(articles)} news articles for {symbol}")
+
+            # Rate limiting
+            time.sleep(self.rate_limit_delay)
+
+            return articles
+
+        except Exception as e:
+            logger.error(f"Error fetching news for {symbol}: {str(e)}")
+            raise
+
+    def fetch_dividends(self, symbol: str, limit: int = 100) -> list:
+        """
+        Fetch dividend payment history for a stock
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Max number of dividends to fetch (default 100)
+
+        Returns:
+            List of dividend dictionaries
+
+        Example:
+            fetcher = PolygonFetcher(api_key='your_api_key')
+            dividends = fetcher.fetch_dividends('AAPL', limit=50)
+        """
+        try:
+            logger.info(f"Fetching dividends for {symbol}, limit={limit}")
+
+            # Use Polygon REST client
+            import requests
+
+            url = f'https://api.polygon.io/v3/reference/dividends'
+            params = {
+                'ticker': symbol.upper(),
+                'limit': limit,
+                'sort': 'ex_dividend_date',
+                'order': 'desc',
+                'apiKey': self.api_key
+            }
+
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if data.get('status') != 'OK':
+                logger.error(f"Polygon dividends API error: {data.get('error', 'Unknown error')}")
+                return []
+
+            dividends = data.get('results', [])
+            logger.info(f"Fetched {len(dividends)} dividends for {symbol}")
+
+            # Rate limiting
+            time.sleep(self.rate_limit_delay)
+
+            return dividends
+
+        except Exception as e:
+            logger.error(f"Error fetching dividends for {symbol}: {str(e)}")
+            raise
+
+    def fetch_splits(self, symbol: str, limit: int = 100) -> list:
+        """
+        Fetch stock split history
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Max number of splits to fetch (default 100)
+
+        Returns:
+            List of split dictionaries
+
+        Example:
+            fetcher = PolygonFetcher(api_key='your_api_key')
+            splits = fetcher.fetch_splits('AAPL', limit=50)
+        """
+        try:
+            logger.info(f"Fetching splits for {symbol}, limit={limit}")
+
+            # Use Polygon REST client
+            import requests
+
+            url = f'https://api.polygon.io/v3/reference/splits'
+            params = {
+                'ticker': symbol.upper(),
+                'limit': limit,
+                'sort': 'execution_date',
+                'order': 'desc',
+                'apiKey': self.api_key
+            }
+
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if data.get('status') != 'OK':
+                logger.error(f"Polygon splits API error: {data.get('error', 'Unknown error')}")
+                return []
+
+            splits = data.get('results', [])
+            logger.info(f"Fetched {len(splits)} splits for {symbol}")
+
+            # Rate limiting
+            time.sleep(self.rate_limit_delay)
+
+            return splits
+
+        except Exception as e:
+            logger.error(f"Error fetching splits for {symbol}: {str(e)}")
+            raise
+
+    def fetch_short_interest(self, symbol: str, limit: int = 50) -> list:
+        """
+        Fetch short interest data (if available from Polygon)
+
+        Note: Short interest data may require a different data provider
+        as Polygon.io doesn't have a dedicated short interest endpoint.
+        This is a placeholder for future implementation.
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Max number of records to fetch
+
+        Returns:
+            List of short interest dictionaries
+        """
+        logger.warning(f"Short interest fetching not yet available from Polygon.io for {symbol}")
+        # Polygon doesn't have short interest endpoint
+        # Would need to integrate with FINRA or another provider
+        return []

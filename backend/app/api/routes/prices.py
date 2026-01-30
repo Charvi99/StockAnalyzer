@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 import pandas as pd
+import logging
 from app.db.database import get_db
 from app.models.stock import Stock, StockPrice
 from app.schemas.stock import (
@@ -17,6 +18,7 @@ from app.services.timeframe_service import TimeframeService
 from app.config.timeframe_config import TimeframeConfig
 
 router = APIRouter(prefix="/stocks", tags=["prices"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/{stock_id}/fetch", response_model=FetchDataResponse)
@@ -57,6 +59,43 @@ def fetch_stock_data(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result['message']
         )
+
+    # Update fetch timing for countdown timer
+    try:
+        from datetime import timedelta
+        stock.last_fetch_at = datetime.utcnow()
+        # Calculate next fetch time based on priority (high=1h, medium=4h, low=24h)
+        if stock.priority == 'high':
+            stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=1)
+        elif stock.priority == 'medium':
+            stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=4)
+        else:  # low priority
+            stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=24)
+        db.commit()
+        logger.info(f"Updated fetch timing for {stock.symbol}: next fetch at {stock.next_fetch_at}")
+    except Exception as e:
+        logger.warning(f"Failed to update fetch timing for {stock.symbol}: {e}")
+
+    # Recalculate stock priority after successful fetch
+    try:
+        from app.services.priority_calculator import PriorityCalculator
+        calculator = PriorityCalculator(db)
+        priority_result = calculator.update_stock_priority(stock_id, stock.symbol)
+        logger.info(f"Updated priority for {stock.symbol}: {priority_result['priority']} (score: {priority_result['score']})")
+
+        # Update next_fetch_at if priority changed
+        if priority_result['priority'] != stock.priority:
+            if priority_result['priority'] == 'high':
+                stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=1)
+            elif priority_result['priority'] == 'medium':
+                stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=4)
+            else:
+                stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=24)
+            db.commit()
+            logger.info(f"Priority changed, updated next fetch time: {stock.next_fetch_at}")
+    except Exception as e:
+        logger.warning(f"Failed to recalculate priority for {stock.symbol}: {e}")
+        # Don't fail the fetch if priority calculation fails
 
     return FetchDataResponse(**result)
 
