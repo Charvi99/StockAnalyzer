@@ -108,6 +108,27 @@ class HyperparameterTuner:
 
         return metrics['auc']
 
+    def _chronos_objective(self, trial: optuna.Trial, X_train, y_train, X_val, y_val):
+        """Chronos objective - pretrained, no tuning needed"""
+
+        # Import ChronosModel here to avoid circular import
+        from ml_framework.models.chronos_model import ChronosModel
+
+        # Create model with default config (no trial params needed)
+        model = ChronosModel(self.config.chronos)
+
+        # Train (just optimizes threshold)
+        model.train(X_train, y_train, X_val, y_val)
+
+        # Evaluate
+        metrics = model.evaluate(X_val, y_val)
+
+        # Log to MLflow
+        trial.set_user_attr('auc', metrics['auc'])
+        trial.set_user_attr('accuracy', metrics['accuracy'])
+
+        return metrics['auc']
+
     def tune_model(self, model_name: str, X_train, y_train, X_val, y_val, n_trials: Optional[int] = None):
         """
         Tune hyperparameters for a specific model
@@ -142,6 +163,7 @@ class HyperparameterTuner:
             'xgboost': self._xgboost_objective,
             'catboost': self._catboost_objective,
             'tcn': self._tcn_objective,
+            'chronos': self._chronos_objective,
         }
 
         objective = objective_map[model_name]

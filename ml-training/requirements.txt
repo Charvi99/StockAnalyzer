@@ -13,11 +13,11 @@ pandas==2.0.3
 scipy==1.11.4
 
 # =====================
-# Deep Learning (CPU)
+# Deep Learning (GPU - CUDA 11.8 for GTX 1060)
 # =====================
-# PyTorch CPU version
-torch==2.2.0+cpu
---extra-index-url https://download.pytorch.org/whl/cpu
+# PyTorch GPU version (CUDA 11.8 for GTX 1060 3GB)
+torch==2.2.0+cu118
+--extra-index-url https://download.pytorch.org/whl/cu118
 
 # Optuna for hyperparameter tuning ⭐ NEW
 optuna==3.5.0

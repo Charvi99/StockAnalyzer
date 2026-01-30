@@ -83,6 +83,9 @@ class TemporalConvNet(nn.Module):
 
         out = self.network(x)
 
+        # Global max pooling over sequence dimension
+        out = torch.max(out, dim=2)[0]
+
         # Global max pooling
         out = F.max_pool1d(out, out.size(2))
         out = out.squeeze(2)
