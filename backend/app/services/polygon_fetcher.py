@@ -54,6 +54,7 @@ class PolygonFetcher:
             '6mo': timedelta(days=180),
             '1y': timedelta(days=365),
             '2y': timedelta(days=730),
+            '3y': timedelta(days=1095),  # Added for ML training
             '5y': timedelta(days=1825),
             '10y': timedelta(days=3650),
             'ytd': None,  # Special handling

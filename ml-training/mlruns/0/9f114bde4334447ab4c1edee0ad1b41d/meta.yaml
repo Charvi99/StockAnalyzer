@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/9f114bde4334447ab4c1edee0ad1b41d/artifacts
+end_time: 1769782339379
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 9f114bde4334447ab4c1edee0ad1b41d
+run_name: catboost_training
+run_uuid: 9f114bde4334447ab4c1edee0ad1b41d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1769782338653
+status: 4
+tags: []
+user_id: root

@@ -1,0 +1,53 @@
+# ML Training Container - GPU Version
+# Use this when you have NVIDIA GPU
+
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+LABEL maintainer="StockAnalyzer"
+LABEL description="ML Training Container (GPU)"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    python3-dev \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symlink for python
+RUN ln -s /usr/bin/python3.10 /usr/bin/python
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first (for caching)
+COPY requirements.gpu.txt .
+
+# Install Python packages (GPU versions)
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.gpu.txt
+
+# Copy application code
+COPY scripts/ /app/scripts/
+COPY notebooks/ /app/notebooks/
+
+# Create outputs directory
+RUN mkdir -p /app/outputs/{features,models,logs,validation}
+
+# Volume for outputs
+VOLUME ["/app/outputs"]
+
+# Expose Jupyter port
+EXPOSE 8888
+
+# Default command: Jupyter Lab
+CMD ["jupyter", "lab", \
+     "--ip=0.0.0.0", \
+     "--port=8888", \
+     "--no-browser", \
+     "--allow-root", \
+     "--NotebookApp.token=''", \
+     "--NotebookApp.password=''"]

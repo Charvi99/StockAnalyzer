@@ -37,6 +37,7 @@ services:
     volumes:
       - ./backend:/app
       - backend_models:/app/ml/models
+      - ml_models:/app/ml_models  # Access to trained ML models
       - ./ml_training:/app/ml_training
     depends_on:
       database:
@@ -109,6 +110,7 @@ services:
     volumes:
       - ./backend:/app
       - backend_models:/app/ml/models
+      - ml_models:/app/ml_models  # Access to trained ML models
 
   # ============================================
   # CELERY BEAT - Periodic Task Scheduler
@@ -150,8 +152,40 @@ services:
     ports:
       - "5555:5555"  # Standard Flower port (safe from Windows dynamic range)
 
+  # ============================================
+  # ML TRAINING - Machine Learning Model Training
+  # ============================================
+  ml-training:
+    build:
+      context: ./ml-training
+      dockerfile: Dockerfile
+    container_name: stock_analyzer_ml_training
+    environment:
+      DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: "/backend:/app"  # Allow importing backend services
+    volumes:
+      - ./ml-training:/app
+      - ./backend:/backend  # Mount backend to access services
+      - ml_models:/app/outputs/models  # Trained models (shared with backend)
+      - ml_features:/app/outputs/features  # Feature cache
+    depends_on:
+      database:
+        condition: service_healthy
+    # No ports needed - runs as batch job
+    # GPU support: use Dockerfile.gpu when ready
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
 volumes:
   postgres_data:
   backend_models:
   frontend_node_modules:
   redis_data:
+  ml_models:  # ML trained models (shared between ml-training and backend)
+  ml_features:  # ML feature cache
