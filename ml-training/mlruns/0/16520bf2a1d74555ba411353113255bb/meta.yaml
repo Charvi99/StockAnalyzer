@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/16520bf2a1d74555ba411353113255bb/artifacts
+end_time: 1769795437044
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 16520bf2a1d74555ba411353113255bb
+run_name: tcn_training
+run_uuid: 16520bf2a1d74555ba411353113255bb
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1769795423309
+status: 4
+tags: []
+user_id: root
