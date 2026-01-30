@@ -53,8 +53,9 @@ class XGBoostConfig:
     # Fixed parameters
     objective: str = "binary:logistic"
     eval_metric: str = "auc"
-    tree_method: str = "hist"  # Faster training
-    n_jobs: int = -1  # Use all CPU cores
+    tree_method: str = "hist"  # Faster training, supports GPU
+    device: str = "cuda"  # Use GPU for XGBoost (GTX 1060)
+    n_jobs: int = 1  # GPU doesn't use n_jobs
 
     # Tunable parameters (search space)
     max_depth: tuple = (4, 8)  # (min, max)
@@ -79,7 +80,7 @@ class CatBoostConfig:
     # Fixed parameters
     loss_function: str = "Logloss"
     eval_metric: str = "AUC"
-    task_type: str = "CPU"  # Change to "GPU" when available
+    task_type: str = "GPU"  # Changed to "GPU" for GTX 1060
     verbose: bool = False
 
     # Tunable parameters
@@ -120,7 +121,7 @@ class TCNConfig:
     reduce_lr_patience: int = 5
 
     # Device
-    device: str = "cpu"  # Change to "cuda" for GPU
+    device: str = "cuda"  # Changed to "cuda" for GPU (GTX 1060 3GB)
 
 
 @dataclass
@@ -131,7 +132,7 @@ class ChronosConfig:
     model_name: str = "amazon/chronos-t5-tiny"  # Smallest, fastest
     context_length: int = 64  # Days of history to use
     prediction_length: int = 20  # Days to forecast
-    device: str = "cpu"  # Change to "cuda" for GPU
+    device: str = "cuda"  # Changed to "cuda" for GPU (GTX 1060 3GB)
 
     # Threshold optimization (Chronos is pretrained)
     threshold_range: tuple = (0.2, 0.6)  # Search range for optimal threshold

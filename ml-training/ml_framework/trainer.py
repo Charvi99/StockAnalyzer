@@ -14,7 +14,7 @@ import mlflow
 import logging
 
 from ml_framework.config import Config
-from ml_framework.models import XGBoostModel, CatBoostModel, TCNModel
+from ml_framework.models import XGBoostModel, CatBoostModel, TCNModel, ChronosModel
 from ml_framework.tuner import HyperparameterTuner
 
 logger = logging.getLogger(__name__)
