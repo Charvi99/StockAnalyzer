@@ -69,9 +69,9 @@ StockAnalyzer/
 
 ## Important URLs
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
+- Backend API: http://localhost:8080
+- API Docs: http://localhost:8080/docs
+- Health Check: http://localhost:8080/health
 
 ## Database Schema
 - `stocks`: Stock metadata (symbol, name, sector, industry)

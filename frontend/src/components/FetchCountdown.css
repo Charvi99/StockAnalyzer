@@ -1,0 +1,242 @@
+/* ================================================
+   FETCH COUNTDOWN COMPONENT STYLES
+   ================================================ */
+
+/* Compact view for StockCard top-right corner */
+.fetch-countdown-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  transition: all 0.3s ease;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+}
+
+.fetch-countdown-compact:hover {
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+}
+
+.fetch-countdown-compact.overdue {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.fetch-countdown-compact .countdown-icon {
+  font-size: 14px;
+  animation: rotate 2s linear infinite;
+}
+
+.fetch-countdown-compact.overdue .countdown-icon {
+  animation: spin 1s linear infinite;
+}
+
+.fetch-countdown-compact .countdown-time {
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.5px;
+}
+
+.fetch-countdown-compact .overdue-text {
+  animation: blink 1s ease-in-out infinite;
+}
+
+/* Full view for detail pages */
+.fetch-countdown {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.fetch-countdown:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.fetch-countdown.overdue {
+  border: 2px solid #f5576c;
+  background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
+}
+
+.countdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.countdown-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.last-fetch-label {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.countdown-timer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.countdown-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.countdown-segment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 70px;
+  color: white;
+}
+
+.countdown-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  line-height: 1;
+}
+
+.countdown-unit {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.countdown-separator {
+  font-size: 24px;
+  font-weight: 700;
+  color: #667eea;
+  margin: 0 4px;
+}
+
+.countdown-overdue {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 8px;
+  color: white;
+}
+
+.overdue-icon {
+  font-size: 24px;
+  animation: spin 1s linear infinite;
+}
+
+.overdue-text {
+  font-size: 16px;
+  font-weight: 600;
+  animation: blink 1s ease-in-out infinite;
+}
+
+/* ================================================
+   ANIMATIONS
+   ================================================ */
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rotate {
+  0%, 100% {
+    transform: rotate(-10deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* ================================================
+   RESPONSIVE DESIGN
+   ================================================ */
+
+@media (max-width: 768px) {
+  .fetch-countdown-compact {
+    font-size: 11px;
+    padding: 3px 8px;
+    gap: 4px;
+  }
+
+  .fetch-countdown-compact .countdown-icon {
+    font-size: 12px;
+  }
+
+  .countdown-segment {
+    padding: 8px 12px;
+    min-width: 60px;
+  }
+
+  .countdown-value {
+    font-size: 24px;
+  }
+
+  .countdown-unit {
+    font-size: 10px;
+  }
+
+  .countdown-separator {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .fetch-countdown-compact {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  .countdown-segment {
+    padding: 6px 10px;
+    min-width: 50px;
+  }
+
+  .countdown-value {
+    font-size: 20px;
+  }
+}

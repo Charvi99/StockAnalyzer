@@ -29,7 +29,7 @@ This lets you debug the Python backend running in Docker from your host VSCode.
    - Wait for "Debugger attached" message
 
 3. **Trigger the breakpoint:**
-   - Open browser to `http://localhost:8000/api/v1/stocks/`
+   - Open browser to `http://localhost:8080/api/v1/stocks/`
    - VSCode will pause at your breakpoint
    - You can now:
      - Inspect variables (hover over them)
@@ -318,15 +318,15 @@ docker-compose up --build backend
 
 **Solutions:**
 ```bash
-# Windows: Find process using port 8000
-netstat -ano | findstr :8000
+# Windows: Find process using port 8080
+netstat -ano | findstr :8080
 
 # Kill process (replace PID)
 taskkill /PID <PID> /F
 
 # Or change port in docker-compose.yml
 ports:
-  - "8001:8000"  # Use 8001 instead
+  - "8001:8080"  # Use 8001 instead
 ```
 
 ---

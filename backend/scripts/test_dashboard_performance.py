@@ -2,12 +2,13 @@ import requests
 import time
 from datetime import datetime
 
+
 def test_dashboard():
     print(f"\n{'='*60}")
     print(f"Dashboard Performance Test - {datetime.now()}")
     print(f"{'='*60}\n")
 
-    url = "http://localhost:8000/api/v1/analysis/dashboard"
+    url = "http://localhost:8080/api/v1/analysis/dashboard"
 
     print(f"Making request to: {url}")
     print(f"Timeout: 300 seconds (5 minutes)")
@@ -25,7 +26,8 @@ def test_dashboard():
         print(f"SUCCESS!")
         print(f"{'='*60}")
         print(f"Status Code: {response.status_code}")
-        print(f"Response Time: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
+        print(
+            f"Response Time: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
 
         if response.status_code == 200:
             data = response.json()
@@ -46,6 +48,7 @@ def test_dashboard():
         print(f"ERROR after {elapsed:.2f} seconds")
         print(f"{'='*60}")
         print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     test_dashboard()

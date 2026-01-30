@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import IndicatorInfo from './IndicatorInfo';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParams, onAnalysisUpdated }) => {
   const [analysis, setAnalysis] = useState(null);
@@ -152,11 +152,34 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
         'MACD': indicators.MACD,
         'ADX': indicators.ADX,
         'Parabolic SAR': indicators.Parabolic_SAR,
+        // Phase 2
+        'KAMA': indicators.KAMA,
+        'TEMA': indicators.TEMA,
+        'T3': indicators.T3,
+        'HT Trendline': indicators.HT_Trendline,
+        // Phase 3A
+        'AROON': indicators.AROON,
+        'TRIX': indicators.TRIX,
+        // Phase 3B
+        'MAMA': indicators.MAMA,
+        'APO': indicators.APO,
+        'PPO': indicators.PPO,
       },
       momentum: {
         'RSI': indicators.RSI,
         'Stochastic': indicators.Stochastic,
         'CCI': indicators.CCI,
+        // Phase 2
+        'MFI': indicators.MFI,
+        'Williams %R': indicators.Williams_R,
+        'ROC': indicators.ROC,
+        'CMO': indicators.CMO,
+        // Phase 3A
+        'StochRSI': indicators.StochRSI,
+        'ULTOSC': indicators.ULTOSC,
+        'BOP': indicators.BOP,
+        // Phase 3B
+        'ADOSC': indicators.ADOSC,
       },
       volume: {
         'OBV': indicators.OBV,
@@ -167,6 +190,13 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
         'Bollinger Bands': indicators.Bollinger_Bands,
         'ATR': indicators.ATR,
         'Keltner Channels': indicators.Keltner_Channels,
+        // Phase 2
+        'NATR': indicators.NATR,
+        'STDDEV': indicators.STDDEV,
+        'Linear Regression': indicators.LinearReg,
+        // Phase 3B (Market Regime Info)
+        'HT TrendMode': indicators.HT_TrendMode,
+        'HT DCPeriod': indicators.HT_DCPeriod,
       }
     };
   };
@@ -355,6 +385,272 @@ const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParam
               <div className="value-item">
                 <span className="label">Lower:</span>
                 <span className="value">${safeToFixed(data.lower, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* PHASE 2 INDICATORS - Advanced Trend */}
+
+          {/* KAMA */}
+          {name === 'KAMA' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">${safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* TEMA */}
+          {name === 'TEMA' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">${safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* T3 */}
+          {name === 'T3' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">${safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* HT Trendline */}
+          {name === 'HT Trendline' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Trendline:</span>
+                <span className="value">${safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* PHASE 2 INDICATORS - Advanced Momentum */}
+
+          {/* MFI */}
+          {name === 'MFI' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">{safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Williams %R */}
+          {name === 'Williams %R' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">{safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ROC */}
+          {name === 'ROC' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Rate of Change:</span>
+                <span className="value">{safeToFixed(data.value, 2)}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* CMO */}
+          {name === 'CMO' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Value:</span>
+                <span className="value">{safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* PHASE 2 INDICATORS - Advanced Volatility & Regression */}
+
+          {/* NATR */}
+          {name === 'NATR' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Normalized ATR:</span>
+                <span className="value">{safeToFixed(data.value, 2)}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* STDDEV */}
+          {name === 'STDDEV' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Standard Deviation:</span>
+                <span className="value">{safeToFixed(data.value, 4)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Linear Regression */}
+          {name === 'Linear Regression' && data.slope !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Slope:</span>
+                <span className="value">{safeToFixed(data.slope, 6)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* PHASE 3A INDICATORS - Critical Swing Trading */}
+          {/* ============================================================ */}
+
+          {/* AROON */}
+          {name === 'AROON' && (
+            <div className="indicator-values">
+              {data.aroon_up !== undefined && (
+                <div className="value-item">
+                  <span className="label">Aroon Up:</span>
+                  <span className="value">{safeToFixed(data.aroon_up, 2)}</span>
+                </div>
+              )}
+              {data.aroon_down !== undefined && (
+                <div className="value-item">
+                  <span className="label">Aroon Down:</span>
+                  <span className="value">{safeToFixed(data.aroon_down, 2)}</span>
+                </div>
+              )}
+              {data.aroon_osc !== undefined && (
+                <div className="value-item">
+                  <span className="label">Aroon Oscillator:</span>
+                  <span className="value">{safeToFixed(data.aroon_osc, 2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* StochRSI */}
+          {name === 'StochRSI' && (
+            <div className="indicator-values">
+              {data.fastk !== undefined && (
+                <div className="value-item">
+                  <span className="label">Fast K:</span>
+                  <span className="value">{safeToFixed(data.fastk, 2)}</span>
+                </div>
+              )}
+              {data.fastd !== undefined && (
+                <div className="value-item">
+                  <span className="label">Fast D:</span>
+                  <span className="value">{safeToFixed(data.fastd, 2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ULTOSC */}
+          {name === 'ULTOSC' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Ultimate Oscillator:</span>
+                <span className="value">{safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* TRIX */}
+          {name === 'TRIX' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">TRIX:</span>
+                <span className="value">{safeToFixed(data.value, 4)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* BOP */}
+          {name === 'BOP' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Balance of Power:</span>
+                <span className="value">{safeToFixed(data.value, 3)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* PHASE 3B INDICATORS - Advanced Professional */}
+          {/* ============================================================ */}
+
+          {/* ADOSC */}
+          {name === 'ADOSC' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">A/D Oscillator:</span>
+                <span className="value">{safeToFixed(data.value, 0)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* APO */}
+          {name === 'APO' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">APO:</span>
+                <span className="value">{safeToFixed(data.value, 2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* PPO */}
+          {name === 'PPO' && data.value !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">PPO:</span>
+                <span className="value">{safeToFixed(data.value, 2)}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* MAMA */}
+          {name === 'MAMA' && (
+            <div className="indicator-values">
+              {data.mama !== undefined && (
+                <div className="value-item">
+                  <span className="label">MAMA:</span>
+                  <span className="value">{safeToFixed(data.mama, 2)}</span>
+                </div>
+              )}
+              {data.fama !== undefined && (
+                <div className="value-item">
+                  <span className="label">FAMA:</span>
+                  <span className="value">{safeToFixed(data.fama, 2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HT TrendMode */}
+          {name === 'HT TrendMode' && data.mode !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Market Regime:</span>
+                <span className="value" style={{ fontWeight: 'bold', color: data.mode === 1 ? '#2ecc71' : '#3498db' }}>
+                  {data.mode === 1 ? 'TRENDING' : 'CYCLING'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* HT DCPeriod */}
+          {name === 'HT DCPeriod' && data.period !== undefined && (
+            <div className="indicator-values">
+              <div className="value-item">
+                <span className="label">Cycle Period:</span>
+                <span className="value">{safeToFixed(data.period, 0)} days</span>
               </div>
             </div>
           )}

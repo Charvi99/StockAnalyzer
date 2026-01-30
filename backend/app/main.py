@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions, risk_management
+from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions, risk_management, dividend_split_signals, news
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,8 @@ app.include_router(patterns.router, prefix="/api/v1")  # Candlestick pattern det
 app.include_router(chart_patterns.router, prefix="/api/v1")  # Chart pattern detection
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])  # Trading strategies
 app.include_router(risk_management.router, tags=["risk-management"])  # PHASE 1.2: Risk management & position sizing
+app.include_router(dividend_split_signals.router, prefix="/api/v1")  # Dividend & split trading signals
+app.include_router(news.router, prefix="/api/v1", tags=["news"])  # News article management
 
 
 @app.get("/")
@@ -77,7 +79,7 @@ def root():
         "features": [
             "Technical Analysis (RSI, MACD, Bollinger Bands, Moving Averages)",
             "ML Predictions (LSTM, Transformer, CNN, CNN-LSTM)",
-            "Sentiment Analysis (News scraping and FinBERT)",
+            "Sentiment Analysis (Polygon API insights with reasoning)",
             "Integrated Recommendations",
             "Prediction Performance Tracking",
             "Candlestick Pattern Recognition (40 patterns - 20 bullish, 20 bearish)",

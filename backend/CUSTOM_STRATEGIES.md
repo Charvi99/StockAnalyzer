@@ -316,12 +316,12 @@ See `backend/app/services/example_strategies.py` for complete examples:
 
 ```bash
 # Execute on a stock
-curl -X POST http://localhost:8000/api/v1/strategies/1/execute \
+curl -X POST http://localhost:8080/api/v1/strategies/1/execute \
   -H "Content-Type: application/json" \
   -d '{"strategy_name": "My Custom Strategy"}'
 
 # Run backtest
-curl -X POST http://localhost:8000/api/v1/strategies/1/backtest \
+curl -X POST http://localhost:8080/api/v1/strategies/1/backtest \
   -H "Content-Type: application/json" \
   -d '{
     "strategy_name": "My Custom Strategy",

@@ -218,7 +218,7 @@ StockAnalyzer/
 
    This will start three services:
    - Database (PostgreSQL + TimescaleDB) on port 5432
-   - Backend (FastAPI) on port 8000
+   - Backend (FastAPI) on port 8080
    - Frontend (React) on port 3000
 
 4. **Wait for all services to be healthy:**
@@ -231,10 +231,10 @@ StockAnalyzer/
 Once all services are running:
 
 - **Frontend:** http://localhost:3000
-- **Backend API:** http://localhost:8000
-- **API Documentation:** http://localhost:8000/docs (Swagger UI)
-- **Alternative API Docs:** http://localhost:8000/redoc (ReDoc)
-- **Health Check:** http://localhost:8000/health
+- **Backend API:** http://localhost:8080
+- **API Documentation:** http://localhost:8080/docs (Swagger UI)
+- **Alternative API Docs:** http://localhost:8080/redoc (ReDoc)
+- **Health Check:** http://localhost:8080/health
 
 ### 🔑 Polygon.io API Setup
 
@@ -459,28 +459,28 @@ GET /api/v1/chart-patterns/export/training-data       # Export labeled chart pat
 #### 1. Basic Stock Analysis
 ```bash
 # 1. Fetch historical data
-curl -X POST http://localhost:8000/api/v1/stocks/1/fetch \
+curl -X POST http://localhost:8080/api/v1/stocks/1/fetch \
   -H "Content-Type: application/json" \
   -d '{"period":"6mo","interval":"1d"}'
 
 # 2. Run technical analysis
-curl -X POST http://localhost:8000/api/v1/stocks/1/analyze \
+curl -X POST http://localhost:8080/api/v1/stocks/1/analyze \
   -H "Content-Type: application/json" \
   -d '{"period":"3mo"}'
 
 # 3. Get comprehensive recommendation
-curl http://localhost:8000/api/v1/stocks/1/recommendation
+curl http://localhost:8080/api/v1/stocks/1/recommendation
 ```
 
 #### 2. ML Model Training and Prediction
 ```bash
 # 1. Train LSTM model
-curl -X POST http://localhost:8000/api/v1/ml/stocks/1/train \
+curl -X POST http://localhost:8080/api/v1/ml/stocks/1/train \
   -H "Content-Type: application/json" \
   -d '{"model_type":"lstm","epochs":50,"batch_size":32}'
 
 # 2. Make prediction
-curl -X POST http://localhost:8000/api/v1/ml/stocks/1/predict \
+curl -X POST http://localhost:8080/api/v1/ml/stocks/1/predict \
   -H "Content-Type: application/json" \
   -d '{"model_type":"lstm","forecast_days":7}'
 ```
@@ -488,51 +488,51 @@ curl -X POST http://localhost:8000/api/v1/ml/stocks/1/predict \
 #### 3. Sentiment-Enhanced Analysis
 ```bash
 # 1. Analyze sentiment
-curl -X POST http://localhost:8000/api/v1/sentiment/stocks/1/analyze
+curl -X POST http://localhost:8080/api/v1/sentiment/stocks/1/analyze
 
 # 2. Get recommendation (automatically includes sentiment)
-curl http://localhost:8000/api/v1/stocks/1/recommendation
+curl http://localhost:8080/api/v1/stocks/1/recommendation
 ```
 
 #### 4. Candlestick Pattern Detection and Labeling
 ```bash
 # 1. Detect patterns in last 90 days
-curl -X POST http://localhost:8000/api/v1/stocks/1/detect-patterns \
+curl -X POST http://localhost:8080/api/v1/stocks/1/detect-patterns \
   -H "Content-Type: application/json" \
   -d '{"days":90}'
 
 # 2. Get all detected patterns
-curl http://localhost:8000/api/v1/stocks/1/patterns?days=90
+curl http://localhost:8080/api/v1/stocks/1/patterns?days=90
 
 # 3. Confirm pattern as true positive (for ML training)
-curl -X PATCH http://localhost:8000/api/v1/patterns/123/confirm \
+curl -X PATCH http://localhost:8080/api/v1/patterns/123/confirm \
   -H "Content-Type: application/json" \
   -d '{"confirmed":true,"notes":"Strong reversal signal","confirmed_by":"user"}'
 
 # 4. Export labeled patterns for ML model training
-curl http://localhost:8000/api/v1/patterns/export/training-data?confirmed_only=true
+curl http://localhost:8080/api/v1/patterns/export/training-data?confirmed_only=true
 ```
 
 #### 5. Chart Pattern Detection and Analysis
 ```bash
 # 1. Detect chart patterns (Head & Shoulders, Triangles, etc.)
-curl -X POST http://localhost:8000/api/v1/stocks/1/detect-chart-patterns \
+curl -X POST http://localhost:8080/api/v1/stocks/1/detect-chart-patterns \
   -H "Content-Type: application/json" \
   -d '{"days":90,"min_pattern_length":20}'
 
 # 2. Get detected chart patterns with filters
-curl "http://localhost:8000/api/v1/stocks/1/chart-patterns?pattern_type=reversal&signal=bullish"
+curl "http://localhost:8080/api/v1/stocks/1/chart-patterns?pattern_type=reversal&signal=bullish"
 
 # 3. Confirm chart pattern
-curl -X PATCH http://localhost:8000/api/v1/chart-patterns/456/confirm \
+curl -X PATCH http://localhost:8080/api/v1/chart-patterns/456/confirm \
   -H "Content-Type: application/json" \
   -d '{"confirmed":true,"notes":"Clear head and shoulders","confirmed_by":"user"}'
 
 # 4. Get pattern statistics
-curl http://localhost:8000/api/v1/chart-patterns/stats
+curl http://localhost:8080/api/v1/chart-patterns/stats
 
 # 5. Export labeled chart patterns for ML training
-curl "http://localhost:8000/api/v1/chart-patterns/export/training-data?confirmed_only=true"
+curl "http://localhost:8080/api/v1/chart-patterns/export/training-data?confirmed_only=true"
 ```
 
 ## Database Schema & Migrations
@@ -827,7 +827,7 @@ This project is for educational purposes.
 
 1. Check the logs: `docker-compose logs -f`
 2. Verify all services are running: `docker-compose ps`
-3. Test API directly: http://localhost:8000/docs
+3. Test API directly: http://localhost:8080/docs
 4. Review documentation files in project root
 
 ## Support

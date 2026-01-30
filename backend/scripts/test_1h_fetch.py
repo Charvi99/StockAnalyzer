@@ -7,9 +7,10 @@ import json
 from datetime import datetime
 
 # Configuration
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = "http://localhost:8080/api/v1"
 STOCK_ID = 1  # AAPL
 SYMBOL = "AAPL"
+
 
 def test_fetch_1h_data():
     """Test fetching 1h data from Polygon.io"""
@@ -77,7 +78,8 @@ def test_get_1h_prices():
             print(f"  Period: {data['period_start']} to {data['period_end']}")
 
             if data['prices']:
-                print(f"\n  Sample prices (showing {len(data['prices'])} bars):")
+                print(
+                    f"\n  Sample prices (showing {len(data['prices'])} bars):")
                 for i, price in enumerate(data['prices'][:3], 1):
                     print(f"    {i}. {price['timestamp']}")
                     print(f"       O: {float(price['open']):.2f}, H: {float(price['high']):.2f}, "
@@ -121,7 +123,8 @@ def test_get_aggregated_prices(timeframe: str):
             print(f"  Total {timeframe} bars: {data['total_records']}")
 
             if data['prices']:
-                print(f"\n  Sample {timeframe} bars (showing {len(data['prices'])} bars):")
+                print(
+                    f"\n  Sample {timeframe} bars (showing {len(data['prices'])} bars):")
                 for i, price in enumerate(data['prices'][:3], 1):
                     print(f"    {i}. {price['timestamp']}")
                     print(f"       O: {float(price['open']):.2f}, H: {float(price['high']):.2f}, "

@@ -12,7 +12,7 @@ import MarketRegime from './MarketRegime';
 import { fetchStockData, getStockPrices, getRecommendation } from '../services/api';
 import './StockDetailSideBySide.css';
 
-const StockDetailSideBySide = ({ stock, onClose }) => {
+const StockDetailSideBySide = ({ stock, onClose, initialRecommendation = null }) => {
   const [prices, setPrices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
@@ -20,11 +20,12 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
   const [fetchResult, setFetchResult] = useState(null);
   const [period, setPeriod] = useState('1mo'); // Default to 1 month for swing trading
   const [timeframe, setTimeframe] = useState('1d'); // Chart display timeframe
-  const [recommendation, setRecommendation] = useState(null);
-  const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendation, setRecommendation] = useState(initialRecommendation); // Use prop if available
+  const [recommendationLoading, setRecommendationLoading] = useState(!initialRecommendation); // Loading only if no initial data
   const [recommendationError, setRecommendationError] = useState(null);
   const [patterns, setPatterns] = useState([]);
   const [chartPatterns, setChartPatterns] = useState([]);
+  const [hasFetchedRecommendation, setHasFetchedRecommendation] = useState(!!initialRecommendation);
 
   // Pattern highlighting and selection state
   const [highlightedPattern, setHighlightedPattern] = useState(null);
@@ -62,23 +63,41 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
     }
   }, [stock.stock_id, timeframe]);
 
-  const loadRecommendation = useCallback(async () => {
+  const loadRecommendation = useCallback(async (force = false) => {
+    // Skip if we already have recommendation data (unless forced)
+    if (!force && hasFetchedRecommendation) {
+      console.log(`⏭️ Skipping recommendation fetch for ${stock.symbol} (already loaded from props)`);
+      return;
+    }
+
     try {
       setRecommendationLoading(true);
       setRecommendationError(null);
       const data = await getRecommendation(stock.stock_id);
       setRecommendation(data);
+      setHasFetchedRecommendation(true);
     } catch (err) {
       setRecommendationError(err.response?.data?.detail || err.message || 'Failed to load recommendation');
     } finally {
       setRecommendationLoading(false);
     }
-  }, [stock.stock_id]);
+  }, [stock.stock_id, stock.symbol, hasFetchedRecommendation]);
 
   useEffect(() => {
     loadPrices();
-    loadRecommendation();
+    loadRecommendation(); // This will skip if initialRecommendation was provided
   }, [loadPrices, loadRecommendation]);
+
+  // Update recommendation when parent component provides new data (from polling)
+  useEffect(() => {
+    if (initialRecommendation && initialRecommendation.stock_id === stock.stock_id) {
+      console.log(`📥 Received updated recommendation for ${stock.symbol} from parent`);
+      setRecommendation(initialRecommendation);
+    }
+  }, [initialRecommendation, stock.stock_id, stock.symbol]);
+
+  // Note: Auto-refresh is now handled by StockList polling mechanism
+  // Removed duplicate polling to prevent redundant API calls
 
   const handleFetchData = async () => {
     try {
@@ -94,9 +113,9 @@ const StockDetailSideBySide = ({ stock, onClose }) => {
         // Small delay to ensure data is saved to database
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Reload prices and recommendation with fresh data
+        // Reload prices and recommendation with fresh data (force=true to bypass cache)
         await loadPrices();
-        await loadRecommendation();
+        await loadRecommendation(true);
       }
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to fetch stock data');

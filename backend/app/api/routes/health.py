@@ -26,3 +26,23 @@ def health_check(db: Session = Depends(get_db)):
         database=db_status,
         version="1.0.0"
     )
+
+
+@router.get("/market-status")
+def get_market_status():
+    """
+    Get current US stock market status
+
+    Returns information about:
+    - Whether market is currently open
+    - Current time in Eastern Time
+    - Market hours (open/close times)
+    - If today is a holiday or weekend
+    - If today is an early close day
+
+    Useful for displaying market status in the frontend and
+    understanding when data fetching occurs.
+    """
+    from app.utils.market_hours import get_market_status_info
+
+    return get_market_status_info()
