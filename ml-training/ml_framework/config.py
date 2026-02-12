@@ -11,40 +11,76 @@ import os
 
 
 @dataclass
+class ProjectConfig:
+    """Project metadata"""
+    name: str = "ml-training"
+    version: str = "3.0.0"
+    description: str = "Stock price prediction using machine learning"
+
+
+@dataclass
 class DataConfig:
     """Data configuration"""
+
+    # Base paths
+    base_path: str = "/home/jakub/StockAnalyzer"
+    features_path: str = "ml-training/outputs/features"
+    models_path: str = "ml-training/outputs/models"
+    cache_dir: str = "ml-training/.cache"
 
     # Database
     database_url: str = "postgresql://stockuser:stockpass@db:5432/stockanalyzer"
 
-    # Time range
-    train_start_date: str = "2022-01-01"  # 2 years of data
-    train_end_date: str = "2024-01-01"
 
-    # Timeframe
-    timeframe: str = "1d"  # Daily for swing trading
+@dataclass
+class FeaturesConfig:
+    """Feature engineering configuration"""
+    technical_indicators: bool = True
+    swing_features: bool = True
+    insider_features: bool = True
+    market_features: bool = True
+    news_features: bool = False
 
-    # Split ratios
-    train_ratio: float = 0.70
-    val_ratio: float = 0.15
-    test_ratio: float = 0.15
 
-    # Label parameters
-    profit_target: float = 0.03  # +3%
-    stop_loss: float = -0.02  # -2%
-    lookahead_days: int = 20
+@dataclass
+class LabelsConfig:
+    """Label configuration"""
+    type: str = "binary"  # binary | 3class | 5class
+    lookahead_days: List[int] = field(default_factory=lambda: [5, 10, 20])
+    quantiles: int = 5
 
-    # Feature engineering
-    use_technical_indicators: bool = True
-    use_chart_patterns: bool = True
-    use_candlestick_patterns: bool = True
-    use_market_regime: bool = True
-    use_price_history: bool = True
 
-    # Output directories
-    features_dir: Path = Path("/app/outputs/features")
-    models_dir: Path = Path("/app/outputs/models")
-    logs_dir: Path = Path("/app/outputs/logs")
+@dataclass
+class BacktestingConfig:
+    """Backtesting configuration"""
+    initial_capital: int = 10000
+    commission: float = 0.001
+    strategies: List[str] = field(default_factory=lambda: ["buy_and_hold", "ml_signal", "ensemble"])
+
+
+@dataclass
+class LoggingConfig:
+    """Logging configuration"""
+    level: str = "INFO"
+    mlflow_tracking: bool = True
+    tensorboard: bool = False
+    log_dir: str = "ml-training/logs"
+
+
+@dataclass
+class TrainingConfig:
+    """Training configuration"""
+
+    # Model selection
+    default_model: str = "catboost"
+    available_models: List[str] = field(default_factory=lambda: ["xgboost", "catboost", "tabnet", "autogluon", "fttransformer"])
+
+    # Training parameters
+    test_size: float = 0.2
+    random_seed: int = 42
+    n_trials: int = 10
+    gpu_enabled: bool = True
+    early_stopping_rounds: int = 100
 
 
 @dataclass
@@ -141,30 +177,6 @@ class ChronosConfig:
 
 
 @dataclass
-class TrainingConfig:
-    """Training configuration"""
-
-    # Experiment tracking
-    experiment_name: str = "stockanalyzer_ensemble"
-    mlflow_tracking_uri: str = "file:///app/outputs/mlflow"
-
-    # Optimization
-    n_trials: int = 50  # Number of Optuna trials
-    timeout: Optional[int] = None  # Max training time (seconds)
-
-    # Validation
-    n_folds: int = 5  # For time series cross-validation
-    cv_method: str = "timeseries"  # or "purged_kfold"
-
-    # Scoring
-    primary_metric: str = "auc"  # Optimize this
-    secondary_metrics: List[str] = field(default_factory=lambda: ["accuracy", "precision", "recall"])
-
-    # Random seed
-    random_seed: int = 42
-
-
-@dataclass
 class EnsembleConfig:
     """Ensemble configuration"""
 
@@ -186,13 +198,35 @@ class EnsembleConfig:
 class Config:
     """Master configuration"""
 
+    # Project metadata
+    project: ProjectConfig = field(default_factory=ProjectConfig)
+
+    # Data paths
     data: DataConfig = field(default_factory=DataConfig)
+
+    # Feature toggles
+    features: FeaturesConfig = field(default_factory=FeaturesConfig)
+
+    # Label configuration
+    labels: LabelsConfig = field(default_factory=LabelsConfig)
+
+    # Training configuration
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+
+    # Model-specific configs
     xgboost: XGBoostConfig = field(default_factory=XGBoostConfig)
     catboost: CatBoostConfig = field(default_factory=CatBoostConfig)
     tcn: TCNConfig = field(default_factory=TCNConfig)
     chronos: ChronosConfig = field(default_factory=ChronosConfig)
-    training: TrainingConfig = field(default_factory=TrainingConfig)
+
+    # Ensemble configuration
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
+
+    # Backtesting configuration
+    backtesting: BacktestingConfig = field(default_factory=BacktestingConfig)
+
+    # Logging configuration
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
     @classmethod
     def from_yaml(cls, yaml_path: Path) -> "Config":
@@ -302,45 +336,70 @@ def load_config(config_path: Optional[str] = None) -> Config:
     # Apply environment variable overrides
     config_dict = _apply_env_overrides(config_dict)
 
-    # Map YAML fields to dataclass fields
-    # The YAML uses different naming than the dataclass
+    # Map YAML sections to dataclass fields
+    # Each YAML section maps to a corresponding dataclass
+
+    # Project section
+    project_dict = config_dict.get('project', {})
+    project_config = {k: v for k, v in project_dict.items()}
+
+    # Data section - map YAML names to dataclass field names
     data_dict = config_dict.get('data', {})
-
-    # Map data section
     data_config = {}
-    if 'base_path' in data_dict:
-        base_path = data_dict['base_path']
-        # Use defaults from dataclass for paths, allow override
-        data_config['features_dir'] = Path(base_path) / data_dict.get('features_path', 'ml-training/outputs/features')
-        data_config['models_dir'] = Path(base_path) / data_dict.get('models_path', 'ml-training/outputs/models')
-    else:
-        data_config['features_dir'] = Path(data_dict.get('features_dir', '/app/outputs/features'))
-        data_config['models_dir'] = Path(data_dict.get('models_dir', '/app/outputs/models'))
 
-    # Map training.available_models to ensemble.models
+    # Map base_path to database_url (legacy field name)
+    if 'database_url' in data_dict:
+        data_config['database_url'] = data_dict['database_url']
+
+    # Keep other data fields as-is
+    for key in ['base_path', 'features_path', 'models_path', 'cache_dir']:
+        if key in data_dict:
+            data_config[key] = data_dict[key]
+
+    # Features section
+    features_dict = config_dict.get('features', {})
+    features_config = {k: v for k, v in features_dict.items()}
+
+    # Labels section
+    labels_dict = config_dict.get('labels', {})
+    labels_config = {k: v for k, v in labels_dict.items()}
+
+    # Training section - field names already match
     training_dict = config_dict.get('training', {})
-    ensemble_dict = config_dict.get('ensemble', {})
 
-    if 'available_models' in training_dict:
+    # Backtesting section
+    backtesting_dict = config_dict.get('backtesting', {})
+    backtesting_config = {k: v for k, v in backtesting_dict.items()}
+
+    # Logging section
+    logging_dict = config_dict.get('logging', {})
+    logging_config = {k: v for k, v in logging_dict.items()}
+
+    # Model-specific configs (xgboost, catboost, tcn, chronos)
+    xgboost_dict = config_dict.get('xgboost', {})
+    catboost_dict = config_dict.get('catboost', {})
+    tcn_dict = config_dict.get('tcn', {})
+    chronos_dict = config_dict.get('chronos', {})
+
+    # Ensemble section - map available_models from training to models in ensemble
+    ensemble_dict = config_dict.get('ensemble', {})
+    if 'models' not in ensemble_dict and 'available_models' in training_dict:
         ensemble_dict['models'] = training_dict['available_models']
 
-    # Filter training_dict to only include valid TrainingConfig fields
-    training_fields = {f.name for f in fields(TrainingConfig)}
-    filtered_training = {k: v for k, v in training_dict.items() if k in training_fields}
-
-    # Filter ensemble_dict to only include valid EnsembleConfig fields
-    ensemble_fields = {f.name for f in fields(EnsembleConfig)}
-    filtered_ensemble = {k: v for k, v in ensemble_dict.items() if k in ensemble_fields}
-
-    # Convert dict to Config dataclass
+    # Build Config dataclass with all sections
     return Config(
+        project=ProjectConfig(**project_config),
         data=DataConfig(**data_config),
-        xgboost=XGBoostConfig(**config_dict.get('xgboost', {})),
-        catboost=CatBoostConfig(**config_dict.get('catboost', {})),
-        tcn=TCNConfig(**config_dict.get('tcn', {})),
-        chronos=ChronosConfig(**config_dict.get('chronos', {})),
-        training=TrainingConfig(**filtered_training),
-        ensemble=EnsembleConfig(**filtered_ensemble)
+        features=FeaturesConfig(**features_config),
+        labels=LabelsConfig(**labels_config),
+        training=TrainingConfig(**training_dict),
+        xgboost=XGBoostConfig(**xgboost_dict),
+        catboost=CatBoostConfig(**catboost_dict),
+        tcn=TCNConfig(**tcn_dict),
+        chronos=ChronosConfig(**chronos_dict),
+        ensemble=EnsembleConfig(**ensemble_dict),
+        backtesting=BacktestingConfig(**backtesting_config),
+        logging=LoggingConfig(**logging_config)
     )
 
 
