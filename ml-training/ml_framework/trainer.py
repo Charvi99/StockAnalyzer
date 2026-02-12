@@ -181,7 +181,7 @@ class ModelTrainer:
                 mlflow.log_params(model.get_params())
 
             # Save model
-            model_dir = self.config.data.models_dir / model_name / 'latest'
+            model_dir = self.models_dir / model_name / 'latest'
             model.save(model_dir)
 
             self.models[model_name] = model
@@ -275,7 +275,7 @@ class ModelTrainer:
         logger.info(f"💾 Saving all models as version {version}...")
 
         for model_name, model in self.models.items():
-            model_dir = self.config.data.models_dir / model_name / version
+            model_dir = self.models_dir / model_name / version
             model.save(model_dir)
 
         logger.info(f"✅ All models saved as version {version}")
