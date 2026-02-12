@@ -373,6 +373,10 @@ def load_config(config_path: Optional[str] = None) -> Config:
         if key in data_dict:
             data_config[key] = data_dict[key]
 
+    # Override base_path for Docker environment
+    if _detect_docker_environment():
+        data_config['base_path'] = "/app"
+
     # Features section
     features_dict = config_dict.get('features', {})
     features_config = {k: v for k, v in features_dict.items()}
