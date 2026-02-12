@@ -1,0 +1,71 @@
+{
+  "test_1": {
+    "test_name": "feature_importance",
+    "passes": "False",
+    "spy_count_top10": 5,
+    "spy_pct_top10": 13.525499403476715,
+    "top_features": [
+      {
+        "feature": "market_regime_bear",
+        "pct_total": 6.434780120849609
+      },
+      {
+        "feature": "spy_ma_50",
+        "pct_total": 3.030014991760254
+      },
+      {
+        "feature": "spy_uptrend_long",
+        "pct_total": 2.8865325450897217
+      },
+      {
+        "feature": "spy_ma_200",
+        "pct_total": 2.8487164974212646
+      },
+      {
+        "feature": "spy_ma_20",
+        "pct_total": 2.5180165767669678
+      },
+      {
+        "feature": "spy_close",
+        "pct_total": 2.2422192096710205
+      },
+      {
+        "feature": "natr",
+        "pct_total": 2.167290687561035
+      },
+      {
+        "feature": "willr",
+        "pct_total": 2.093306541442871
+      },
+      {
+        "feature": "market_regime_bull",
+        "pct_total": 1.8960366249084473
+      },
+      {
+        "feature": "market_regime_correction",
+        "pct_total": 1.7015748023986816
+      }
+    ]
+  },
+  "test_2": {
+    "test_name": "label_spy_correlation",
+    "passes": "False",
+    "correlation_up": -0.0017425249031610942,
+    "correlation_down": -0.016101419693552204,
+    "correlation_return": 0.01798463509156464,
+    "max_correlation": 0.01798463509156464
+  },
+  "test_3": {
+    "test_name": "ablation_study",
+    "passes": "False",
+    "auc_with_spy": 0.7572543357145549,
+    "auc_without_spy": 0.6361275486061163,
+    "auc_drop": 0.1211267871084386,
+    "auc_drop_pct": 15.995522428292446
+  },
+  "test_4": {
+    "test_name": "prediction_spy_correlation",
+    "passes": false,
+    "error": "\"['spy_close'] not in index\""
+  }
+}

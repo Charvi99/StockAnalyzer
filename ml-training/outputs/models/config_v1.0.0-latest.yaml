@@ -1,0 +1,192 @@
+catboost:
+  bagging_temperature: &id006 !!python/tuple
+  - 0.0
+  - 1.0
+  border_count: &id001 !!python/tuple
+  - 64
+  - 256
+  class_weights: null
+  classes_count: 3
+  depth: !!python/tuple
+  - 4
+  - 10
+  early_stopping_rounds: 100
+  eval_metric: AUC
+  iterations: 2000
+  l2_leaf_reg: !!python/tuple
+  - 1.0
+  - 10.0
+  learning_rate: &id003 !!python/tuple
+  - 0.001
+  - 0.1
+  loss_function: MultiClass
+  random_strength: !!python/tuple
+  - 0.5
+  - 1.5
+  task_type: GPU
+  verbose: false
+data:
+  database_url: postgresql://stockuser:stockpass@db:5432/stockanalyzer
+  dataset_folder: null
+  features_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - features
+  label_type: binary
+  logs_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - logs
+  lookahead_days: 20
+  models_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - models
+  profit_target: 0.03
+  stop_loss: -0.02
+  test_ratio: 0.15
+  timeframe: 1d
+  train_end_date: '2024-01-01'
+  train_ratio: 0.7
+  train_start_date: '2022-01-01'
+  use_candlestick_patterns: true
+  use_chart_patterns: true
+  use_market_regime: true
+  use_price_history: true
+  use_technical_indicators: true
+  val_ratio: 0.15
+ensemble:
+  meta_learner: xgboost
+  method: stacking
+  models:
+  - xgboost
+  - catboost
+  weights: null
+fttransformer:
+  attention_dropout: &id002 !!python/tuple
+  - 0.0
+  - 0.2
+  batch_size: 4096
+  cat_emb_dim: &id004 !!python/tuple
+  - 8
+  - 64
+  d_ffn: !!python/tuple
+  - 128
+  - 512
+  d_model: *id001
+  device: auto
+  drop_last: false
+  dropout: !!python/tuple
+  - 0.0
+  - 0.3
+  early_stopping: valid_loss
+  early_stopping_mode: min
+  early_stopping_patience: 10
+  embedding_dropout: *id002
+  ffn_dropout: *id002
+  learning_rate: !!python/tuple
+  - 1.0e-05
+  - 0.01
+  loss_function: auto
+  max_epochs: 100
+  metrics:
+  - auc
+  metrics_params: []
+  n_heads: !!python/tuple
+  - 4
+  - 16
+  n_layers: !!python/tuple
+  - 4
+  - 12
+  num_workers: 0
+  optimizer: AdamW
+  optimizer_params:
+    lr: 0.001
+    weight_decay: 1.0e-05
+  pin_memory: true
+  scheduler: cosine
+  scheduler_params:
+    T_max: 10
+    eta_min: 1.0e-06
+  seed: 42
+  virtual_batch_size: 1024
+tabnet:
+  batch_size: 16384
+  device_name: auto
+  gamma: !!python/tuple
+  - 1.0
+  - 2.0
+  lambda_sparse: !!python/tuple
+  - 1.0e-06
+  - 0.001
+  learning_rate: *id003
+  mask_type: entmax
+  max_epochs: 200
+  n_a: *id004
+  n_d: *id004
+  n_independent: &id005 !!python/tuple
+  - 1
+  - 5
+  n_shared: *id005
+  n_steps: !!python/tuple
+  - 3
+  - 10
+  num_workers: 0
+  optimizer_fn: adam
+  patience: 30
+  scheduler_fn: step
+  scheduler_params:
+    gamma: 0.9
+    step_size: 10
+  seed: 42
+  verbose: 0
+  virtual_batch_size: 4096
+training:
+  cv_method: timeseries
+  experiment_name: stockanalyzer_ensemble
+  mlflow_tracking_uri: file:///app/outputs/mlflow
+  n_folds: 5
+  n_trials: 20
+  num_classes: 3
+  objective: auc
+  primary_metric: auc
+  random_seed: 42
+  secondary_metrics:
+  - accuracy
+  - precision
+  - recall
+  sharpe_optimization_n_trials: 50
+  sharpe_optimization_thresholds: true
+  sharpe_weight: 0.1
+  timeout: null
+xgboost:
+  colsample_bytree: &id007 !!python/tuple
+  - 0.6
+  - 0.9
+  device: cuda
+  early_stopping_rounds: 100
+  eval_metric: mlogloss
+  gamma: !!python/tuple
+  - 0.0
+  - 5.0
+  learning_rate: *id003
+  max_depth: !!python/tuple
+  - 4
+  - 8
+  min_child_weight: !!python/tuple
+  - 1
+  - 10
+  n_estimators: 2000
+  n_jobs: 1
+  num_class: 3
+  objective: multi:softmax
+  reg_alpha: *id006
+  reg_lambda: !!python/tuple
+  - 0.0
+  - 2.0
+  scale_pos_weight: null
+  subsample: *id007
+  tree_method: hist

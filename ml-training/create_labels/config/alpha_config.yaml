@@ -1,0 +1,140 @@
+# Alpha Label Configuration
+# StockAnalyzer ML - Alpha Prediction System
+
+# Binary Alpha Labels
+binary:
+  # Minimum outperformance to classify as BUY
+  alpha_target: 0.02  # 2% outperformance vs SPY
+
+  # Lookahead period for returns
+  lookahead: 20  # 20 days
+
+  # Use CAPM beta adjustment
+  # If true: alpha = stock_return - (beta * spy_return)
+  # If false: alpha = stock_return - spy_return
+  beta_adjusted: false
+
+  # Minimum samples per stock
+  min_samples: 100
+
+# 5-Class Alpha Labels
+multiclass:
+  # Thresholds for classification
+  strong_outperform: 0.03    # >3% alpha
+  outperform: 0.01           # >1% alpha
+  market_perform: -0.01      # -1% to +1%
+  underperform: -0.03        # <-3% alpha
+
+  # Lookahead period
+  lookahead: 20
+
+  # Beta adjustment
+  beta_adjusted: false
+
+# Beta-Adjusted Alpha (Advanced)
+beta_adjusted:
+  # Alpha target
+  alpha_target: 0.02
+
+  # Rolling window for beta calculation
+  beta_window: 252  # 1 year of trading days
+
+  # Minimum samples for beta calculation
+  min_beta_samples: 50
+
+  # Beta clipping (extreme values)
+  min_beta: 0.1
+  max_beta: 3.0
+
+# Trading Parameters
+trading:
+  # Risk tolerance
+  stop_loss: -0.02  # 2% loss
+
+  # Profit targets
+  profit_target_conservative: 0.03  # 3% gain
+  profit_target_aggressive: 0.04    # 4% gain
+
+  # Risk-reward ratio
+  min_risk_reward: 1.5
+
+  # Position sizing
+  max_positions: 10
+  position_size_default: 0.02  # 2% of portfolio per position
+
+  # Minimum conviction
+  min_prediction_probability: 0.6
+
+# Feature Engineering
+features:
+  # SPY features
+  include_spy: true
+  spy_importance_threshold: 0.05  # Warn if SPY > 5%
+
+  # Insider features
+  insider_min_importance: 0.01  # Target > 1% importance
+
+  # Regime features
+  include_regime: true
+  adx_trending: 25
+  adx_ranging: 20
+
+# Validation
+validation:
+  # Out-of-sample test period
+  test_start: "2024-01-01"
+
+  # Minimum performance metrics
+  min_auc: 0.50
+  min_win_rate: 0.52
+  min_sharpe: 1.0
+  max_drawdown: 0.25
+
+  # Regime testing
+  test_bull_market: true
+  test_bear_market: true
+  test_ranging_market: true
+
+# Label Quality Checks
+quality:
+  # Minimum samples per class
+  min_samples_per_class: 1000
+
+  # Maximum class imbalance ratio
+  max_imbalance_ratio: 3.0
+
+  # Correlation threshold for feature removal
+  max_correlation: 0.95
+
+# Training
+training:
+  # Temporal split ratios
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+  # Cross-validation
+  cv_folds: 5
+  cv_method: "timeseries"  # timeseries, purged_kfold
+
+  # Early stopping
+  early_stopping_rounds: 100
+
+  # Trials (hyperparameter tuning)
+  n_trials_quick: 10
+  n_trials_full: 50
+
+# Outputs
+outputs:
+  # Base directory
+  base_dir: "/app/outputs"
+
+  # Subdirectories
+  features_dir: "features"
+  models_dir: "models"
+  logs_dir: "logs"
+  analysis_dir: "analysis"
+
+  # Experiment tracking
+  log_file: "experiments.log"
+  mlflow_uri: "file:///app/outputs/mlflow"

@@ -1,0 +1,109 @@
+catboost:
+  bagging_temperature: &id002 !!python/tuple
+  - 0.0
+  - 1.0
+  border_count: !!python/tuple
+  - 64
+  - 256
+  class_weights: null
+  classes_count: null
+  depth: !!python/tuple
+  - 4
+  - 10
+  early_stopping_rounds: 100
+  eval_metric: AUC
+  iterations: 2000
+  l2_leaf_reg: !!python/tuple
+  - 1.0
+  - 10.0
+  learning_rate: &id001 !!python/tuple
+  - 0.001
+  - 0.1
+  loss_function: Logloss
+  random_strength: !!python/tuple
+  - 0.5
+  - 1.5
+  task_type: GPU
+  verbose: false
+data:
+  database_url: postgresql://stockuser:stockpass@db:5432/stockanalyzer
+  dataset_folder: dataset_enhanced_20260209_132053
+  features_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - features
+  label_type: alpha_quantile_10d
+  logs_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - logs
+  lookahead_days: 20
+  models_dir: !!python/object/apply:pathlib.PosixPath
+  - /
+  - app
+  - outputs
+  - models
+  profit_target: 0.03
+  stop_loss: -0.02
+  test_ratio: 0.15
+  timeframe: 1d
+  train_end_date: '2024-01-01'
+  train_ratio: 0.7
+  train_start_date: '2022-01-01'
+  use_candlestick_patterns: true
+  use_chart_patterns: true
+  use_market_regime: true
+  use_price_history: true
+  use_technical_indicators: true
+  val_ratio: 0.15
+ensemble:
+  meta_learner: xgboost
+  method: stacking
+  models:
+  - xgboost
+  - catboost
+  weights: null
+training:
+  cv_method: timeseries
+  experiment_name: stockanalyzer_ensemble
+  mlflow_tracking_uri: file:///app/outputs/mlflow
+  n_folds: 5
+  n_trials: 30
+  num_classes: 2
+  primary_metric: auc
+  random_seed: 42
+  secondary_metrics:
+  - accuracy
+  - precision
+  - recall
+  timeout: null
+xgboost:
+  colsample_bytree: &id003 !!python/tuple
+  - 0.6
+  - 0.9
+  device: cuda
+  early_stopping_rounds: 100
+  eval_metric: logloss
+  gamma: !!python/tuple
+  - 0.0
+  - 5.0
+  learning_rate: *id001
+  max_depth: !!python/tuple
+  - 4
+  - 8
+  min_child_weight: !!python/tuple
+  - 1
+  - 10
+  n_estimators: 2000
+  n_jobs: 1
+  num_class: null
+  objective: binary:logistic
+  reg_alpha: *id002
+  reg_lambda: !!python/tuple
+  - 0.0
+  - 2.0
+  scale_pos_weight: null
+  subsample: *id003
+  tree_method: hist
