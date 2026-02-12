@@ -41,9 +41,14 @@ class ModelTrainer:
         base_path = self.config.data.base_path
         features_dir = Path(base_path) / self.config.data.features_path
 
-        # Find latest files - support both old and new naming
-        feature_files = sorted(features_dir.glob('dataset_*.parquet')) + sorted(features_dir.glob('features_*.parquet'))
-        label_files = sorted(features_dir.glob('labels_*.parquet'))
+        # Find latest files - support both old and new naming, recursive search
+        feature_files = sorted(features_dir.glob('**/*.parquet')) if features_dir.exists() else []
+        label_files = sorted(Path(base_path).glob('**/labels_*.parquet')) if Path(base_path).exists() else []
+
+        if not feature_files:
+            raise FileNotFoundError(f"No feature files found in {features_dir}. Run feature engineering first.")
+        if not label_files:
+            raise FileNotFoundError(f"No label files found in {base_path}/ml-training/outputs/labels. Run label creation first.")
 
         if not feature_files:
             raise FileNotFoundError("No feature files found. Run feature engineering first.")
