@@ -102,14 +102,14 @@ def main():
     if args.models:
         models_list = args.models.split(',')
         # Only train specified models
-        config.data['train_models'] = models_list
+        config.ensemble.models = models_list
 
     tune_models = not args.no_tuning
     if args.tuning_trials:
-        config.data['n_trials'] = args.tuning_trials
+        config.training.n_trials = args.tuning_trials
 
     if args.ensemble_method:
-        config.data['ensemble']['method'] = args.ensemble_method
+        config.ensemble.method = args.ensemble_method
 
     # Initialize trainer
     trainer = ModelTrainer(config)
@@ -127,10 +127,10 @@ def main():
     print("=" * 70)
 
     print(f"\n📊 Training configuration:")
-    print(f"   Models: {config.data.get('train_models', 'all')}")
+    print(f"   Models: {config.ensemble.models}")
     print(f"   Tuning: {'Enabled' if tune_models else 'Disabled'}")
     if tune_models:
-        print(f"   Trials: {config.data.get('n_trials', 50)}")
+        print(f"   Trials: {config.training.n_trials}")
 
     trainer.train_all_models(X_train, y_train, X_val, y_val, tune=tune_models)
 
