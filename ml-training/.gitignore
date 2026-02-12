@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# ML outputs (keep structure, ignore data)
+outputs/features/*/
+outputs/models/*/
+outputs/backtests/*/
+!outputs/features/.gitkeep
+!outputs/models/.gitkeep
+!outputs/backtests/.gitkeep
+
+# Cache
+.cache/
+.catboost_info/
+.pt_tmp/
+lightning_logs/
+mlruns/
+
+# Logs
+logs/
+*.log
+
+# Temporary
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~.nib
+local_settings.py
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
