@@ -167,7 +167,6 @@ services:
       - ./ml-training:/app
       - ./backend:/backend  # Mount backend to access services
       - ml_models:/app/outputs/models  # Trained models (shared with backend)
-      - ml_features:/app/outputs/features  # Feature cache
     depends_on:
       database:
         condition: service_healthy

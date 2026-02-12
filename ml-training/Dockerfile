@@ -29,11 +29,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY scripts/ /app/scripts/
 # COPY notebooks/ /app/notebooks/  # Commented out - directory doesn't exist
 
-# Create outputs directory
-RUN mkdir -p /app/outputs/{features,models,logs,validation}
-
-# Volume for outputs
-VOLUME ["/app/outputs"]
+# Create outputs directories (no VOLUME directive - using bind mounts from docker-compose)
+RUN mkdir -p /app/outputs/features && \
+    mkdir -p /app/outputs/models && \
+    mkdir -p /app/outputs/logs && \
+    mkdir -p /app/outputs/validation
 
 # Expose Jupyter port
 EXPOSE 8888

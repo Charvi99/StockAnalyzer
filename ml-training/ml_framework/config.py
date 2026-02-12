@@ -10,6 +10,17 @@ import yaml
 import os
 
 
+def _detect_docker_environment() -> bool:
+    """Detect if running inside Docker container."""
+    # Check if /app directory exists (Docker volume mount point)
+    if os.path.exists('/app'):
+        return True
+    # Check Docker-related environment variables
+    if os.getenv('DOCKER_CONTAINER'):
+        return True
+    return False
+
+
 @dataclass
 class ProjectConfig:
     """Project metadata"""
@@ -233,18 +244,6 @@ class Config:
 
     # Docker environment detection
     running_in_docker: bool = field(default_factory=_detect_docker_environment)
-
-
-def _detect_docker_environment() -> bool:
-    """Detect if running inside Docker container."""
-    import os
-    # Check if /app directory exists (Docker volume mount point)
-    if os.path.exists('/app'):
-        return True
-    # Check Docker-related environment variables
-    if os.getenv('DOCKER_CONTAINER'):
-        return True
-    return False
 
     @classmethod
     def from_yaml(cls, yaml_path: Path) -> "Config":
