@@ -34,6 +34,11 @@ class ModelTrainer:
         self.models = {}
         self.best_params = {}
 
+    @property
+    def models_dir(self) -> Path:
+        """Build models directory path from base_path and models_path"""
+        return Path(self.config.data.base_path) / self.config.data.models_path
+
     def load_data(self):
         """Load features and labels from parquet files"""
         logger.info("📂 Loading data...")

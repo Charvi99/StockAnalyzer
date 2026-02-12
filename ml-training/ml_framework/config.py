@@ -98,6 +98,9 @@ class TrainingConfig:
     test_size: float = 0.2
     random_seed: int = 42
     n_trials: int = 10
+    n_folds: int = 5
+    cv_method: str = "stratified"
+    timeout: int = 3600  # 1 hour timeout for hyperparameter tuning
     gpu_enabled: bool = True
     early_stopping_rounds: int = 100
 
