@@ -150,6 +150,10 @@ backups/*.sql
 *.seed
 *.pid.lock
 
+# Git worktrees
+.worktrees/
+worktrees/
+
 # Optional npm cache directory
 .npm
 
