@@ -7,8 +7,18 @@ Orchestrates the entire ML training pipeline:
 3. Create ensemble
 4. Evaluate on test set
 5. Save everything
+
+Usage:
+    python train.py --config configs/default.yaml
+    python train.py --config configs/default.yaml --no-tuning
+    python train.py --config configs/default.yaml --models xgboost,catboost
 """
 import sys
+import os
+import argparse
+from datetime import datetime
+
+# Add backend to path
 sys.path.insert(0, '/backend')
 
 from pathlib import Path
@@ -22,15 +32,61 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Add ml-framework to path
-sys.path.insert(0, '/app/ml-framework')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ml_framework.config import Config, DEFAULT_CONFIG
+from ml_framework.config import load_config
 from ml_framework.trainer import ModelTrainer
 from ml_framework.ensemble import Ensemble
 
 
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='StockAnalyzer ML Training Pipeline',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='configs/default.yaml',
+        help='Path to configuration file'
+    )
+    parser.add_argument(
+        '--models',
+        type=str,
+        default=None,
+        help='Comma-separated list of models to train (overrides config)'
+    )
+    parser.add_argument(
+        '--no-tuning',
+        action='store_true',
+        help='Skip hyperparameter tuning'
+    )
+    parser.add_argument(
+        '--tuning-trials',
+        type=int,
+        default=None,
+        help='Number of tuning trials (overrides config)'
+    )
+    parser.add_argument(
+        '--ensemble-method',
+        type=str,
+        default=None,
+        choices=['majority_vote', 'weighted_average', 'stacking'],
+        help='Ensemble method (overrides config)'
+    )
+    parser.add_argument(
+        '--version',
+        type=str,
+        default=None,
+        help='Model version (default: auto-generated)'
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main training pipeline"""
+    args = parse_args()
 
     print("=" * 70)
     print(" " * 18)
@@ -39,8 +95,21 @@ def main():
     print("=" * 70)
 
     # Load configuration
-    config = DEFAULT_CONFIG
+    config = load_config(args.config)
     logger.info("✅ Configuration loaded")
+
+    # Apply CLI overrides
+    if args.models:
+        models_list = args.models.split(',')
+        # Only train specified models
+        config.ensemble.models = models_list
+
+    tune_models = not args.no_tuning
+    if args.tuning_trials:
+        config.training.n_trials = args.tuning_trials
+
+    if args.ensemble_method:
+        config.ensemble.method = args.ensemble_method
 
     # Initialize trainer
     trainer = ModelTrainer(config)
@@ -57,8 +126,11 @@ def main():
     print("TRAINING PHASE")
     print("=" * 70)
 
-    # Option: Skip tuning for faster training
-    tune_models = True  # Set to False to skip Optuna tuning
+    print(f"\n📊 Training configuration:")
+    print(f"   Models: {config.ensemble.models}")
+    print(f"   Tuning: {'Enabled' if tune_models else 'Disabled'}")
+    if tune_models:
+        print(f"   Trials: {config.training.n_trials}")
 
     trainer.train_all_models(X_train, y_train, X_val, y_val, tune=tune_models)
 
@@ -118,7 +190,7 @@ def main():
     print("SAVE PHASE")
     print("=" * 70)
 
-    version = "v1.0.0"
+    version = args.version or f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     trainer.save_all_models(version)
 
     # Save ensemble
