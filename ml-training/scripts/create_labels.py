@@ -158,14 +158,16 @@ def main():
 
     # Apply CLI overrides
     profit_target = args.profit_target if args.profit_target is not None else \
-                    config.data.get('label_profit_target', 0.03)
+                    config.labels.profit_target
     stop_loss = args.stop_loss if args.stop_loss is not None else \
-               config.data.get('label_stop_loss', 0.02)
+                    config.labels.stop_loss
     lookahead_days = args.lookahead if args.lookahead is not None else \
-                    config.data.get('label_lookahead_days', 20)
+                    (args.lookahead if args.lookahead is not None else config.labels.lookahead_days[0])
 
-    features_dir = Path(config.data.get('features_dir', 'data/features'))
-    output_dir = Path(args.output_dir) if args.output_dir else features_dir
+    # Determine paths
+    base_path = config.data.base_path
+    features_dir = Path(base_path) / config.data.features_path
+    output_dir = Path(args.output_dir) if args.output_dir else Path(base_path) / "ml-training/outputs/labels"
 
     print("=" * 70)
     print(" " * 22)
