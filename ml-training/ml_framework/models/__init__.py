@@ -5,7 +5,8 @@ from .tabnet_model import TabNetModel
 from .autogluon_model import AutoGluonModel
 # FT Transformer disabled due to OOM on 3GB GPU
 # from .fttransformer_model import FTTransformerModel
-from .tcn_model import TCNModel
+# TCN disabled - not using
+# from .tcn_model import TCNModel
 # Chronos disabled - not used anymore
 # from .chronos_model import ChronosModel
 
@@ -15,6 +16,6 @@ __all__ = [
     'TabNetModel',
     'AutoGluonModel',
     # 'FTTransformerModel',  # OOM on 3GB GPU
-    'TCNModel',
-    # 'ChronosModel'  # Disabled - not used
+    # 'TCNModel',  # Disabled
+    # 'ChronosModel',  # Disabled - not used
 ]
