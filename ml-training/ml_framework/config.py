@@ -305,7 +305,7 @@ def _apply_env_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in os.environ.items():
         if key.startswith('ML_TRAINING_'):
             # Remove prefix and convert to lowercase
-            config_path = key[13:].lower().replace('__', '.')
+            config_path = key[12:].lower().replace('__', '.')
             # Convert string value to appropriate type
             parsed_value = _parse_env_value(value)
             update_nested(config, config_path, parsed_value)
