@@ -170,15 +170,15 @@ services:
     depends_on:
       database:
         condition: service_healthy
-    # No ports needed - runs as batch job
-    # GPU support: use Dockerfile.gpu when ready
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    ports:
+      - "8888:8888"  # Expose JupyterLab port
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   postgres_data:

@@ -194,25 +194,25 @@ def main():
     trainer.save_all_models(version)
 
     # Save ensemble
-    ensemble_dir = config.data.models_dir / 'ensemble' / version
+    ensemble_dir = trainer.models_dir / 'ensemble' / version
     ensemble_dir.mkdir(parents=True, exist_ok=True)
     ensemble.save(ensemble_dir)
 
     # Save ensemble to 'latest' as well
-    ensemble_latest = config.data.models_dir / 'ensemble' / 'latest'
+    ensemble_latest = trainer.models_dir / 'ensemble' / 'latest'
     ensemble_latest.mkdir(parents=True, exist_ok=True)
     ensemble.save(ensemble_latest)
 
     # Save configuration
-    config.save(config.data.models_dir / f'config_{version}.yaml')
+    config.save(trainer.models_dir / f'config_{version}.yaml')
 
     print("\n" + "=" * 70)
     print("✅ TRAINING COMPLETE!")
     print("=" * 70)
 
-    print(f"\nModels saved to: {config.data.models_dir}")
+    print(f"\nModels saved to: {trainer.models_dir}")
     print(f"Ensemble saved to: {ensemble_latest}")
-    print(f"Config saved to: {config.data.models_dir / f'config_{version}.yaml'}")
+    print(f"Config saved to: {trainer.models_dir / f'config_{version}.yaml'}")
 
     print("\n" + "=" * 70)
     print("NEXT STEPS")
