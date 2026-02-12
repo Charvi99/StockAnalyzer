@@ -38,7 +38,8 @@ class ModelTrainer:
         """Load features and labels from parquet files"""
         logger.info("📂 Loading data...")
 
-        features_dir = self.config.data.features_dir
+        base_path = self.config.data.base_path
+        features_dir = Path(base_path) / self.config.data.features_path
 
         # Find latest files
         feature_files = sorted(features_dir.glob('features_*.parquet'))
