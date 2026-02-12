@@ -41,8 +41,8 @@ class ModelTrainer:
         base_path = self.config.data.base_path
         features_dir = Path(base_path) / self.config.data.features_path
 
-        # Find latest files
-        feature_files = sorted(features_dir.glob('features_*.parquet'))
+        # Find latest files - support both old and new naming
+        feature_files = sorted(features_dir.glob('dataset_*.parquet')) + sorted(features_dir.glob('features_*.parquet'))
         label_files = sorted(features_dir.glob('labels_*.parquet'))
 
         if not feature_files:
