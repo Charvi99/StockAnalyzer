@@ -31,6 +31,9 @@ class DataConfig:
     # Database
     database_url: str = "postgresql://stockuser:stockpass@db:5432/stockanalyzer"
 
+    # Docker environment
+    running_in_docker: bool = field(default_factory=_detect_docker_environment)
+
 
 @dataclass
 class FeaturesConfig:
@@ -228,6 +231,21 @@ class Config:
     # Logging configuration
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
+    # Docker environment detection
+    running_in_docker: bool = field(default_factory=_detect_docker_environment)
+
+
+def _detect_docker_environment() -> bool:
+    """Detect if running inside Docker container."""
+    import os
+    # Check if /app directory exists (Docker volume mount point)
+    if os.path.exists('/app'):
+        return True
+    # Check Docker-related environment variables
+    if os.getenv('DOCKER_CONTAINER'):
+        return True
+    return False
+
     @classmethod
     def from_yaml(cls, yaml_path: Path) -> "Config":
         """Load configuration from YAML file"""
@@ -332,6 +350,14 @@ def load_config(config_path: Optional[str] = None) -> Config:
         base_config_dict = _load_config_dict(config_dict['extends'] + '.yaml')
         # Merge base config with current config (current overrides base)
         config_dict = _deep_merge(base_config_dict, config_dict)
+
+    # Detect Docker environment and adjust base path
+    if config.running_in_docker:
+        # Running in Docker - use /app as base path
+        data_config['base_path'] = "/app"
+    else:
+        # Running on host - use actual base path
+        data_config['base_path'] = config.data.base_path
 
     # Apply environment variable overrides
     config_dict = _apply_env_overrides(config_dict)
