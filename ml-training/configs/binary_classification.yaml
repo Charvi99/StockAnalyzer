@@ -1,7 +1,7 @@
 # Binary Classification Configuration
 # Optimized for buy/sell signal prediction
 
-extends: default
+extends: configs/default
 
 labels:
   type: "binary"
