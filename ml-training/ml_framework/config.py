@@ -92,7 +92,7 @@ class TrainingConfig:
 
     # Model selection
     default_model: str = "catboost"
-    available_models: List[str] = field(default_factory=lambda: ["xgboost", "catboost", "tabnet", "autogluon", "fttransformer"])
+    available_models: List[str] = field(default_factory=lambda: ["xgboost", "catboost", "tabnet", "autogluon", "tcn"])
 
     # Training parameters
     test_size: float = 0.2
@@ -300,9 +300,7 @@ class Config:
     catboost: CatBoostConfig = field(default_factory=CatBoostConfig)
     tabnet: TabNetConfig = field(default_factory=TabNetConfig)
     autogluon: AutoGluonConfig = field(default_factory=AutoGluonConfig)
-    fttransformer: FTTransformerConfig = field(default_factory=FTTransformerConfig)
     tcn: TCNConfig = field(default_factory=TCNConfig)
-    chronos: ChronosConfig = field(default_factory=ChronosConfig)
 
     # Ensemble configuration
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
@@ -328,9 +326,7 @@ class Config:
             catboost=CatBoostConfig(**data.get('catboost', {})),
             tabnet=TabNetConfig(**data.get('tabnet', {})),
             autogluon=AutoGluonConfig(**data.get('autogluon', {})),
-            fttransformer=FTTransformerConfig(**data.get('fttransformer', {})),
             tcn=TCNConfig(**data.get('tcn', {})),
-            chronos=ChronosConfig(**data.get('chronos', {})),
             training=TrainingConfig(**data.get('training', {})),
             ensemble=EnsembleConfig(**data.get('ensemble', {}))
         )

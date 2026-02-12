@@ -16,7 +16,7 @@ import logging
 from ml_framework.config import Config
 from ml_framework.models import (
     XGBoostModel, CatBoostModel, TabNetModel,
-    AutoGluonModel, FTTransformerModel, TCNModel, ChronosModel
+    AutoGluonModel, TCNModel
 )
 from ml_framework.tuner import HyperparameterTuner
 
@@ -163,9 +163,7 @@ class ModelTrainer:
                 'catboost': CatBoostModel,
                 'tabnet': TabNetModel,
                 'autogluon': AutoGluonModel,
-                'fttransformer': FTTransformerModel,
                 'tcn': TCNModel,
-                'chronos': ChronosModel,
             }
 
             ModelClass = model_map[model_name]
