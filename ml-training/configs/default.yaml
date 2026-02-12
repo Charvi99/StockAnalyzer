@@ -1,0 +1,53 @@
+# ML-Training Default Configuration
+# Version: 3.0.0
+
+project:
+  name: "ml-training"
+  version: "3.0.0"
+  description: "Stock price prediction using machine learning"
+
+data:
+  base_path: "/home/jakub/StockAnalyzer"
+  features_path: "ml-training/outputs/features"
+  models_path: "ml-training/outputs/models"
+  cache_dir: "ml-training/.cache"
+
+training:
+  default_model: "catboost"
+  available_models:
+    - "xgboost"
+    - "catboost"
+    - "tabnet"
+    - "autogluon"
+    - "fttransformer"
+  test_size: 0.2
+  random_seed: 42
+  n_trials: 10
+  gpu_enabled: true
+  early_stopping_rounds: 100
+
+features:
+  technical_indicators: true
+  swing_features: true
+  insider_features: true
+  market_features: true
+  news_features: false  # Optional, requires news API
+
+labels:
+  type: "binary"  # binary | 3class | 5class
+  lookahead_days: [5, 10, 20]
+  quantiles: 5
+
+backtesting:
+  initial_capital: 10000
+  commission: 0.001
+  strategies:
+    - "buy_and_hold"
+    - "ml_signal"
+    - "ensemble"
+
+logging:
+  level: "INFO"
+  mlflow_tracking: true
+  tensorboard: false
+  log_dir: "ml-training/logs"

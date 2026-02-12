@@ -1,0 +1,11 @@
+# Multi-Class Classification Configuration
+# For 3-class and 5-class prediction
+
+extends: configs/default
+
+labels:
+  type: "3class"  # Can be 3class or 5class
+
+training:
+  n_trials: 30
+  eval_metric: "multiclass"
