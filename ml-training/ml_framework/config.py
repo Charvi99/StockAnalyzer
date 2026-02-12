@@ -3,7 +3,7 @@ Configuration Management for ML Training
 
 Uses YAML config files + Python dataclasses for type safety
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import yaml
@@ -237,7 +237,35 @@ DEFAULT_CONFIG = Config()
 # YAML Configuration Loading Functions
 # ============================================================================
 
-def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+def _load_config_dict(config_path: str) -> Dict[str, Any]:
+    """
+    Load YAML config as dictionary (for internal use in extends logic).
+
+    Args:
+        config_path: Path to YAML config file
+
+    Returns:
+        Configuration dictionary
+    """
+    config_file = Path(config_path)
+    if not config_file.is_absolute():
+        # Relative to ml-training directory
+        config_file = Path(__file__).parent.parent / config_path
+
+    # Load YAML config
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Handle extends directive recursively
+    if 'extends' in config:
+        base_config = _load_config_dict(config['extends'] + '.yaml')
+        # Merge base config with current config (current overrides base)
+        config = _deep_merge(base_config, config)
+
+    return config
+
+
+def load_config(config_path: Optional[str] = None) -> Config:
     """
     Load configuration from YAML file with environment variable overrides.
 
@@ -245,7 +273,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         config_path: Path to YAML config file. If None, loads default.yaml
 
     Returns:
-        Configuration dictionary with loaded and merged values
+        Config dataclass with loaded and merged values
 
     Example:
         >>> config = load_config()  # Loads default.yaml
@@ -263,19 +291,57 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # Load YAML config
     with open(config_file, 'r') as f:
-        config = yaml.safe_load(f)
+        config_dict = yaml.safe_load(f)
 
     # Handle extends directive for config inheritance
-    if 'extends' in config:
-        base_config = load_config(config['extends'] + '.yaml')
+    if 'extends' in config_dict:
+        base_config_dict = _load_config_dict(config_dict['extends'] + '.yaml')
         # Merge base config with current config (current overrides base)
-        merged_config = _deep_merge(base_config, config)
-        config = merged_config
+        config_dict = _deep_merge(base_config_dict, config_dict)
 
     # Apply environment variable overrides
-    config = _apply_env_overrides(config)
+    config_dict = _apply_env_overrides(config_dict)
 
-    return config
+    # Map YAML fields to dataclass fields
+    # The YAML uses different naming than the dataclass
+    data_dict = config_dict.get('data', {})
+
+    # Map data section
+    data_config = {}
+    if 'base_path' in data_dict:
+        base_path = data_dict['base_path']
+        # Use defaults from dataclass for paths, allow override
+        data_config['features_dir'] = Path(base_path) / data_dict.get('features_path', 'ml-training/outputs/features')
+        data_config['models_dir'] = Path(base_path) / data_dict.get('models_path', 'ml-training/outputs/models')
+    else:
+        data_config['features_dir'] = Path(data_dict.get('features_dir', '/app/outputs/features'))
+        data_config['models_dir'] = Path(data_dict.get('models_dir', '/app/outputs/models'))
+
+    # Map training.available_models to ensemble.models
+    training_dict = config_dict.get('training', {})
+    ensemble_dict = config_dict.get('ensemble', {})
+
+    if 'available_models' in training_dict:
+        ensemble_dict['models'] = training_dict['available_models']
+
+    # Filter training_dict to only include valid TrainingConfig fields
+    training_fields = {f.name for f in fields(TrainingConfig)}
+    filtered_training = {k: v for k, v in training_dict.items() if k in training_fields}
+
+    # Filter ensemble_dict to only include valid EnsembleConfig fields
+    ensemble_fields = {f.name for f in fields(EnsembleConfig)}
+    filtered_ensemble = {k: v for k, v in ensemble_dict.items() if k in ensemble_fields}
+
+    # Convert dict to Config dataclass
+    return Config(
+        data=DataConfig(**data_config),
+        xgboost=XGBoostConfig(**config_dict.get('xgboost', {})),
+        catboost=CatBoostConfig(**config_dict.get('catboost', {})),
+        tcn=TCNConfig(**config_dict.get('tcn', {})),
+        chronos=ChronosConfig(**config_dict.get('chronos', {})),
+        training=TrainingConfig(**filtered_training),
+        ensemble=EnsembleConfig(**filtered_ensemble)
+    )
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
