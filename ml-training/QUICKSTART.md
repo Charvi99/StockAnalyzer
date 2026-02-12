@@ -46,7 +46,6 @@ python ../train.py
 # Output:
 # ✅ XGBoost trained. Best iteration: 1247
 # ✅ CatBoost trained. Best iteration: 1156
-# ✅ TCN trained. Best val_loss: 0.6234
 # ✅ Ensemble created
 # ✅ Models saved to /app/outputs/models/
 ```
@@ -58,7 +57,6 @@ Your trained models are now saved to:
 /app/outputs/models/
 ├── xgboost/latest/model.json
 ├── catboost/latest/model.cbm
-├── tcn/latest/model.pth
 └── ensemble/latest/
 ```
 
@@ -81,12 +79,6 @@ CATBOOST:
   Precision: 59.2%
   Recall:    47.1%
   AUC:       0.6891
-
-TCN:
-  Accuracy:  65.1%
-  Precision: 60.3%
-  Recall:    48.7%
-  AUC:       0.6923
 
 ENSEMBLE PERFORMANCE:
   Accuracy:  66.5%
@@ -131,7 +123,7 @@ class TrainingConfig:
 # Edit ml_framework/config.py
 
 class EnsembleConfig:
-    models: List[str] = ["xgboost", "catboost"]  # Remove TCN for speed
+    models: List[str] = ["xgboost", "catboost"]
     method: str = "stacking"  # Use stacking instead of weighted average
 ```
 
@@ -140,7 +132,6 @@ class EnsembleConfig:
 **Speed Up Training:**
 - Set `tune_models = False` in train.py
 - Reduce `n_trials` in config
-- Remove TCN (requires GPU)
 
 **Improve Accuracy:**
 - Increase `n_trials` to 200
@@ -166,11 +157,6 @@ python 01_feature_engineering.py
 python 02_create_labels.py
 ```
 
-**Error: "CUDA out of memory" (if using GPU)**
-```python
-# Edit tcn config
-config.tcn.batch_size = 32  # Reduce from 64
-```
 
 **Training too slow?**
 ```bash

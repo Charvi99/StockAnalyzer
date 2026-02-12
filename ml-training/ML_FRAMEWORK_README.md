@@ -15,8 +15,7 @@ ml_framework/
 └── models/
     ├── __init__.py
     ├── xgboost_model.py   # XGBoost implementation
-    ├── catboost_model.py  # CatBoost implementation ⭐ NEW
-    └── tcn_model.py        # TCN (Temporal CNN) ⭐ NEW
+    └── catboost_model.py  # CatBoost implementation
 ```
 
 ## 🚀 Quick Start
@@ -53,19 +52,12 @@ trainer.train_all_models(X_train, y_train, X_val, y_val)
 - **Pros**: Interpretable, fast, handles missing data
 - **Best for**: Tabular data, feature importance analysis
 
-### 2. CatBoost (30% weight) ⭐ NEW
+### 2. CatBoost (30% weight)
 - **Type**: Gradient Boosting with categorical support
 - **Accuracy**: 62-66% (similar to XGBoost)
 - **Training Time**: 20-50 minutes (CPU)
 - **Pros**: Best out-of-the-box, less tuning needed, handles categoricals
 - **Best for**: Fast iteration, production use
-
-### 3. TCN (30% weight) ⭐ NEW
-- **Type**: Temporal Convolutional Network
-- **Accuracy**: 63-67% (better than LSTM)
-- **Training Time**: 2-4 hours (CPU), 30-60 min (GPU)
-- **Pros**: Captures temporal patterns, parallelizable, less overfitting than LSTM
-- **Best for**: Time series patterns, local dependencies
 
 ## 🎯 Hyperparameter Tuning
 
@@ -98,12 +90,6 @@ all_best_params = tuner.tune_all_models(X_train, y_train, X_val, y_val)
 - learning_rate: (0.001, 0.1) log scale
 - l2_leaf_reg: (1.0, 10.0)
 - bagging_temperature: (0.0, 1.0)
-
-**TCN:**
-- num_layers: (2, 4)
-- kernel_size: (2, 5)
-- dropout: (0.1, 0.4)
-- learning_rate: (0.0001, 0.01) log scale
 
 ## 📦 Ensemble Methods
 
@@ -152,17 +138,12 @@ catboost:
   learning_rate: [0.001, 0.1]
   iterations: 2000
 
-tcn:
-  num_layers: [2, 4]
-  kernel_size: [2, 5]
-  dropout: [0.1, 0.4]
-
 training:
   n_trials: 50
   primary_metric: "auc"
 
 ensemble:
-  models: ["xgboost", "catboost", "tcn"]
+  models: ["xgboost", "catboost"]
   method: "weighted_average"
 ```
 
@@ -180,7 +161,6 @@ config = Config.from_yaml(Path("config.yaml"))
 |-------|----------|-----|---------------|-------|
 | XGBoost | 63-66% | 0.67-0.70 | 30-60 min | Interpretable |
 | CatBoost | 63-66% | 0.67-0.70 | 20-50 min | Less tuning |
-| TCN | 64-67% | 0.68-0.71 | 2-4 hours | Captures patterns |
 | **Ensemble** | **65-68%** | **0.69-0.72** | **-** | **Best performance** |
 
 ## 🚀 Workflow
@@ -238,12 +218,6 @@ config.training.timeout = 3600 * 6  # 6 hours max
 │   │   ├── model.cbm
 │   │   └── metadata.json
 │   └── v1.0.0_20250130_130000/
-├── tcn/
-│   ├── latest/
-│   │   ├── model.pth
-│   │   ├── config.json
-│   │   └── metadata.json
-│   └── v1.0.0_20250130_140000/
 └── ensemble/
     ├── latest/
     │   ├── meta_learner.pkl
@@ -256,14 +230,13 @@ config.training.timeout = 3600 * 6  # 6 hours max
 
 ```python
 # Backend API - ML prediction endpoint
-from ml_framework.models import XGBoostModel, CatBoostModel, TCNModel
+from ml_framework.models import XGBoostModel, CatBoostModel
 from ml_framework.ensemble import Ensemble
 
 # Load models
 models = {
     'xgboost': XGBoostModel(config.xgboost),
-    'catboost': CatBoostModel(config.catboost),
-    'tcn': TCNModel(config.tcn)
+    'catboost': CatBoostModel(config.catboost)
 }
 
 for name, model in models.items():
@@ -337,7 +310,6 @@ config.ensemble.method = "stacking"  # Better than weighted average
 ```python
 # Adjust model parameters:
 config.xgboost.max_depth = (4, 6)  # Instead of (4, 8)
-config.tcn.dropout = (0.3, 0.5)  # Instead of (0.1, 0.4)
 
 # Add early stopping
 config.xgboost.early_stopping_rounds = 50  # Instead of 100
@@ -360,13 +332,6 @@ print(trials_df.head())
 
 ### Common Issues
 
-**Issue**: TCN is very slow
-```python
-# Solution: Reduce sequence length or epochs
-config.tcn.batch_size = 128  # Instead of 64
-config.tcn.epochs = 50  # Instead of 100
-```
-
 **Issue**: Out of memory
 ```python
 # Solution: Reduce batch size
@@ -384,7 +349,6 @@ config.training.n_trials = 200
 - [XGBoost Docs](https://xgboost.readthedocs.io/)
 - [CatBoost Docs](https://catboost.ai/docs/)
 - [Optuna Docs](https://optuna.readthedocs.io/)
-- [TCN Paper](https://arxiv.org/abs/1803.01271)
 
 ## 🎯 Next Steps
 
