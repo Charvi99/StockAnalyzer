@@ -373,9 +373,14 @@ def load_config(config_path: Optional[str] = None) -> Config:
         if key in data_dict:
             data_config[key] = data_dict[key]
 
-    # Override base_path for Docker environment
+    # Override paths for Docker environment
+    # In Docker, /app IS the ml-training directory (from volume mount: ./ml-training:/app)
     if _detect_docker_environment():
         data_config['base_path'] = "/app"
+        # Remove 'ml-training/' prefix from relative paths since /app is already ml-training
+        for key in ['features_path', 'models_path', 'cache_dir']:
+            if key in data_config and data_config[key].startswith('ml-training/'):
+                data_config[key] = data_config[key].replace('ml-training/', '', 1)
 
     # Features section
     features_dict = config_dict.get('features', {})
