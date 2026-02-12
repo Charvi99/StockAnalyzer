@@ -42,6 +42,11 @@ class DataConfig:
     # Database
     database_url: str = "postgresql://stockuser:stockpass@db:5432/stockanalyzer"
 
+    # Data split ratios (for temporal splitting)
+    train_ratio: float = 0.7  # 70% for training
+    val_ratio: float = 0.15  # 15% for validation
+    # Remaining (test) = 1 - train_ratio - val_ratio = 15%
+
     # Docker environment
     running_in_docker: bool = field(default_factory=_detect_docker_environment)
 
