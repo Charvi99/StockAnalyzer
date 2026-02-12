@@ -1,220 +1,85 @@
-# ML Training Module
+# ML-Training
 
-This directory contains the ML training pipeline for StockAnalyzer.
+Stock price prediction using machine learning with ensemble methods.
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Start ML Container
+1. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   # For GPU support (NVIDIA):
+   pip install -r requirements.gpu.txt
+   ```
 
+2. **Generate features**
+   ```bash
+   python scripts/create_features.py --config configs/default.yaml
+   ```
+
+3. **Create labels**
+   ```bash
+   python scripts/create_labels.py --config configs/binary_classification.yaml
+   ```
+
+4. **Train model**
+   ```bash
+   python scripts/train.py --config configs/binary_classification.yaml --model catboost
+   ```
+
+5. **Backtest**
+   ```bash
+   python scripts/backtest.py --model outputs/models/latest/model.pkl
+   ```
+
+## Performance
+
+**Binary Classification (Production Ready)**
+- CatBoost: 76.7% AUC, 77.2% accuracy, 0% catastrophic error
+- XGBoost: 75.3% AUC, 76.8% accuracy
+- Status: ✅ Production ready
+
+**Multi-Class Classification**
+- 3-Class: 78.0% AUC, 60.2% accuracy, 11.8% catastrophic error
+- 5-Class: 75.4% AUC, 52.4% accuracy, 18.4% catastrophic error
+- Status: ⚠️ Use with caution
+
+## Configuration
+
+Project uses YAML configuration files in `configs/`:
+
+- `default.yaml` - Base configuration
+- `binary_classification.yaml` - Binary buy/sell prediction
+- `multiclass.yaml` - Multi-class prediction
+
+Override with environment variables:
 ```bash
-# From project root
-docker-compose run --rm ml-training bash
+export ML_TRAINING_GPU_ENABLED=false
+export ML_TRAINING_N_TRIALS=5
 ```
 
-### 2. Run Feature Engineering
+## Documentation
 
-```bash
-# Inside ML container
-cd /app/scripts
-python 01_feature_engineering.py
-```
+- [Quick Start Guide](QUICKSTART.md) - Detailed 4-step setup
+- [Training Guide](docs/training.md) - Feature engineering, labeling, training
+- [Backtesting](docs/backtesting.md) - Strategy backtesting framework
+- [Architecture](docs/architecture.md) - System design and components
+- [Configuration Reference](docs/configuration.md) - YAML and CLI options
+- [API Reference](docs/api.md) - Framework API documentation
 
-This will:
-- Connect to the database
-- Fetch price data for all tracked stocks
-- Engineer 45+ features
-- Save to `/app/outputs/features/features_YYYYMMDD.parquet`
+## Available Models
 
-### 3. Create Labels
+- **CatBoost** (Recommended) - Best performance, GPU support
+- **XGBoost** - Strong performance, widely used
+- **TabNet** - Deep learning for tabular data
+- **AutoGluon** - AutoML ensemble
+- **FT-Transformer** - Transformer for tabular data
 
-```bash
-python 02_create_labels.py
-```
+## Hardware
 
-This will:
-- Create swing trading labels (+3% within 20 days before -2%)
-- Save to `/app/outputs/features/labels_YYYYMMDD.parquet`
+- GPU: NVIDIA RTX 3060 12GB (optional)
+- RAM: 32GB DDR4 recommended
+- Storage: SSD recommended for feature caching
 
-### 4. Train XGBoost Model
+## Version
 
-```bash
-python 03_train_xgboost.py
-```
-
-This will:
-- Train XGBoost on the features
-- Use temporal train/val/test split (NOT random!)
-- Evaluate performance
-- Save model to `/app/outputs/models/xgboost/latest/`
-
-### 5. Start Jupyter Lab (for experimentation)
-
-```bash
-cd /app
-jupyter lab
-```
-
-Then open browser to: `http://localhost:8888`
-
-## 📂 Directory Structure
-
-```
-ml-training/
-├── Dockerfile           # CPU version
-├── Dockerfile.gpu       # GPU version (use when you have GPU)
-├── requirements.txt     # CPU dependencies
-├── requirements.gpu.txt # GPU dependencies
-├── scripts/             # Training scripts
-│   ├── 01_feature_engineering.py
-│   ├── 02_create_labels.py
-│   ├── 03_train_xgboost.py
-│   ├── 04_train_chronos.py      # TODO
-│   ├── 05_train_ensemble.py      # TODO
-│   └── 06_validate.py            # TODO
-├── notebooks/           # Jupyter notebooks
-│   └── 01_exploration.ipynb      # TODO
-└── outputs/             # Generated data
-    ├── features/         # Engineered features (parquet)
-    ├── models/           # Trained models
-    ├── logs/             # Training logs
-    └── validation/       # Validation results
-```
-
-## 🔧 Scripts Overview
-
-### 01_feature_engineering.py
-
-Generates features from database:
-- Technical indicators (15 features)
-- Chart patterns (8 features)
-- Candlestick patterns (6 features)
-- Market regime (4 features)
-- Price history (10 features)
-- **Total: 45 features**
-
-### 02_create_labels.py
-
-Creates swing trading labels:
-- Target: +3% within 20 days before -2%
-- Binary classification: BUY (1) or DON'T BUY (0)
-- Uses only historical data (no look-ahead bias)
-
-### 03_train_xgboost.py
-
-Trains XGBoost model:
-- Temporal train/val/test split
-- Handles class imbalance
-- Early stopping
-- MLflow tracking
-- Saves model with versioning
-
-## 📊 Model Storage
-
-Trained models are saved in two locations:
-
-```
-/app/outputs/models/xgboost/
-├── v1.0.0_20250130_120000/  # Versioned (timestamped)
-│   ├── model.json
-│   └── feature_cols.txt
-└── latest/                   # Always latest model
-    ├── model.json
-    └── feature_cols.txt
-```
-
-The backend API can load from `latest/` for predictions.
-
-## 🐳 Docker Commands
-
-### Run ML Container Interactively
-
-```bash
-docker-compose run --rm ml-training bash
-```
-
-### Run Specific Script
-
-```bash
-docker-compose run --rm ml-training python /app/scripts/01_feature_engineering.py
-```
-
-### Start Jupyter Lab
-
-```bash
-docker-compose run --service-ports --rm ml-training
-```
-
-Then open: `http://localhost:8888`
-
-## 📈 Current Status
-
-- ✅ Feature engineering pipeline (45 features)
-- ✅ Label creation (swing trading targets)
-- ✅ XGBoost training (temporal split)
-- ⏳ Chronos integration (TODO)
-- ⏳ Ensemble training (TODO)
-- ⏳ Walk-forward validation (TODO)
-
-## 🔗 Database Access
-
-The ML container connects to the same database as backend:
-
-```python
-DATABASE_URL = os.getenv(
-    'DATABASE_URL',
-    'postgresql://stockuser:stockpass@db:5432/stockanalyzer'
-)
-```
-
-No additional setup needed - Docker networking handles it!
-
-## ⚠️ Important Notes
-
-1. **CPU vs GPU**: Uses CPU by default. Will be slower but works.
-2. **No Breaking Changes**: Backend is 100% unaffected.
-3. **Optional**: You can ignore ML completely if you want.
-4. **Shared Models**: Trained models saved to `./ml-models/` (shared with backend)
-
-## 📝 Next Steps
-
-1. ✅ Run feature engineering
-2. ✅ Create labels
-3. ✅ Train XGBoost model
-4. ⏳ Integrate with backend API for predictions
-5. ⏳ Add Chronos model
-6. ⏳ Build ensemble
-
-## 🆘 Troubleshooting
-
-### Container won't start
-
-```bash
-# Check logs
-docker-compose logs ml-training
-
-# Rebuild container
-docker-compose build ml-training
-```
-
-### Database connection error
-
-```bash
-# Make sure database is running
-docker-compose ps db
-
-# Start database
-docker-compose up -d db
-```
-
-### Out of memory
-
-```bash
-# Reduce batch size in training scripts
-# Or run fewer stocks at once
-```
-
-## 📚 Resources
-
-- XGBoost Docs: https://xgboost.readthedocs.io/
-- MLflow Docs: https://mlflow.org/docs/
-- Chronos Paper: https://arxiv.org/abs/2403.07815
+**Version 3.0.0** - Refactored architecture with unified configuration system
