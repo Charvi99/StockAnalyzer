@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import yaml
+import os
 
 
 @dataclass
@@ -230,3 +231,107 @@ class Config:
 
 # Default configuration
 DEFAULT_CONFIG = Config()
+
+
+# ============================================================================
+# YAML Configuration Loading Functions
+# ============================================================================
+
+def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Load configuration from YAML file with environment variable overrides.
+
+    Args:
+        config_path: Path to YAML config file. If None, loads default.yaml
+
+    Returns:
+        Configuration dictionary with loaded and merged values
+
+    Example:
+        >>> config = load_config()  # Loads default.yaml
+        >>> config = load_config("configs/binary_classification.yaml")
+        >>> # Override with env var: ML_TRAINING_GPU_ENABLED=false
+    """
+    # Determine config file path
+    if config_path is None:
+        config_path = "configs/default.yaml"
+
+    config_file = Path(config_path)
+    if not config_file.is_absolute():
+        # Relative to ml-training directory
+        config_file = Path(__file__).parent.parent / config_path
+
+    # Load YAML config
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Handle extends directive for config inheritance
+    if 'extends' in config:
+        base_config = load_config(config['extends'] + '.yaml')
+        # Merge base config with current config (current overrides base)
+        merged_config = _deep_merge(base_config, config)
+        config = merged_config
+
+    # Apply environment variable overrides
+    config = _apply_env_overrides(config)
+
+    return config
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep merge two dictionaries, with override taking precedence."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _apply_env_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply environment variable overrides to config."""
+    # Environment variables use ML_TRAINING_ prefix
+    # Example: ML_TRAINING_GPU_ENABLED=false
+
+    def update_nested(d: Dict[str, Any], path: str, value: Any):
+        """Update nested dictionary using dot-notation path."""
+        keys = path.split('.')
+        for key in keys[:-1]:
+            d = d.setdefault(key, {})
+        d[keys[-1]] = value
+
+    # Check for ML_TRAINING_* environment variables
+    for key, value in os.environ.items():
+        if key.startswith('ML_TRAINING_'):
+            # Remove prefix and convert to lowercase
+            config_path = key[13:].lower().replace('__', '.')
+            # Convert string value to appropriate type
+            parsed_value = _parse_env_value(value)
+            update_nested(config, config_path, parsed_value)
+
+    return config
+
+
+def _parse_env_value(value: str) -> Any:
+    """Parse environment variable value to appropriate type."""
+    # Boolean
+    if value.lower() in ('true', 'yes', '1'):
+        return True
+    if value.lower() in ('false', 'no', '0'):
+        return False
+
+    # Number
+    try:
+        if '.' in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
+
+    # List (comma-separated)
+    if ',' in value:
+        return [item.strip() for item in value.split(',')]
+
+    # String
+    return value
