@@ -350,14 +350,6 @@ def load_config(config_path: Optional[str] = None) -> Config:
         # Merge base config with current config (current overrides base)
         config_dict = _deep_merge(base_config_dict, config_dict)
 
-    # Detect Docker environment and adjust base path
-    if config.running_in_docker:
-        # Running in Docker - use /app as base path
-        data_config['base_path'] = "/app"
-    else:
-        # Running on host - use actual base path
-        data_config['base_path'] = config.data.base_path
-
     # Apply environment variable overrides
     config_dict = _apply_env_overrides(config_dict)
 
