@@ -199,6 +199,66 @@ class ChronosConfig:
 
 
 @dataclass
+class TabNetConfig:
+    """TabNet hyperparameters"""
+
+    # Architecture
+    n_d: int = 8  # Number of decision steps
+    n_a: int = 8  # Number of attention steps
+    n_steps: int = 3  # Number of steps in each decision block
+
+    # Tunable parameters
+    n_d_range: tuple = (4, 16)
+    n_a_range: tuple = (4, 16)
+    n_steps_range: tuple = (1, 5)
+    gamma: float = 1.5  # Relaxation parameter
+    n_independent: int = 2  # Number of GLM layers (masked)
+    learning_rate: tuple = (0.001, 0.1)  # Log scale
+    batch_size: int = 256
+    epochs: int = 100
+
+    # Training
+    early_stopping_patience: int = 10
+    device: str = "cuda"  # Use GPU
+
+
+@dataclass
+class AutoGluonConfig:
+    """AutoGluon hyperparameters"""
+
+    # AutoGluon presets
+    preset: str = "best_quality"  # or "high_quality", "good_quality_faster_inference"
+    time_limit: int = 3600  # 1 hour max training time
+    num_bag_folds: int = 5
+    num_bag_sets: int = 1
+
+    # Feature engineering
+    verbosity: int = 2  # 0=silent, 1=warning, 2=info, 3=debug
+    device: str = "cuda"  # Use GPU
+
+
+@dataclass
+class FTTransformerConfig:
+    """FT-Transformer hyperparameters"""
+
+    # Architecture
+    d_model: int = 64  # Dimension of features
+    nhead: int = 4  # Number of attention heads
+    num_layers: int = 4  # Number of transformer layers
+
+    # Tunable parameters
+    d_ff: int = 256  # Dimension of feed-forward network
+    dropout: float = 0.1
+    learning_rate: tuple = (0.0001, 0.01)
+    batch_size: int = 64
+    epochs: int = 100
+
+    # Training
+    early_stopping_patience: int = 10
+    device: str = "cuda"  # Use GPU (may OOM with 3GB)
+
+
+@dataclass
 class EnsembleConfig:
     """Ensemble configuration"""
 
@@ -238,6 +298,9 @@ class Config:
     # Model-specific configs
     xgboost: XGBoostConfig = field(default_factory=XGBoostConfig)
     catboost: CatBoostConfig = field(default_factory=CatBoostConfig)
+    tabnet: TabNetConfig = field(default_factory=TabNetConfig)
+    autogluon: AutoGluonConfig = field(default_factory=AutoGluonConfig)
+    fttransformer: FTTransformerConfig = field(default_factory=FTTransformerConfig)
     tcn: TCNConfig = field(default_factory=TCNConfig)
     chronos: ChronosConfig = field(default_factory=ChronosConfig)
 
@@ -263,7 +326,11 @@ class Config:
             data=DataConfig(**data.get('data', {})),
             xgboost=XGBoostConfig(**data.get('xgboost', {})),
             catboost=CatBoostConfig(**data.get('catboost', {})),
+            tabnet=TabNetConfig(**data.get('tabnet', {})),
+            autogluon=AutoGluonConfig(**data.get('autogluon', {})),
+            fttransformer=FTTransformerConfig(**data.get('fttransformer', {})),
             tcn=TCNConfig(**data.get('tcn', {})),
+            chronos=ChronosConfig(**data.get('chronos', {})),
             training=TrainingConfig(**data.get('training', {})),
             ensemble=EnsembleConfig(**data.get('ensemble', {}))
         )
