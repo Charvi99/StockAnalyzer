@@ -264,6 +264,17 @@ class CongressionalFeatures:
         if features_df is None or features_df.empty:
             return features_df
 
+        # Define feature columns
+        feature_cols = [
+            'congress_bought_30d', 'congress_sold_30d',
+            'congress_buy_count_30d', 'congress_sell_count_30d',
+            'congress_buy_volume_30d', 'congress_sell_volume_30d',
+            'congress_net_buy_ratio_30d', 'congress_buy_ratio_30d',
+            'congress_activity_30d',
+            'senator_bought_30d', 'representative_bought_30d',
+            'congress_avg_purchase_price_30d'
+        ]
+
         # Get feature dates from existing DataFrame
         feature_dates = pd.to_datetime(features_df['timestamp'])
 
@@ -274,30 +285,28 @@ class CongressionalFeatures:
 
         if congressional_features.empty:
             # Add empty columns with zeros
-            feature_cols = [
-                'congress_bought_30d', 'congress_sold_30d',
-                'congress_buy_count_30d', 'congress_sell_count_30d',
-                'congress_buy_volume_30d', 'congress_sell_volume_30d',
-                'congress_net_buy_ratio_30d', 'congress_buy_ratio_30d',
-                'congress_activity_30d',
-                'senator_bought_30d', 'representative_bought_30d',
-                'congress_avg_purchase_price_30d'
-            ]
+            result = features_df.copy()
             for col in feature_cols:
-                features_df[col] = 0
-            return features_df
+                result[col] = 0
+            return result
 
-        # Reset index to join
-        congressional_features = congressional_features.reset_index()
-        congressional_features.rename(columns={'index': 'timestamp'}, inplace=True)
+        # Convert to Polars for faster merge
+        features_pl = pl.from_pandas(features_df)
+        congressional_pl = pl.from_pandas(congressional_features.reset_index())
+        # After reset_index(), the column is already named 'timestamp' (from the index name)
+        # No rename needed
 
-        # Join with existing features
-        features_df['timestamp'] = pd.to_datetime(features_df['timestamp'])
-        congressional_features['timestamp'] = pd.to_datetime(congressional_features['timestamp'])
+        # Normalize timestamps
+        features_pl = features_pl.with_columns(
+            pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+        )
+        congressional_pl = congressional_pl.with_columns(
+            pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+        )
 
         # Left join to preserve all rows
-        result = features_df.merge(
-            congressional_features,
+        result = features_pl.join(
+            congressional_pl,
             on='timestamp',
             how='left'
         )
@@ -305,11 +314,11 @@ class CongressionalFeatures:
         # Fill NaN values with 0 (no congressional activity)
         for col in feature_cols:
             if col in result.columns:
-                result[col] = result[col].fillna(0)
+                result = result.with_columns(pl.col(col).fill_null(0))
 
         logger.info(f"Added 12 congressional features for stock {stock_id}")
 
-        return result
+        return result.to_pandas()
 
 
 def main():
