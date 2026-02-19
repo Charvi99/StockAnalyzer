@@ -59,7 +59,7 @@ class CongressionalFeatures:
     """
 
     @staticmethod
-    def get_congressional_trades(stock_id: int, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def get_congressional_trades(stock_id: int, start_date: datetime, end_date: datetime) -> pl.DataFrame:
         """
         Fetch congressional trades for a stock within date range
 
@@ -69,12 +69,17 @@ class CongressionalFeatures:
             end_date: End date
 
         Returns:
-            DataFrame with congressional trades
+            Polars DataFrame with congressional trades
         """
         # Need extra history for rolling window calculations
         query_start = start_date - timedelta(days=400)  # Buffer for 1y window
 
-        query = text("""
+        # Format dates for SQL query
+        query_start_str = query_start.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
+
+        # Use Polars native Postgres support with connectorx
+        query = f"""
             SELECT
                 date_trunc('day', trade_date) as trade_date,
                 insider_name,
@@ -83,29 +88,28 @@ class CongressionalFeatures:
                 price,
                 raw_data
             FROM insider_trades
-            WHERE stock_id = :stock_id
+            WHERE stock_id = {stock_id}
               AND is_congressional = true
-              AND trade_date >= :start_date
-              AND trade_date <= :end_date
+              AND trade_date >= '{query_start_str}'
+              AND trade_date <= '{end_date_str}'
             ORDER BY trade_date ASC
-        """)
+        """
 
         try:
-            df = pd.read_sql(
-                query,
-                engine,
-                params={'stock_id': stock_id, 'start_date': query_start, 'end_date': end_date}
+            # Use Polars native Postgres support
+            df = pl.read_database_uri(
+                query=query,
+                uri=DATABASE_URL
             )
 
-            if df.empty:
-                return pd.DataFrame()
+            if df.is_empty():
+                return pl.DataFrame()
 
-            df['trade_date'] = pd.to_datetime(df['trade_date'])
             return df
 
         except Exception as e:
             logger.debug(f"Error fetching congressional trades for stock {stock_id}: {e}")
-            return pd.DataFrame()
+            return pl.DataFrame()
 
     @staticmethod
     def calculate_features_for_stock(
@@ -126,8 +130,8 @@ class CongressionalFeatures:
         Returns:
             DataFrame with 12 congressional features indexed by date
         """
-        # Fetch congressional trades (still uses pandas for SQL read)
-        trades_df = CongressionalFeatures.get_congressional_trades(stock_id, start_date, end_date)
+        # Fetch congressional trades using Polars native Postgres support
+        trades_pl = CongressionalFeatures.get_congressional_trades(stock_id, start_date, end_date)
 
         # Define feature columns
         feature_cols = [
@@ -143,7 +147,7 @@ class CongressionalFeatures:
         # Create features DataFrame with Polars (vectorized)
         dates_list = feature_dates.to_list()
 
-        if trades_df.empty:
+        if trades_pl.is_empty():
             # Return empty DataFrame with zeros
             features = pl.DataFrame({
                 'timestamp': dates_list,
@@ -151,10 +155,7 @@ class CongressionalFeatures:
             })
             return features.to_pandas().set_index('timestamp')
 
-        # Convert trades to Polars for faster operations
-        trades_pl = pl.from_pandas(trades_df)
-
-        # Parse is_senator from raw_data
+        # Parse is_senator from raw_data (trades_pl is already Polars)
         if 'raw_data' in trades_pl.columns:
             trades_pl = trades_pl.with_columns(
                 pl.col('raw_data').map_elements(
