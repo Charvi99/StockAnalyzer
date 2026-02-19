@@ -126,11 +126,8 @@ class CongressionalFeatures:
         Returns:
             DataFrame with 12 congressional features indexed by date
         """
-        # Fetch congressional trades
+        # Fetch congressional trades (still uses pandas for SQL read)
         trades_df = CongressionalFeatures.get_congressional_trades(stock_id, start_date, end_date)
-
-        # Initialize features DataFrame
-        features = pd.DataFrame(index=feature_dates)
 
         # Define feature columns
         feature_cols = [
@@ -143,47 +140,67 @@ class CongressionalFeatures:
             'congress_avg_purchase_price_30d'
         ]
 
-        for col in feature_cols:
-            features[col] = 0
+        # Create features DataFrame with Polars (vectorized)
+        dates_list = feature_dates.to_list()
 
         if trades_df.empty:
-            return features
+            # Return empty DataFrame with zeros
+            features = pl.DataFrame({
+                'timestamp': dates_list,
+                **{col: [0] * len(dates_list) for col in feature_cols}
+            })
+            return features.to_pandas().set_index('timestamp')
 
-        # Parse raw_data to check if it's a senator or representative
-        trades_df['is_senator'] = trades_df['raw_data'].apply(
-            lambda x: str(x).get('Senator', False) if isinstance(x, dict) else False
-        )
+        # Convert trades to Polars for faster operations
+        trades_pl = pl.from_pandas(trades_df)
 
-        # Calculate features for each date
-        for date in feature_dates:
+        # Parse is_senator from raw_data
+        if 'raw_data' in trades_pl.columns:
+            trades_pl = trades_pl.with_columns(
+                pl.col('raw_data').map_elements(
+                    lambda x: isinstance(x, dict) and x.get('Senator', False),
+                    return_dtype=pl.Boolean
+                ).alias('is_senator')
+            )
+        else:
+            trades_pl = trades_pl.with_columns(pl.lit(False).alias('is_senator'))
+
+        # Build features for each date using Polars (more efficient than loop)
+        features_list = []
+
+        for date in dates_list:
             lookback_end = date
             lookback_start = date - timedelta(days=30)
 
-            # Filter trades in window
-            window_trades = trades_df[
-                (trades_df['trade_date'] >= lookback_start) &
-                (trades_df['trade_date'] <= lookback_end)
-            ]
+            # Filter trades in window (Polars filter)
+            window_trades = trades_pl.filter(
+                (pl.col('trade_date') >= lookback_start) &
+                (pl.col('trade_date') <= lookback_end)
+            )
 
-            if window_trades.empty:
+            if window_trades.height == 0:
+                features_list.append({
+                    'timestamp': date,
+                    **{col: 0 for col in feature_cols}
+                })
                 continue
 
-            # Parse transaction types
-            buy_trades = window_trades[window_trades['transaction_type'] == 'BUY']
-            sell_trades = window_trades[window_trades['transaction_type'] == 'SELL']
+            # Separate buy/sell trades
+            buy_trades = window_trades.filter(pl.col('transaction_type') == 'BUY')
+            sell_trades = window_trades.filter(pl.col('transaction_type') == 'SELL')
 
             # Count trades
-            buy_count = len(buy_trades)
-            sell_count = len(sell_trades)
-            total_count = buy_count + sell_trades
+            buy_count = buy_trades.height
+            sell_count = sell_trades.height
+            total_count = buy_count + sell_count
 
             # Calculate volumes
-            buy_volume = buy_trades['total_value'].sum() if not buy_trades.empty else 0
-            sell_volume = sell_trades['total_value'].sum() if not sell_trades.empty else 0
+            buy_volume = buy_trades.select(pl.col('total_value').sum()).item() if buy_trades.height > 0 else 0
+            sell_volume = sell_trades.select(pl.col('total_value').sum()).item() if sell_trades.height > 0 else 0
 
             # Binary features
-            congress_bought = int(buy_count > 0)
-            congress_sold = int(sell_count > 0)
+            congress_bought = 1 if buy_count > 0 else 0
+            congress_sold = 1 if sell_count > 0 else 0
 
             # Ratio features
             if total_count > 0:
@@ -194,38 +211,35 @@ class CongressionalFeatures:
                 buy_ratio = 0
 
             # Senator/Representative specific
-            senator_bought = int(buy_trades['is_senator'].any() if not buy_trades.empty else False)
-            representative_bought = int(
-                (buy_trades['is_senator'] == False).any() if not buy_trades.empty else False
-            )
+            senator_bought = 1 if buy_trades.height > 0 and buy_trades.select(pl.col('is_senator').any()).item() else 0
+            representative_bought = 1 if buy_trades.height > 0 and buy_trades.select((pl.col('is_senator') == False).any()).item() else 0
 
             # Average purchase price
             avg_purchase_price = 0
-            if not buy_trades.empty:
-                valid_prices = buy_trades[buy_trades['price'] > 0]
-                if not valid_prices.empty:
-                    avg_purchase_price = valid_prices['price'].mean()
+            if buy_trades.height > 0:
+                valid_prices = buy_trades.filter(pl.col('price') > 0)
+                if valid_prices.height > 0:
+                    avg_purchase_price = valid_prices.select(pl.col('price').mean()).item()
 
-            # Assign features
-            features.loc[date, 'congress_bought_30d'] = congress_bought
-            features.loc[date, 'congress_sold_30d'] = congress_sold
-            features.loc[date, 'congress_buy_count_30d'] = buy_count
-            features.loc[date, 'congress_sell_count_30d'] = sell_count
-            features.loc[date, 'congress_buy_volume_30d'] = buy_volume
-            features.loc[date, 'congress_sell_volume_30d'] = sell_volume
-            features.loc[date, 'congress_net_buy_ratio_30d'] = net_buy_ratio
-            features.loc[date, 'congress_buy_ratio_30d'] = buy_ratio
-            features.loc[date, 'congress_activity_30d'] = total_count
-            features.loc[date, 'senator_bought_30d'] = senator_bought
-            features.loc[date, 'representative_bought_30d'] = representative_bought
-            features.loc[date, 'congress_avg_purchase_price_30d'] = avg_purchase_price
+            features_list.append({
+                'timestamp': date,
+                'congress_bought_30d': congress_bought,
+                'congress_sold_30d': congress_sold,
+                'congress_buy_count_30d': buy_count,
+                'congress_sell_count_30d': sell_count,
+                'congress_buy_volume_30d': buy_volume,
+                'congress_sell_volume_30d': sell_volume,
+                'congress_net_buy_ratio_30d': net_buy_ratio,
+                'congress_buy_ratio_30d': buy_ratio,
+                'congress_activity_30d': total_count,
+                'senator_bought_30d': senator_bought,
+                'representative_bought_30d': representative_bought,
+                'congress_avg_purchase_price_30d': avg_purchase_price
+            })
 
-        # Ensure all columns are numeric
-        for col in feature_cols:
-            if col in features.columns:
-                features[col] = pd.to_numeric(features[col], errors='coerce')
-
-        return features
+        # Create Polars DataFrame and convert to pandas for compatibility
+        features = pl.DataFrame(features_list)
+        return features.to_pandas().set_index('timestamp')
 
     @staticmethod
     def add_congressional_features(
