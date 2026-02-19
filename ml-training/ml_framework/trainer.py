@@ -9,6 +9,7 @@ sys.path.insert(0, '/backend')
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import pandas as pd
+import polars as pl
 import numpy as np
 import mlflow
 import logging
@@ -43,85 +44,146 @@ class ModelTrainer:
         return Path(self.config.data.base_path) / self.config.data.models_path
 
     def load_data(self):
-        """Load features and labels from parquet files"""
+        """Load features and labels from parquet files using Polars"""
         logger.info("📂 Loading data...")
 
         base_path = self.config.data.base_path
-        features_dir = Path(base_path) / self.config.data.features_path
 
-        # Find latest files - support both old and new naming, recursive search
-        feature_files = sorted(features_dir.glob('**/*.parquet')) if features_dir.exists() else []
+        # Check if explicit paths are configured
+        if self.config.data.dataset_dir and self.config.data.labels_file:
+            # Use explicit paths from config
+            dataset_dir = Path(base_path) / self.config.data.dataset_dir
+            features_path = dataset_dir / "features.parquet"
+            labels_path = dataset_dir / self.config.data.labels_file
 
-        # Labels are co-located with features files in same subdirectories
-        label_files = sorted(features_dir.glob('**/labels_*.parquet')) if features_dir.exists() else []
+            if not features_path.exists():
+                raise FileNotFoundError(f"Features file not found: {features_path}")
+            if not labels_path.exists():
+                raise FileNotFoundError(f"Labels file not found: {labels_path}")
 
-        if not feature_files:
-            raise FileNotFoundError(f"No feature files found in {features_dir}. Run feature engineering first.")
-        if not label_files:
-            raise FileNotFoundError(f"No label files found. Run create_labels.py first.")
+            logger.info(f"   Using explicit paths from config:")
+            logger.info(f"   Dataset: {dataset_dir}")
+            logger.info(f"   Labels: {self.config.data.labels_file}")
 
-        if not feature_files:
-            raise FileNotFoundError("No feature files found. Run feature engineering first.")
+            # Load with Polars (faster)
+            features = pl.read_parquet(features_path)
+            labels = pl.read_parquet(labels_path)
+        else:
+            # Auto-detect latest files
+            features_dir = Path(base_path) / self.config.data.features_path
 
-        if not label_files:
-            raise FileNotFoundError("No label files found. Run label creation first.")
+            # Find latest files - support both old and new naming, recursive search
+            feature_files = sorted(features_dir.glob('**/*.parquet')) if features_dir.exists() else []
 
-        features = pd.read_parquet(feature_files[-1])
-        labels = pd.read_parquet(label_files[-1])
+            # Labels are co-located with features files in same subdirectories
+            label_files = sorted(features_dir.glob('**/labels_*.parquet')) if features_dir.exists() else []
 
-        logger.info(f"✅ Loaded {len(features)} features, {len(labels)} labels")
+            if not feature_files:
+                raise FileNotFoundError(f"No feature files found in {features_dir}. Run feature engineering first.")
+            if not label_files:
+                raise FileNotFoundError(f"No label files found. Run create_labels.py first.")
+
+            logger.info(f"   Auto-detected latest files:")
+            logger.info(f"   Features: {feature_files[-1]}")
+            logger.info(f"   Labels: {label_files[-1]}")
+
+            # Load with Polars (faster)
+            features = pl.read_parquet(feature_files[-1])
+            labels = pl.read_parquet(label_files[-1])
+
+        logger.info(f"✅ Loaded {features.height} features, {labels.height} labels")
 
         return features, labels
 
-    def prepare_data(self, features: pd.DataFrame, labels: pd.DataFrame):
+    def prepare_data(self, features: pl.DataFrame, labels: pl.DataFrame):
         """
-        Prepare data for training
+        Prepare data for training using Polars
 
         Args:
-            features: Features DataFrame
-            labels: Labels DataFrame
+            features: Features Polars DataFrame
+            labels: Labels Polars DataFrame
 
         Returns:
-            X_train, X_val, X_test, y_train, y_val, y_test
+            X_train, X_val, X_test, y_train, y_val, y_test (as pandas for model compatibility)
         """
         logger.info("🔧 Preparing data...")
 
-        # Merge features and labels
-        df = pd.merge(
-            features,
-            labels[['stock_id', 'timestamp', 'label']],
+        # Determine which label column to use
+        if 'label' in labels.columns:
+            label_col = 'label'
+        elif 'label_20d' in labels.columns:
+            label_col = 'label_20d'
+            labels = labels.with_columns(pl.col('label_20d').alias('label'))
+            label_col = 'label'
+        else:
+            raise ValueError("No valid label column found in labels file")
+
+        # Normalize timestamps (Polars way)
+        features = features.with_columns(
+            pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+        )
+        labels = labels.with_columns(
+            pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+        )
+
+        # Merge features and labels (Polars join is faster)
+        df = features.join(
+            labels.select(['stock_id', 'timestamp', label_col]),
             on=['stock_id', 'timestamp'],
             how='inner'
         )
 
-        logger.info(f"✅ Merged to {len(df)} samples")
+        logger.info(f"✅ Merged to {df.height} samples")
+
+        # CRITICAL: Sort by timestamp for proper temporal split
+        df = df.sort('timestamp')
+
+        # Log date range
+        min_ts = df['timestamp'].min()
+        max_ts = df['timestamp'].max()
+        logger.info(f"   Date range: {min_ts} to {max_ts}")
 
         # Drop non-feature columns
         exclude_cols = {'stock_id', 'timestamp', 'label', 'max_upside', 'max_drawdown'}
         feature_cols = [col for col in df.columns if col not in exclude_cols]
 
-        # Handle missing values
-        X = df[feature_cols].fillna(0)
-        y = df['label']
+        # Handle missing values (Polars way)
+        df = df.fill_null(0)
 
         # Temporal split (NOT random!)
-        n = len(X)
+        n = df.height
         train_end = int(n * self.config.data.train_ratio)
         val_end = int(n * (self.config.data.train_ratio + self.config.data.val_ratio))
 
-        X_train = X.iloc[:train_end]
-        y_train = y.iloc[:train_end]
+        # Split data (Polars slicing)
+        X_train_pl = df.slice(0, train_end).select(feature_cols)
+        y_train_pl = df.slice(0, train_end).select('label')
 
-        X_val = X.iloc[train_end:val_end]
-        y_val = y.iloc[train_end:val_end]
+        X_val_pl = df.slice(train_end, val_end - train_end).select(feature_cols)
+        y_val_pl = df.slice(train_end, val_end - train_end).select('label')
 
-        X_test = X.iloc[val_end:]
-        y_test = y.iloc[val_end:]
+        X_test_pl = df.slice(val_end, n - val_end).select(feature_cols)
+        y_test_pl = df.slice(val_end, n - val_end).select('label')
 
-        logger.info(f"✅ Data split:")
-        logger.info(f"  Train: {len(X_train)} samples")
-        logger.info(f"  Val:   {len(X_val)} samples")
-        logger.info(f"  Test:  {len(X_test)} samples")
+        # Convert to pandas for model compatibility
+        X_train = X_train_pl.to_pandas()
+        y_train = y_train_pl.to_pandas()['label'].values
+
+        X_val = X_val_pl.to_pandas()
+        y_val = y_val_pl.to_pandas()['label'].values
+
+        X_test = X_test_pl.to_pandas()
+        y_test = y_test_pl.to_pandas()['label'].values
+
+        # Log split info
+        train_end_ts = df.slice(train_end - 1, 1).select('timestamp').item()
+        val_end_ts = df.slice(val_end - 1, 1).select('timestamp').item()
+        test_start_ts = df.slice(val_end, 1).select('timestamp').item()
+
+        logger.info(f"✅ Temporal data split:")
+        logger.info(f"  Train: {len(X_train)} samples (up to {train_end_ts})")
+        logger.info(f"  Val:   {len(X_val)} samples ({df.slice(train_end, 1).select('timestamp').item()} to {val_end_ts})")
+        logger.info(f"  Test:  {len(X_test)} samples (from {test_start_ts})")
         logger.info(f"  Positive class: {y_train.sum() / len(y_train) * 100:.1f}%")
 
         return X_train, X_val, X_test, y_train, y_val, y_test
