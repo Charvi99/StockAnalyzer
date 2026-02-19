@@ -30,6 +30,7 @@ by 6-12% annually, making these features highly predictive.
 
 import logging
 import pandas as pd
+import polars as pl
 import numpy as np
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
