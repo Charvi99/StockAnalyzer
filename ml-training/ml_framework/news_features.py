@@ -84,6 +84,7 @@ Usage:
 """
 
 import logging
+import polars as pl
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -167,7 +168,7 @@ class NewsFeatures:
         stock_id: int,
         start_date: datetime,
         end_date: datetime
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """
         Fetch news articles with Polygon sentiment from database
 
@@ -203,32 +204,36 @@ class NewsFeatures:
         """)
 
         try:
-            df = pd.read_sql(
-                query,
-                engine,
-                params={
-                    'stock_id': stock_id,
-                    'start_date': query_start,
-                    'end_date': end_date
+            df = pl.read_database_uri(
+                query=query,
+                uri=DATABASE_URL,
+                execute_options={
+                    'parameters': {
+                        'stock_id': stock_id,
+                        'start_date': query_start,
+                        'end_date': end_date
+                    }
                 }
             )
 
-            if df.empty:
-                return pd.DataFrame()
+            if df.is_empty():
+                return pl.DataFrame()
 
             # Convert types
-            df['news_date'] = pd.to_datetime(df['news_date'])
-            df['publish_hour'] = df['publish_hour'].astype(int)
+            df = df.with_columns([
+                pl.col("news_date").str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S").cast(pl.Datetime),
+                pl.col("publish_hour").cast(pl.Int32)
+            ])
 
-            logger.debug(f"Fetched {len(df)} news articles for stock {stock_id}")
+            logger.debug(f"Fetched {df.height} news articles for stock {stock_id}")
             return df
 
         except Exception as e:
             logger.error(f"Error fetching news for stock {stock_id}: {e}")
-            return pd.DataFrame()
+            return pl.DataFrame()
 
     @staticmethod
-    def align_to_trading_day(news_df: pd.DataFrame) -> pd.DataFrame:
+    def align_to_trading_day(news_df: pl.DataFrame) -> pl.DataFrame:
         """
         Align news to trading days based on publish time
 
@@ -246,39 +251,48 @@ class NewsFeatures:
         Returns:
             DataFrame with added 'trading_day' column
         """
-        if news_df.empty:
+        if news_df.is_empty():
             return news_df
 
-        news_df = news_df.copy()
-
         # Initialize trading_day as news_date
-        news_df['trading_day'] = news_df['news_date']
+        df = news_df.with_columns([
+            pl.col("news_date").alias("trading_day")
+        ])
 
         # After-hours news (4 PM or later) moves to next day
-        after_hours = news_df['publish_hour'] >= 16
-        news_df.loc[after_hours, 'trading_day'] = (
-            news_df.loc[after_hours, 'news_date'] + pd.Timedelta(days=1)
-        )
+        df = df.with_columns([
+            pl.when(pl.col("publish_hour") >= 16)
+            .then(pl.col("trading_day") + pl.duration(days=1))
+            .otherwise(pl.col("trading_day"))
+            .alias("trading_day")
+        ])
 
         # Move weekend news to Monday
         # Saturday (5) → +2 days = Monday
         # Sunday (6) → +1 day = Monday
-        news_df['day_of_week'] = news_df['trading_day'].dt.dayofweek
-        weekend = news_df['day_of_week'] >= 5
+        df = df.with_columns([
+            pl.col("trading_day").dt.weekday().alias("day_of_week")
+        ])
 
-        news_df.loc[weekend & (news_df['day_of_week'] == 5), 'trading_day'] += pd.Timedelta(days=2)
-        news_df.loc[weekend & (news_df['day_of_week'] == 6), 'trading_day'] += pd.Timedelta(days=1)
+        df = df.with_columns([
+            pl.when(pl.col("day_of_week") == 5)  # Saturday
+            .then(pl.col("trading_day") + pl.duration(days=2))
+            .when(pl.col("day_of_week") == 6)  # Sunday
+            .then(pl.col("trading_day") + pl.duration(days=1))
+            .otherwise(pl.col("trading_day"))
+            .alias("trading_day")
+        ])
 
         # Clean up temp column
-        news_df = news_df.drop(columns=['day_of_week'])
+        df = df.drop("day_of_week")
 
-        return news_df
+        return df
 
     @staticmethod
     def calculate_rolling_features(
-        news_df: pd.DataFrame,
-        feature_dates: pd.DatetimeIndex
-    ) -> pd.DataFrame:
+        news_df: pl.DataFrame,
+        feature_dates: pl.Datetime
+    ) -> pl.DataFrame:
         """
         Calculate all 20 news sentiment features
 
@@ -289,20 +303,37 @@ class NewsFeatures:
         Returns:
             DataFrame with 20 news features indexed by date
         """
-        features = pd.DataFrame(index=feature_dates)
+        # Convert feature_dates to list if it's a DatetimeIndex
+        if hasattr(feature_dates, 'to_pydatetime'):
+            feature_dates_list = list(feature_dates.to_pydatetime())
+        elif hasattr(feature_dates, 'to_list'):
+            feature_dates_list = feature_dates.to_list()
+        else:
+            feature_dates_list = list(feature_dates)
+
+        # Initialize features DataFrame
+        features = pl.DataFrame({
+            "timestamp": feature_dates_list
+        })
 
         # Initialize all features with zeros
         for feat in NEWS_FEATURES:
-            features[feat] = 0
+            features = features.with_columns([
+                pl.lit(0.0).alias(feat)
+            ])
 
-        if news_df.empty:
-            features['news_data_available'] = 0
-            return features
+        if news_df.is_empty():
+            return features.with_columns([
+                pl.lit(0).alias("news_data_available")
+            ])
 
         # Align news to trading days
         news_df = NewsFeatures.align_to_trading_day(news_df)
 
-        features['news_data_available'] = 1
+        # Set data available flag
+        features = features.with_columns([
+            pl.lit(1).alias("news_data_available")
+        ])
 
         # Define rolling windows
         windows = {
@@ -313,16 +344,22 @@ class NewsFeatures:
             '30d': timedelta(days=30),
         }
 
+        # Convert to pandas for complex row-by-row processing
+        # This maintains the same logic while allowing cleaner implementation
+        news_df_pd = news_df.to_pandas()
+        features_pd = features.to_pandas()
+        features_pd = features_pd.set_index('timestamp')
+
         # Calculate features for each date
-        for date in feature_dates:
+        for date in feature_dates_list:
             # Get window data for each time period
             window_data = {}
             for window_name, window_delta in windows.items():
                 window_start = date - window_delta
 
-                window_news = news_df[
-                    (news_df['trading_day'] >= window_start) &
-                    (news_df['trading_day'] <= date)
+                window_news = news_df_pd[
+                    (news_df_pd['trading_day'] >= window_start) &
+                    (news_df_pd['trading_day'] <= date)
                 ].copy()
 
                 window_data[window_name] = window_news
@@ -335,7 +372,7 @@ class NewsFeatures:
 
                 if not window_news.empty:
                     avg_sentiment = window_news['sentiment_score'].mean()
-                    features.loc[date, f'news_sentiment_avg_{window_name}'] = avg_sentiment
+                    features_pd.loc[date, f'news_sentiment_avg_{window_name}'] = avg_sentiment
 
             # ============================================================
             # SEPARATE BULLISH/BEARISH (4 features) - 7d window
@@ -348,21 +385,21 @@ class NewsFeatures:
                 total = len(window_news)
 
                 if total > 0:
-                    features.loc[date, 'news_positive_ratio_7d'] = positive / total
-                    features.loc[date, 'news_negative_ratio_7d'] = negative / total
-                    features.loc[date, 'news_net_sentiment_7d'] = (positive - negative) / total
+                    features_pd.loc[date, 'news_positive_ratio_7d'] = positive / total
+                    features_pd.loc[date, 'news_negative_ratio_7d'] = negative / total
+                    features_pd.loc[date, 'news_net_sentiment_7d'] = (positive - negative) / total
 
                     # Consensus: 1 = unanimous agreement, 0 = mixed, -1 = high disagreement
                     sentiment_std = window_news['sentiment_score'].std()
                     if not pd.isna(sentiment_std):
                         # Map std to [-1, 1]: std=0 → consensus=1, std=0.5+ → consensus=-1
                         consensus = max(-1, 1 - (sentiment_std * 2))
-                        features.loc[date, 'news_sentiment_consensus_7d'] = consensus
-                        features.loc[date, 'news_sentiment_std_7d'] = sentiment_std
+                        features_pd.loc[date, 'news_sentiment_consensus_7d'] = consensus
+                        features_pd.loc[date, 'news_sentiment_std_7d'] = sentiment_std
 
                     # Extremes
-                    features.loc[date, 'news_sentiment_max_7d'] = window_news['sentiment_score'].max()
-                    features.loc[date, 'news_sentiment_min_7d'] = window_news['sentiment_score'].min()
+                    features_pd.loc[date, 'news_sentiment_max_7d'] = window_news['sentiment_score'].max()
+                    features_pd.loc[date, 'news_sentiment_min_7d'] = window_news['sentiment_score'].min()
 
                     # Trend: linear regression slope (sentiment trajectory)
                     if len(window_news) >= 3:
@@ -373,7 +410,7 @@ class NewsFeatures:
 
                         try:
                             slope = np.polyfit(x, y, 1)[0]
-                            features.loc[date, 'news_sentiment_trend_7d'] = slope
+                            features_pd.loc[date, 'news_sentiment_trend_7d'] = slope
                         except:
                             pass
 
@@ -384,20 +421,20 @@ class NewsFeatures:
                 window_news = window_data[window_name]
 
                 if not window_news.empty:
-                    features.loc[date, f'news_intensity_{window_name}'] = len(window_news)
+                    features_pd.loc[date, f'news_intensity_{window_name}'] = len(window_news)
 
             # Calculate intensity spike (requires historical context)
-            if len(features) > 7 and date != features.index[0]:
-                current_intensity = features.loc[date, 'news_intensity_7d']
+            if len(features_pd) > 7 and date != features_pd.index[0]:
+                current_intensity = features_pd.loc[date, 'news_intensity_7d']
 
                 # Get historical average (excluding current)
-                historical_dates = features[features.index < date].index
+                historical_dates = features_pd[features_pd.index < date].index
                 if len(historical_dates) > 0:
-                    historical_avg = features.loc[historical_dates, 'news_intensity_7d'].mean()
+                    historical_avg = features_pd.loc[historical_dates, 'news_intensity_7d'].mean()
 
                     if not pd.isna(historical_avg) and historical_avg > 0:
                         # Spike: current intensity > 2x historical average
-                        features.loc[date, 'news_intensity_spike_7d'] = int(
+                        features_pd.loc[date, 'news_intensity_spike_7d'] = int(
                             current_intensity > historical_avg * 2
                         )
 
@@ -421,13 +458,14 @@ class NewsFeatures:
                         (window_news['sentiment_score'] * weights).sum() / weights.sum()
                     )
 
-                    features.loc[date, f'news_sentiment_weighted_{window_name}'] = weighted_sentiment
+                    features_pd.loc[date, f'news_sentiment_weighted_{window_name}'] = weighted_sentiment
 
         # Ensure all columns are numeric
-        for col in features.columns:
-            features[col] = pd.to_numeric(features[col], errors='coerce').fillna(0)
+        for col in features_pd.columns:
+            features_pd[col] = pd.to_numeric(features_pd[col], errors='coerce').fillna(0)
 
-        return features
+        # Convert back to polars
+        return pl.from_pandas(features_pd.reset_index())
 
     @staticmethod
     def add_news_features(
@@ -488,7 +526,7 @@ class NewsFeatures:
             # ============================================================
             news_df = NewsFeatures.fetch_news_from_db(stock_id, adjusted_start, end_date)
 
-            if news_df.empty:
+            if news_df.is_empty():
                 logger.warning(f"No news data found for stock {stock_id}")
                 for feat in NEWS_FEATURES:
                     features_df[feat] = 0
@@ -500,10 +538,8 @@ class NewsFeatures:
             # ============================================================
             news_features = NewsFeatures.calculate_rolling_features(news_df, feature_dates)
 
-            # Reset index for merge
-            news_features = news_features.reset_index()
-            news_features.rename(columns={'index': 'timestamp'}, inplace=True)
-            news_features['timestamp'] = pd.to_datetime(news_features['timestamp'])
+            # Convert to pandas for merge (compatibility with existing code)
+            news_features_pd = news_features.to_pandas()
 
             # Ensure timestamp column exists in features_df
             if 'timestamp' not in features_df.columns:
@@ -511,12 +547,13 @@ class NewsFeatures:
                 features_df.rename(columns={'index': 'timestamp'}, inplace=True)
 
             features_df['timestamp'] = pd.to_datetime(features_df['timestamp'])
+            news_features_pd['timestamp'] = pd.to_datetime(news_features_pd['timestamp'])
 
             # ============================================================
             # MERGE FEATURES
             # ============================================================
             result = features_df.merge(
-                news_features,
+                news_features_pd,
                 on='timestamp',
                 how='left',
                 suffixes=('', '_news')
@@ -548,6 +585,8 @@ class NewsFeatures:
 
 def main():
     """Test news features calculation"""
+    import pandas as pd
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -575,20 +614,20 @@ def main():
     # Fetch news
     news_df = NewsFeatures.fetch_news_from_db(stock_id, start_date, end_date)
 
-    if news_df.empty:
+    if news_df.is_empty():
         print("\n⚠️  No news data found for this stock")
         return
 
-    print(f"\n📰 News data: {len(news_df)} articles")
+    print(f"\n📰 News data: {news_df.height} articles")
     print(f"\nSample news:")
-    print(news_df[['news_date', 'publish_hour', 'sentiment', 'sentiment_score']].head(10))
+    print(news_df.select(['news_date', 'publish_hour', 'sentiment', 'sentiment_score']).head(10))
 
     # Calculate features
     feature_dates = pd.date_range(start_date, end_date, freq='D')
     features = NewsFeatures.calculate_rolling_features(news_df, feature_dates)
 
     print(f"\n✅ Features calculated: {features.shape}")
-    print(f"   Rows: {len(features)}, Columns: {len(features.columns)}")
+    print(f"   Rows: {features.height}, Columns: {features.width}")
 
     print(f"\nFeature columns:")
     for i, col in enumerate(features.columns, 1):
