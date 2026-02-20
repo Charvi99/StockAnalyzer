@@ -13,6 +13,7 @@ Total: 26 alternative features that can be combined with 28 technical features
 
 import logging
 import pandas as pd
+import polars as pl
 import numpy as np
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
@@ -133,34 +134,37 @@ class AlternativeFeatures:
 
         query_start = start_date - timedelta(days=400)
 
+        # Format dates for SQL query
+        query_start_str = query_start.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
+
         # Fetch off-exchange short volume
         off_exchange_df = None
         try:
-            query = text("""
+            query = f"""
                 SELECT date_trunc('day', date) as date,
                        off_exchange_volume,
                        total_volume,
                        short_interest
                 FROM alternative_data
-                WHERE stock_id = :stock_id
-                  AND date >= :start_date
-                  AND date <= :end_date
+                WHERE stock_id = {stock_id}
+                  AND date >= '{query_start_str}'
+                  AND date <= '{end_date_str}'
                 ORDER BY date ASC
-            """)
-            off_exchange_df = pd.read_sql(
-                query,
-                engine,
-                params={'stock_id': stock_id, 'start_date': query_start, 'end_date': end_date}
+            """
+            off_exchange_df = pl.read_database_uri(
+                query=query,
+                uri=DATABASE_URL
             )
-            if not off_exchange_df.empty:
-                off_exchange_df['date'] = pd.to_datetime(off_exchange_df['date'])
+            if off_exchange_df.is_empty():
+                off_exchange_df = None
         except Exception as e:
             logger.debug(f"Error fetching off-exchange data: {e}")
 
         # Fetch WSB activity
         wsb_df = None
         try:
-            query = text("""
+            query = f"""
                 SELECT date_trunc('day', date) as date,
                        mention_count,
                        sentiment_score,
@@ -168,19 +172,18 @@ class AlternativeFeatures:
                        discussion_rank,
                        positivity_ratio
                 FROM alternative_data
-                WHERE stock_id = :stock_id
+                WHERE stock_id = {stock_id}
                   AND data_source = 'wallstreetbets'
-                  AND date >= :start_date
-                  AND date <= :end_date
+                  AND date >= '{query_start_str}'
+                  AND date <= '{end_date_str}'
                 ORDER BY date ASC
-            """)
-            wsb_df = pd.read_sql(
-                query,
-                engine,
-                params={'stock_id': stock_id, 'start_date': query_start, 'end_date': end_date}
+            """
+            wsb_df = pl.read_database_uri(
+                query=query,
+                uri=DATABASE_URL
             )
-            if not wsb_df.empty:
-                wsb_df['date'] = pd.to_datetime(wsb_df['date'])
+            if wsb_df.is_empty():
+                wsb_df = None
         except Exception as e:
             logger.debug(f"Error fetching WSB data: {e}")
 
@@ -192,14 +195,14 @@ class AlternativeFeatures:
 
     @staticmethod
     def calculate_off_exchange_features(
-        data_df: pd.DataFrame,
+        data_df: pl.DataFrame,
         feature_dates: pd.DatetimeIndex
     ) -> pd.DataFrame:
         """
         Calculate off-exchange short volume features
 
         Args:
-            data_df: DataFrame with off-exchange data
+            data_df: Polars DataFrame with off-exchange data
             feature_dates: Dates to calculate features for
 
         Returns:
@@ -211,36 +214,39 @@ class AlternativeFeatures:
         for col in OFF_EXCHANGE_FEATURES:
             features[col] = 0
 
-        if data_df is None or data_df.empty:
+        if data_df is None or data_df.is_empty():
             return features
 
-        for date in feature_dates:
+        dates_list = feature_dates.to_list()
+
+        for date in dates_list:
             lookback_start = date - timedelta(days=30)
 
-            # Get data in window
-            window_data = data_df[
-                (data_df['date'] >= lookback_start) &
-                (data_df['date'] <= date)
-            ]
+            # Get data in window (Polars filter)
+            window_data = data_df.filter(
+                (pl.col('date') >= lookback_start) &
+                (pl.col('date') <= date)
+            )
 
-            if window_data.empty:
+            if window_data.height == 0:
                 continue
 
             # Feature 1: Average off-exchange volume
-            features.loc[date, 'off_exchange_short_volume_30d'] = window_data['off_exchange_volume'].mean()
+            off_exch_vol_mean = window_data.select(pl.col('off_exchange_volume').mean()).item()
+            features.loc[date, 'off_exchange_short_volume_30d'] = off_exch_vol_mean
 
             # Feature 2: Off-exchange ratio
-            total_vol = window_data['total_volume'].sum()
-            off_exch_vol = window_data['off_exchange_volume'].sum()
+            total_vol = window_data.select(pl.col('total_volume').sum()).item()
+            off_exch_vol = window_data.select(pl.col('off_exchange_volume').sum()).item()
             if total_vol > 0:
                 features.loc[date, 'off_exchange_short_ratio_30d'] = off_exch_vol / total_vol
             else:
                 features.loc[date, 'off_exchange_short_ratio_30d'] = 0
 
             # Feature 3: Trend (linear regression slope)
-            if len(window_data) >= 7:
-                x = np.arange(len(window_data))
-                y = window_data['off_exchange_volume'].values
+            if window_data.height >= 7:
+                x = np.arange(window_data.height)
+                y = window_data.select(pl.col('off_exchange_volume')).to_series().to_numpy()
                 try:
                     slope = np.polyfit(x, y, 1)[0]
                     mean_vol = y.mean()
@@ -251,7 +257,7 @@ class AlternativeFeatures:
 
             # Feature 4: High short interest (binary)
             if 'short_interest' in window_data.columns:
-                avg_short_interest = window_data['short_interest'].mean()
+                avg_short_interest = window_data.select(pl.col('short_interest').mean()).item()
                 if not pd.isna(avg_short_interest):
                     features.loc[date, 'high_short_interest_30d'] = int(avg_short_interest > 0.20)  # 20% threshold
                 else:
@@ -260,10 +266,10 @@ class AlternativeFeatures:
                 features.loc[date, 'high_short_interest_30d'] = 0
 
             # Feature 5: Volume spike detection (3x recent average)
-            if len(window_data) >= 7:
-                recent_vol = window_data['off_exchange_volume'].iloc[-5:].mean()
+            if window_data.height >= 7:
+                recent_vol = window_data.select(pl.col('off_exchange_volume').slice(-5)).mean().item()
                 if recent_vol > 0:
-                    current_vol = window_data['off_exchange_volume'].iloc[-1]
+                    current_vol = window_data.select(pl.col('off_exchange_volume').last()).item()
                     features.loc[date, 'off_exchange_spike_30d'] = int(current_vol > recent_vol * 3)
                 else:
                     features.loc[date, 'off_exchange_spike_30d'] = 0
@@ -271,8 +277,9 @@ class AlternativeFeatures:
                 features.loc[date, 'off_exchange_spike_30d'] = 0
 
             # Feature 6: Volatility of off-exchange volume
-            if len(window_data) >= 10:
-                features.loc[date, 'off_exchange_volatility_30d'] = window_data['off_exchange_volume'].std()
+            if window_data.height >= 10:
+                vol_std = window_data.select(pl.col('off_exchange_volume').std()).item()
+                features.loc[date, 'off_exchange_volatility_30d'] = vol_std
             else:
                 features.loc[date, 'off_exchange_volatility_30d'] = 0
 
@@ -284,14 +291,14 @@ class AlternativeFeatures:
 
     @staticmethod
     def calculate_wsb_features(
-        data_df: pd.DataFrame,
+        data_df: pl.DataFrame,
         feature_dates: pd.DatetimeIndex
     ) -> pd.DataFrame:
         """
         Calculate WallStreetBets activity features
 
         Args:
-            data_df: DataFrame with WSB data
+            data_df: Polars DataFrame with WSB data
             feature_dates: Dates to calculate features for
 
         Returns:
@@ -303,34 +310,42 @@ class AlternativeFeatures:
         for col in WSB_FEATURES:
             features[col] = 0
 
-        if data_df is None or data_df.empty:
+        if data_df is None or data_df.is_empty():
             return features
 
-        for date in feature_dates:
+        dates_list = feature_dates.to_list()
+
+        for date in dates_list:
             lookback_start = date - timedelta(days=30)
 
-            # Get data in window
-            window_data = data_df[
-                (data_df['date'] >= lookback_start) &
-                (data_df['date'] <= date)
-            ]
+            # Get data in window (Polars filter)
+            window_data = data_df.filter(
+                (pl.col('date') >= lookback_start) &
+                (pl.col('date') <= date)
+            )
 
-            if window_data.empty:
+            if window_data.height == 0:
                 continue
 
             # Feature 1: Mention count
-            features.loc[date, 'wsb_mention_count_30d'] = window_data['mention_count'].sum()
+            mention_sum = window_data.select(pl.col('mention_count').sum()).item()
+            features.loc[date, 'wsb_mention_count_30d'] = mention_sum
 
             # Feature 2: Average sentiment
-            features.loc[date, 'wsb_sentiment_30d'] = window_data['sentiment_score'].mean()
+            sentiment_mean = window_data.select(pl.col('sentiment_score').mean()).item()
+            features.loc[date, 'wsb_sentiment_30d'] = sentiment_mean
 
             # Feature 3: Activity score
-            features.loc[date, 'wsb_activity_score_30d'] = window_data['activity_score'].mean()
+            activity_mean = window_data.select(pl.col('activity_score').mean()).item()
+            features.loc[date, 'wsb_activity_score_30d'] = activity_mean
 
             # Feature 4: Momentum (change in mentions)
-            if len(window_data) >= 7:
-                recent_mentions = window_data['mention_count'].iloc[-7:].sum()
-                older_mentions = window_data['mention_count'].iloc[:-7].sum() if len(window_data) >= 14 else recent_mentions
+            if window_data.height >= 7:
+                recent_mentions = window_data.select(pl.col('mention_count').slice(-7)).sum().item()
+                if window_data.height >= 14:
+                    older_mentions = window_data.select(pl.col('mention_count').slice(0, -7)).sum().item()
+                else:
+                    older_mentions = recent_mentions
                 if older_mentions > 0:
                     momentum = (recent_mentions - older_mentions) / older_mentions
                 else:
@@ -340,17 +355,18 @@ class AlternativeFeatures:
                 features.loc[date, 'wsb_momentum_30d'] = 0
 
             # Feature 5: Discussion rank (inverted - lower is better)
-            avg_rank = window_data['discussion_rank'].mean()
+            avg_rank = window_data.select(pl.col('discussion_rank').mean()).item()
             if not pd.isna(avg_rank):
                 features.loc[date, 'wsb_discussion_rank_30d'] = avg_rank
             else:
                 features.loc[date, 'wsb_discussion_rank_30d'] = 999  # Default for no data
 
             # Feature 6: Positivity ratio
-            features.loc[date, 'wsb_positivity_ratio_30d'] = window_data['positivity_ratio'].mean()
+            positivity_mean = window_data.select(pl.col('positivity_ratio').mean()).item()
+            features.loc[date, 'wsb_positivity_ratio_30d'] = positivity_mean
 
             # Feature 7: Consensus (sentiment classification)
-            avg_sentiment = window_data['sentiment_score'].mean()
+            avg_sentiment = window_data.select(pl.col('sentiment_score').mean()).item()
             if not pd.isna(avg_sentiment):
                 if avg_sentiment > 0.3:
                     features.loc[date, 'wsb_consensus_30d'] = 2  # Bullish
@@ -418,19 +434,31 @@ class AlternativeFeatures:
                 features_df['timestamp'] = pd.to_datetime(features_df['timestamp'])
                 off_exch_features['timestamp'] = pd.to_datetime(off_exch_features['timestamp'])
 
-                # Join
-                features_df = features_df.merge(
-                    off_exch_features,
+                # Convert to Polars for faster merge
+                features_pl = pl.from_pandas(features_df)
+                off_exch_pl = pl.from_pandas(off_exch_features)
+
+                # Normalize timestamps
+                features_pl = features_pl.with_columns(
+                    pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+                )
+                off_exch_pl = off_exch_pl.with_columns(
+                    pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+                )
+
+                # Left join
+                result = features_pl.join(
+                    off_exch_pl,
                     on='timestamp',
-                    how='left',
-                    suffixes=('', '_offex')
+                    how='left'
                 )
 
                 # Fill NaN with 0
                 for col in OFF_EXCHANGE_FEATURES:
-                    if col in features_df.columns:
-                        features_df[col] = features_df[col].fillna(0)
+                    if col in result.columns:
+                        result = result.with_columns(pl.col(col).fill_null(0))
 
+                features_df = result.to_pandas()
                 logger.info(f"Added 6 off-exchange features for stock {stock_id}")
 
         # Add WSB features
@@ -448,19 +476,31 @@ class AlternativeFeatures:
                 features_df['timestamp'] = pd.to_datetime(features_df['timestamp'])
                 wsb_features['timestamp'] = pd.to_datetime(wsb_features['timestamp'])
 
-                # Join
-                features_df = features_df.merge(
-                    wsb_features,
+                # Convert to Polars for faster merge
+                features_pl = pl.from_pandas(features_df)
+                wsb_pl = pl.from_pandas(wsb_features)
+
+                # Normalize timestamps
+                features_pl = features_pl.with_columns(
+                    pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+                )
+                wsb_pl = wsb_pl.with_columns(
+                    pl.col('timestamp').cast(pl.Datetime).dt.truncate('1d')
+                )
+
+                # Left join
+                result = features_pl.join(
+                    wsb_pl,
                     on='timestamp',
-                    how='left',
-                    suffixes=('', '_wsb')
+                    how='left'
                 )
 
                 # Fill NaN with 0
                 for col in WSB_FEATURES:
-                    if col in features_df.columns:
-                        features_df[col] = features_df[col].fillna(0)
+                    if col in result.columns:
+                        result = result.with_columns(pl.col(col).fill_null(0))
 
+                features_df = result.to_pandas()
                 logger.info(f"Added 8 WSB features for stock {stock_id}")
 
         return features_df
@@ -489,16 +529,19 @@ def main():
 
     alt_data = AlternativeFeatures.get_alternative_data(stock_id, start_date, end_date)
 
-    print(f"\nOff-exchange data: {len(alt_data['off_exchange']) if alt_data['off_exchange'] is not None else 0} rows")
-    print(f"WSB data: {len(alt_data['wsb']) if alt_data['wsb'] is not None else 0} rows")
+    off_exch_df = alt_data['off_exchange']
+    wsb_df = alt_data['wsb']
 
-    if alt_data['off_exchange'] is not None and not alt_data['off_exchange'].empty:
+    print(f"\nOff-exchange data: {off_exch_df.height if off_exch_df is not None else 0} rows")
+    print(f"WSB data: {wsb_df.height if wsb_df is not None else 0} rows")
+
+    if off_exch_df is not None and not off_exch_df.is_empty():
         print("\nOff-exchange sample:")
-        print(alt_data['off_exchange'].head())
+        print(off_exch_df.head().to_pandas())
 
-    if alt_data['wsb'] is not None and not alt_data['wsb'].empty:
+    if wsb_df is not None and not wsb_df.is_empty():
         print("\nWSB sample:")
-        print(alt_data['wsb'].head())
+        print(wsb_df.head().to_pandas())
 
     print("\n" + "=" * 80)
 
