@@ -15,7 +15,7 @@ from sklearn.calibration import CalibratedClassifierCV
 import joblib
 import logging
 
-from ml_framework.models import XGBoostModel, CatBoostModel, ChronosModel
+from ml_framework.models import XGBoostModel, CatBoostModel
 
 logger = logging.getLogger(__name__)
 

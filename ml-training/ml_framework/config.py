@@ -39,6 +39,10 @@ class DataConfig:
     models_path: str = "ml-training/outputs/models"
     cache_dir: str = "ml-training/.cache"
 
+    # Explicit dataset/labels paths (optional - if set, overrides auto-detection)
+    dataset_dir: Optional[str] = None  # e.g., "outputs/features/dataset_20260211_193232"
+    labels_file: Optional[str] = None  # e.g., "labels_3class.parquet"
+
     # Database
     database_url: str = "postgresql://stockuser:stockpass@db:5432/stockanalyzer"
 
@@ -157,48 +161,6 @@ class CatBoostConfig:
 
 
 @dataclass
-class TCNConfig:
-    """TCN (Temporal Convolutional Network) hyperparameters"""
-
-    # Architecture
-    input_channels: int = None  # Set based on number of features
-    num_channels: List[int] = field(default_factory=lambda: [64, 128, 64])
-    kernel_size: int = 3
-    dropout: float = 0.2
-    relu_alpha: float = 0.3  # LeakyReLU
-
-    # Tunable parameters
-    num_layers: tuple = (2, 4)
-    kernel_size_range: tuple = (2, 5)  # Renamed to avoid conflict
-    dropout_range: tuple = (0.1, 0.4)  # Renamed for clarity
-    learning_rate: tuple = (0.0001, 0.01)  # Log scale
-    batch_size: int = 64
-    epochs: int = 100
-
-    # Training
-    early_stopping_patience: int = 10
-    reduce_lr_patience: int = 5
-
-    # Device
-    device: str = "cuda"  # Changed to "cuda" for GPU (GTX 1060 3GB)
-
-
-@dataclass
-class ChronosConfig:
-    """Chronos-tiny hyperparameters (Amazon's pretrained transformer)"""
-
-    # Model
-    model_name: str = "amazon/chronos-t5-tiny"  # Smallest, fastest
-    context_length: int = 64  # Days of history to use
-    prediction_length: int = 20  # Days to forecast
-    device: str = "cuda"  # Changed to "cuda" for GPU (GTX 1060 3GB)
-
-    # Threshold optimization (Chronos is pretrained)
-    threshold_range: tuple = (0.2, 0.6)  # Search range for optimal threshold
-    threshold_step: float = 0.05  # Step size for threshold search
-
-
-@dataclass
 class TabNetConfig:
     """TabNet hyperparameters"""
 
@@ -213,13 +175,23 @@ class TabNetConfig:
     n_steps_range: tuple = (1, 5)
     gamma: float = 1.5  # Relaxation parameter
     n_independent: int = 2  # Number of GLM layers (masked)
+    n_shared: int = 2  # Number of shared layers
     learning_rate: tuple = (0.001, 0.1)  # Log scale
-    batch_size: int = 256
-    epochs: int = 100
+    lambda_sparse: float = 1e-4  # Sparsity regularization
 
     # Training
-    early_stopping_patience: int = 10
-    device: str = "cuda"  # Use GPU
+    batch_size: int = 256
+    virtual_batch_size: int = 128
+    max_epochs: int = 100
+    patience: int = 10
+    num_workers: int = 0
+
+    # Model settings
+    mask_type: str = "sparsemax"
+    scheduler_params: Dict = field(default_factory=lambda: {"step_size": 10, "gamma": 0.9})
+    seed: int = 42
+    verbose: int = 1
+    device_name: str = "auto"  # "auto", "cpu", "cuda"
 
 
 @dataclass
@@ -227,14 +199,15 @@ class AutoGluonConfig:
     """AutoGluon hyperparameters"""
 
     # AutoGluon presets
-    preset: str = "best_quality"  # or "high_quality", "good_quality_faster_inference"
+    presets: str = "medium_quality_faster_train"  # or "best_quality", "high_quality"
     time_limit: int = 3600  # 1 hour max training time
     num_bag_folds: int = 5
     num_bag_sets: int = 1
+    num_stack_levels: int = 1
 
     # Feature engineering
     verbosity: int = 2  # 0=silent, 1=warning, 2=info, 3=debug
-    device: str = "cuda"  # Use GPU
+    use_gpu: bool = True
 
 
 @dataclass
@@ -263,7 +236,7 @@ class EnsembleConfig:
     """Ensemble configuration"""
 
     # Models to train
-    models: List[str] = field(default_factory=lambda: ["xgboost", "catboost", "tcn", "chronos"])
+    models: List[str] = field(default_factory=lambda: ["xgboost", "catboost"])
 
     # Ensemble method
     method: str = "weighted_average"  # or "stacking", "voting"
@@ -337,7 +310,6 @@ class Config:
             'data': self.data.__dict__,
             'xgboost': self.xgboost.__dict__,
             'catboost': self.catboost.__dict__,
-            'tcn': self.tcn.__dict__,
             'training': self.training.__dict__,
             'ensemble': self.ensemble.__dict__
         }
@@ -472,11 +444,12 @@ def load_config(config_path: Optional[str] = None) -> Config:
     logging_dict = config_dict.get('logging', {})
     logging_config = {k: v for k, v in logging_dict.items()}
 
-    # Model-specific configs (xgboost, catboost, tcn, chronos)
+    # Model-specific configs (xgboost, catboost, tabnet, autogluon)
     xgboost_dict = config_dict.get('xgboost', {})
     catboost_dict = config_dict.get('catboost', {})
-    tcn_dict = config_dict.get('tcn', {})
-    chronos_dict = config_dict.get('chronos', {})
+    tabnet_dict = config_dict.get('tabnet', {})
+    autogluon_dict = config_dict.get('autogluon', {})
+    fttransformer_dict = config_dict.get('fttransformer', {})
 
     # Ensemble section - map available_models from training to models in ensemble
     ensemble_dict = config_dict.get('ensemble', {})
@@ -492,8 +465,9 @@ def load_config(config_path: Optional[str] = None) -> Config:
         training=TrainingConfig(**training_dict),
         xgboost=XGBoostConfig(**xgboost_dict),
         catboost=CatBoostConfig(**catboost_dict),
-        tcn=TCNConfig(**tcn_dict),
-        chronos=ChronosConfig(**chronos_dict),
+        tabnet=TabNetConfig(**tabnet_dict),
+        autogluon=AutoGluonConfig(**autogluon_dict),
+        fttransformer=FTTransformerConfig(**fttransformer_dict),
         ensemble=EnsembleConfig(**ensemble_dict),
         backtesting=BacktestingConfig(**backtesting_config),
         logging=LoggingConfig(**logging_config)

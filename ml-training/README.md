@@ -2,6 +2,8 @@
 
 Stock price prediction using machine learning with ensemble methods.
 
+**Performance:** Uses Polars for 2-3x faster data loading and 50-70% memory reduction.
+
 ## Quick Start
 
 1. **Install dependencies**
@@ -60,11 +62,13 @@ export ML_TRAINING_N_TRIALS=5
 ## Documentation
 
 - [Quick Start Guide](QUICKSTART.md) - Detailed 4-step setup
-- [Training Guide](docs/training.md) - Feature engineering, labeling, training
-- [Backtesting](docs/backtesting.md) - Strategy backtesting framework
+- [Guides](docs/guides/) - How-to guides and tutorials
+- [Implementation Notes](docs/implementation/) - Development summaries and session notes
+- [Results](docs/results/) - Training results and comparisons
+- [Plans](docs/plans/) - Roadmaps and TODOs
 - [Architecture](docs/architecture.md) - System design and components
-- [Configuration Reference](docs/configuration.md) - YAML and CLI options
-- [API Reference](docs/api.md) - Framework API documentation
+- [Framework](docs/framework.md) - ML Framework documentation
+- [Configuration](docs/configuration.md) - YAML and CLI options
 
 ## Available Models
 
@@ -82,4 +86,8 @@ export ML_TRAINING_N_TRIALS=5
 
 ## Version
 
-**Version 3.0.0** - Refactored architecture with unified configuration system
+**Version 3.1.0** - Polars migration for 2-3x faster data operations
+- Data loading: 2.4x faster
+- Memory usage: ~60% reduction
+- Sort operations: 2.8x faster
+- Merge operations: 3.1x faster

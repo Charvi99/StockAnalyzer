@@ -61,7 +61,8 @@
       "Bash(timeout 120 docker-compose logs:*)",
       "Bash(timeout 40 docker-compose logs:*)",
       "Bash(timeout 60 bash:*)",
-      "Bash(/tmp/dashboard_test.json)"
+      "Bash(/tmp/dashboard_test.json)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

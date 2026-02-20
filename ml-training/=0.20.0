@@ -1,0 +1,9 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting polars
+  Downloading polars-1.38.1-py3-none-any.whl (810 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 810.4/810.4 KB 1.9 MB/s eta 0:00:00
+Collecting polars-runtime-32==1.38.1
+  Downloading polars_runtime_32-1.38.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (45.8 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45.8/45.8 MB 9.9 MB/s eta 0:00:00
+Installing collected packages: polars-runtime-32, polars
+Successfully installed polars-1.38.1 polars-runtime-32-1.38.1

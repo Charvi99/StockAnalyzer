@@ -124,7 +124,15 @@ class AutoGluonModel(BaseModel):
 
         # Add label column
         df = X_combined.copy()
-        df['label'] = y_combined.values if hasattr(y_combined, 'values') else y_combined
+        # Handle both Series and array-like y values
+        if hasattr(y_combined, 'values'):
+            label_values = y_combined.values
+            # Flatten if 2D
+            if hasattr(label_values, 'ndim') and label_values.ndim == 2:
+                label_values = label_values.flatten()
+            df['label'] = label_values
+        else:
+            df['label'] = y_combined
 
         # Convert to TabularDataset
         train_data = TabularDataset(df)
@@ -176,18 +184,25 @@ class AutoGluonModel(BaseModel):
 
         hyperparameters = self.trial_params.get('hyperparameters', None)
 
-        self.predictor.fit(
-            train_data,
-            time_limit=time_limit,
-            presets=presets,
-            num_bag_sets=num_bag_sets,
-            num_stack_levels=num_stack_levels,
-            hyperparameters=hyperparameters,
-            ag_args_fit={
-                'num_gpus': 1 if self.config.use_gpu else 0,
-            } if self.config.use_gpu else {},
-            verbosity=self.config.verbosity,
-        )
+        # Build fit kwargs - only pass bagging/stacking params if not using presets
+        # that might override them
+        fit_kwargs = {
+            'train_data': train_data,
+            'time_limit': time_limit,
+            'presets': presets,
+            'hyperparameters': hyperparameters,
+            'ag_args_fit': {'num_gpus': 1 if self.config.use_gpu else 0} if self.config.use_gpu else {},
+            'verbosity': self.config.verbosity,
+        }
+
+        # Only pass num_bag_sets and num_stack_levels if presets don't conflict
+        # Some presets (like medium_quality_faster_train) set num_bag_folds=0
+        # which conflicts with num_stack_levels > 0
+        if presets not in ['medium_quality_faster_train', 'medium_quality']:
+            fit_kwargs['num_bag_sets'] = num_bag_sets
+            fit_kwargs['num_stack_levels'] = num_stack_levels
+
+        self.predictor.fit(**fit_kwargs)
 
         self.is_fitted = True
         logger.info(f"✅ AutoGluon training complete")
@@ -304,10 +319,10 @@ class AutoGluonModel(BaseModel):
         else:
             # Binary metrics
             # Get probability of positive class
-            if proba.shape[1] == 2:
-                y_prob_binary = proba[:, 1]
+            if y_prob.shape[1] == 2:
+                y_prob_binary = y_prob[:, 1]
             else:
-                y_prob_binary = proba[:, 0]
+                y_prob_binary = y_prob[:, 0]
 
             metrics = {
                 'accuracy': accuracy_score(y_test, y_pred),

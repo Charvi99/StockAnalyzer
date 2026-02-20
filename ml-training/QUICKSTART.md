@@ -143,6 +143,73 @@ class EnsembleConfig:
 - Increase dropout
 - Add more training data
 
+## ⚠️ Important: Temporal Data Splitting
+
+This framework uses **temporal splitting** for training, which is critical for financial ML:
+
+```
+Train (70%): 2018-01-01 to 2022-12-31  ← Learn from past
+Val (15%):   2023-01-01 to 2024-06-30  ← Tune hyperparameters
+Test (15%):  2024-07-01 to 2025-12-31  ← Evaluate on future
+```
+
+### Why Temporal Split?
+
+| Split Type | What It Tests | AUC (example) |
+|------------|---------------|---------------|
+| **Temporal** | Can model predict future data? | ~60% |
+| Cross-sectional | Can model predict unseen stocks? | ~83% |
+| Random | (Data leakage - misleading) | ~89%+ |
+
+**Temporal split gives realistic performance estimates** for live trading.
+
+### Expected AUC Ranges
+
+With proper temporal split on 2018-2025 data:
+- **XGBoost/CatBoost**: 60-63% AUC (3-class)
+- **AutoGluon**: 59-62% AUC (3-class)
+- **Random baseline**: 50% AUC
+
+> Note: These are realistic AUCs for stock prediction. Much higher values often indicate data leakage.
+>
+> **Performance:** This framework uses Polars for 2-3x faster data loading and 50-70% memory reduction compared to pandas.
+
+## 📋 Data Requirements
+
+### Label Files
+
+Labels use multi-timeframe format with lookahead returns:
+
+```
+labels_3class.parquet columns:
+- timestamp
+- stock_id
+- final_return_20d  # Actual 20-day return
+- label_20d         # 0=SELL, 1=HOLD, 2=BUY (20-day)
+- final_return_30d
+- label_30d
+- final_return_40d
+- label_40d
+```
+
+The trainer automatically uses `label_20d` by default.
+
+### Timestamp Alignment
+
+**Critical**: Features and labels must have matching timestamps.
+
+Labels may have time component (e.g., `2024-01-15 05:00:00`) while features use midnight (`2024-01-15 00:00:00`). The trainer normalizes timestamps automatically, but verify if merge count seems low:
+
+```python
+# Check timestamp formats
+features['timestamp'].dtype  # Should be datetime64[ns]
+labels['timestamp'].dtype    # Should be datetime64[ns]
+
+# Check for time component differences
+features['timestamp'].head()  # Look for 00:00:00
+labels['timestamp'].head()    # Look for non-zero times
+```
+
 ## 🐛 Troubleshooting
 
 **Error: "No feature files found"**
@@ -157,13 +224,46 @@ python 01_feature_engineering.py
 python 02_create_labels.py
 ```
 
-
 **Training too slow?**
 ```bash
 # Skip tuning, use defaults
 # Edit train.py: tune_models = False
 ```
 
-## 📚 Full Documentation
+**Low AUC (~50-52%) or unexpected results?**
+```bash
+# Check these common issues:
 
-See: [ML_FRAMEWORK_README.md](ML_FRAMEWORK_README.md)
+# 1. Verify data date range - you need 2018-2025 data for good results
+docker-compose exec ml-training python -c "
+import pandas as pd
+from pathlib import Path
+f = pd.read_parquet('/app/outputs/features/dataset_XXX/features.parquet', columns=['timestamp'])
+l = pd.read_parquet('/app/outputs/features/dataset_XXX/labels_3class.parquet', columns=['timestamp'])
+print(f'Features: {f.timestamp.min()} to {f.timestamp.max()}')
+print(f'Labels: {l.timestamp.min()} to {l.timestamp.max()}')
+"
+
+# 2. Check merged data count - should be close to label count
+# If merge loses 60%+ of data, timestamps may not align
+```
+
+## 📚 Documentation
+
+### Essential Guides
+- **[ML Framework Guide](docs/guides/ML_FRAMEWORK_README.md)** - Complete ML framework (5 models)
+- **[Configuration Guide](configs/README.md)** - YAML config system reference
+
+### Additional Resources
+- **[Architecture](docs/architecture.md)** - System design
+- **[Framework](docs/framework.md)** - ML Framework details
+- **[Configuration Reference](docs/configuration.md)** - YAML options (legacy, see configs/README.md)
+
+### Results & Analysis
+- **[Results](docs/results/)** - Training results and model comparisons
+
+### Implementation Notes
+- **[Implementation Summaries](docs/implementation/)** - Development session notes
+
+### Planning
+- **[Roadmaps & TODOs](docs/plans/)** - Future plans

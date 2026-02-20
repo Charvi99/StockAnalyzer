@@ -10,8 +10,8 @@ import mlflow
 import logging
 from typing import Dict, Any, Optional
 
-from ml_framework.config import Config, XGBoostConfig, CatBoostConfig, TCNConfig
-from ml_framework.models import XGBoostModel, CatBoostModel, TCNModel
+from ml_framework.config import Config, XGBoostConfig, CatBoostConfig
+from ml_framework.models import XGBoostModel, CatBoostModel
 
 logger = logging.getLogger(__name__)
 
@@ -84,57 +84,12 @@ class HyperparameterTuner:
 
         return metrics['auc']
 
-    def _tcn_objective(self, trial: optuna.Trial, X_train, y_train, X_val, y_val):
-        """TCN objective function for Optuna"""
-
-        # Suggest hyperparameters
-        params = {
-            'num_layers': trial.suggest_int('num_layers', *self.config.tcn.num_layers),
-            'kernel_size': trial.suggest_int('kernel_size', *self.config.tcn.kernel_size_range),
-            'dropout': trial.suggest_float('dropout', *self.config.tcn.dropout_range),
-            'learning_rate': trial.suggest_float('learning_rate', *self.config.tcn.learning_rate, log=True),
-        }
-
-        # Create and train model
-        model = TCNModel(self.config.tcn, trial_params=params)
-        model.train(X_train, y_train, X_val, y_val)
-
-        # Evaluate
-        metrics = model.evaluate(X_val, y_val)
-
-        # Log to MLflow
-        trial.set_user_attr('auc', metrics['auc'])
-        trial.set_user_attr('accuracy', metrics['accuracy'])
-
-        return metrics['auc']
-
-    def _chronos_objective(self, trial: optuna.Trial, X_train, y_train, X_val, y_val):
-        """Chronos objective - pretrained, no tuning needed"""
-
-        # Import ChronosModel here to avoid circular import
-        from ml_framework.models.chronos_model import ChronosModel
-
-        # Create model with default config (no trial params needed)
-        model = ChronosModel(self.config.chronos)
-
-        # Train (just optimizes threshold)
-        model.train(X_train, y_train, X_val, y_val)
-
-        # Evaluate
-        metrics = model.evaluate(X_val, y_val)
-
-        # Log to MLflow
-        trial.set_user_attr('auc', metrics['auc'])
-        trial.set_user_attr('accuracy', metrics['accuracy'])
-
-        return metrics['auc']
-
     def tune_model(self, model_name: str, X_train, y_train, X_val, y_val, n_trials: Optional[int] = None):
         """
         Tune hyperparameters for a specific model
 
         Args:
-            model_name: 'xgboost', 'catboost', or 'tcn'
+            model_name: 'xgboost', 'catboost', 'tabnet', or 'autogluon'
             X_train: Training features
             y_train: Training labels
             X_val: Validation features
@@ -145,6 +100,12 @@ class HyperparameterTuner:
             best_params: Dictionary of best hyperparameters
         """
         n_trials = n_trials or self.config.training.n_trials
+
+        # TabNet and AutoGluon don't use Optuna tuning - they have internal optimization
+        if model_name in ['tabnet', 'autogluon']:
+            logger.info(f"🎯 {model_name} uses internal optimization, skipping Optuna tuning")
+            self.best_params[model_name] = {}
+            return {}
 
         logger.info(f"🎯 Tuning {model_name} with {n_trials} trials...")
 
@@ -162,8 +123,6 @@ class HyperparameterTuner:
         objective_map = {
             'xgboost': self._xgboost_objective,
             'catboost': self._catboost_objective,
-            'tcn': self._tcn_objective,
-            'chronos': self._chronos_objective,
         }
 
         objective = objective_map[model_name]
