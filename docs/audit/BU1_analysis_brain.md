@@ -43,5 +43,28 @@ decision (consolidate or formally document both).
 
 ## Status
 - B1, B2: fixed + tested (this branch).
-- B3, B4: documented, need a decision / DB check.
-- Still to audit in BU1: `_check_weekly_trend` override edge cases, `analysis.py` eager-load query (`:803`), the weight blending in `_get_recommendation_for_stock`.
+- B3: documented, needs a DB check (naive vs aware `last_*` columns) — see AUDIT_PLAN §5.
+- B4: resolved as a deliberate **A/B pair** (decision D35, below) — not collapsed.
+
+### D35 — recommendation engines are an A/B pair (defer unification to post-ledger)
+The two engines are **two different products**, not duplicates:
+- **Engine #1** — `recommendation_engine.generate_final_recommendation(db, stock_id)`:
+  systematic 6-factor weighted score (chart 28% / candlestick 14% / technical 23% /
+  sentiment 13% / regime 12% / dividend 10%), BUY/SELL threshold 0.3. Used by the
+  background `analyze_stock_comprehensive` task to set `Stock.analysis_score`.
+- **Engine #2** — `analysis._get_recommendation_for_stock(stock, db)` (~717 LOC incl.
+  helpers): realtime, swing-trading-aware — dynamic weights, weekly-trend override,
+  swing-point filters, multi-layer confidence adjustment. Returns the frontend
+  `RecommendationResponse`.
+
+**Decision:** keep both until the **paper-trading ledger** can score each on real data
+(hit-rate / R-multiple / drawdown), then unify around the winner with evidence — not by
+guessing. A low-risk `regime_to_score()` helper extraction exists but is deliberately
+NOT done: it would couple the two products we're keeping separate.
+
+**Stage 4A (layering fix) deferred:** Engine #2's ~717 LOC lives inline in a route
+(`api/routes/analysis.py:375`) and `services/order_calculator.py:99` imports it *from the
+route* (a service→route inversion). The fix — a behavior-preserving move to
+`services/realtime_recommendation.py` — is queued as a focused follow-up (largest,
+most transcription-sensitive stage; done fresh rather than rushed). The inversion is a
+smell, not a bug — the code works today.
