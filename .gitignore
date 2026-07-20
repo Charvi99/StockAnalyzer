@@ -171,3 +171,11 @@ worktrees/
 .next
 out
 nul
+
+# === Phase 0b: ML/runtime scratch (added 2026-07-20) ===
+mlruns/
+catboost_info/
+lightning_logs/
+celerybeat-schedule
+celerybeat-schedule.*
+celerybeat.pid
