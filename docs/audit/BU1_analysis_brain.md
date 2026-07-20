@@ -62,9 +62,8 @@ The two engines are **two different products**, not duplicates:
 guessing. A low-risk `regime_to_score()` helper extraction exists but is deliberately
 NOT done: it would couple the two products we're keeping separate.
 
-**Stage 4A (layering fix) deferred:** Engine #2's ~717 LOC lives inline in a route
-(`api/routes/analysis.py:375`) and `services/order_calculator.py:99` imports it *from the
-route* (a service→route inversion). The fix — a behavior-preserving move to
-`services/realtime_recommendation.py` — is queued as a focused follow-up (largest,
-most transcription-sensitive stage; done fresh rather than rushed). The inversion is a
-smell, not a bug — the code works today.
+**Stage 4A (layering fix) DONE:** Engine #2's ~717 LOC was moved behavior-preservingly
+from `routes/analysis.py` to `services/realtime_recommendation.py` (route 1591→861 LOC);
+`services/order_calculator.py:99` now imports it from the service, fixing the
+service→route inversion. Verified: no service imports from a route anywhere in the
+codebase. All 10 characterization tests green.
