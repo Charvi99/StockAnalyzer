@@ -1,8 +1,9 @@
 # Audit Summary — Capstone
 
 **Date:** 2026-07-20 · **Branch:** `chore/audit-restructure` (11 commits, reversible, unmerged)
-**Scope:** swing-trading **backend** (BU1–BU7) complete; frontend (FU1–3) and cross-cutting
-(X1–2) in progress. **Goal of this work:** establish a solid starting point for future
+**Scope:** swing-trading app — **backend (BU1–BU7) + frontend (FU) + cross-cutting (X1–2) all
+complete.** This is a finished audit; the deliverable below is the starting point for the
+stabilization + 24/7 paper-trading work. **Goal of this work:** establish a solid starting point for future
 development — stabilize/improve what exists, then resume feature work and put the system
 into **24/7 paper-trading** (virtual money, weeks/months) to validate recommendations.
 
