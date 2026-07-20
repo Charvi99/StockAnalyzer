@@ -21,8 +21,8 @@ class ShortInterest(Base):
     days_to_cover = Column(DECIMAL(8, 2), nullable=True)  # short_interest / avg_volume_30d
 
     # Timestamps
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     stock = relationship("Stock", back_populates="short_interest_data")

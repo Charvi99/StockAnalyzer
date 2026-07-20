@@ -15,7 +15,7 @@ Expected Impact:
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models.stock import StockPrice
@@ -224,7 +224,7 @@ class MultiTimeframePatternDetector:
         # Add timeframe metadata to each pattern
         for pattern in patterns:
             pattern['timeframe'] = timeframe
-            pattern['detection_timestamp'] = datetime.now().isoformat()
+            pattern['detection_timestamp'] = datetime.now(timezone.utc).isoformat()
 
         return patterns
 
@@ -253,7 +253,7 @@ class MultiTimeframePatternDetector:
 
             # Apply date filter if specified
             if days is not None:
-                start_date = datetime.now() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
                 df = df[df.index >= start_date]
 
             # Minimum data check will be done in _detect_patterns_for_timeframe
@@ -528,5 +528,5 @@ class MultiTimeframePatternDetector:
             'total_patterns_detected': len(all_patterns),
             'timeframes_analyzed': self.TIMEFRAMES,
             'patterns_by_type': patterns_by_type,
-            'analysis_timestamp': datetime.now().isoformat()
+            'analysis_timestamp': datetime.now(timezone.utc).isoformat()
         }

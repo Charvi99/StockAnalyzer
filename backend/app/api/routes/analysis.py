@@ -368,7 +368,7 @@ def create_ml_prediction(
 
     confidence = recommendation['confidence']
 
-    new_prediction = Prediction(stock_id=stock_id, prediction_date=datetime.now(), target_date=datetime.now() + timedelta(days=request.forecast_days), predicted_price=predicted_price, predicted_change_percent=(predicted_change / current_price) * 100, confidence_score=confidence, model_version=f"technical_v1_{request.model_type}", recommendation=recommendation['recommendation'])
+    new_prediction = Prediction(stock_id=stock_id, prediction_date=datetime.now(timezone.utc), target_date=datetime.now(timezone.utc) + timedelta(days=request.forecast_days), predicted_price=predicted_price, predicted_change_percent=(predicted_change / current_price) * 100, confidence_score=confidence, model_version=f"technical_v1_{request.model_type}", recommendation=recommendation['recommendation'])
     db.add(new_prediction)
     db.commit()
     db.refresh(new_prediction)

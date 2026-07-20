@@ -15,7 +15,7 @@ NOTE: ``_get_recommendation_for_stock`` still raises ``HTTPException`` (an HTTP-
 concern) for the not-found case; that is preserved verbatim on purpose. Replacing it with
 a domain-level result is a separate refactor, out of scope for this move.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 import pandas as pd
@@ -486,7 +486,7 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     swing_points = _detect_swing_points(df, lookback=5)
 
     # Get recent candlestick patterns (last 30 days, use already-loaded data)
-    thirty_days_ago = datetime.now() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     candlestick_patterns_raw = [p for p in stock.candlestick_patterns if p.timestamp >= thirty_days_ago] if stock.candlestick_patterns else []
 
     # PHASE 2B: Filter candlestick patterns for swing trading
@@ -536,7 +536,7 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         reasoning.append("No valid swing trading candlestick patterns detected (filtered by swing points and trend alignment)")
 
     # Get recent chart patterns (last 90 days, use already-loaded data)
-    ninety_days_ago = datetime.now() - timedelta(days=90)
+    ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
     chart_patterns_raw = [p for p in stock.chart_patterns if p.end_date >= ninety_days_ago] if stock.chart_patterns else []
 
     # PHASE 2B: Filter chart patterns for swing trading

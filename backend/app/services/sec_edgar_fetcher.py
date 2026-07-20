@@ -18,7 +18,7 @@ import requests
 import time
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
@@ -593,7 +593,7 @@ class SECEdgarFetcher:
             'dateRange': 'custom',
             'category': 'form-cat2',
             'startdt': start_date.strftime('%Y-%m-%d') if start_date else '2020-01-01',
-            'enddt': end_date.strftime('%Y-%m-%d') if end_date else datetime.now().strftime('%Y-%m-%d'),
+            'enddt': end_date.strftime('%Y-%m-%d') if end_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'entityName': ticker
         }
 
@@ -648,7 +648,7 @@ def main():
     print("=" * 80)
     filings = fetcher.get_form4_filings(
         apple_cik,
-        start_date=datetime.now() - timedelta(days=30),
+        start_date=datetime.now(timezone.utc) - timedelta(days=30),
         count=5
     )
 

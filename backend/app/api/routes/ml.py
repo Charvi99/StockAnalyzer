@@ -5,7 +5,7 @@ ML routes for model training and advanced predictions
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 
 from app.db.database import get_db
@@ -159,8 +159,8 @@ async def predict_with_ml(
         # Save prediction to database
         prediction = Prediction(
             stock_id=stock_id,
-            prediction_date=datetime.utcnow(),
-            target_date=datetime.utcnow(),
+            prediction_date=datetime.now(timezone.utc),
+            target_date=datetime.now(timezone.utc),
             predicted_price=current_price,
             predicted_change_percent=0.0,
             confidence_score=result['confidence'],
@@ -176,7 +176,7 @@ async def predict_with_ml(
             probabilities=result['probabilities'],
             model_type=result['model_type'],
             current_price=current_price,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except FileNotFoundError as e:

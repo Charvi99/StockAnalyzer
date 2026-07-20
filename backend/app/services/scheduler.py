@@ -6,7 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import logging
 
@@ -36,7 +36,7 @@ class PredictionEvaluationScheduler:
 
             # Get predictions that haven't been evaluated yet
             unevaluated_predictions = db.query(Prediction).filter(
-                Prediction.target_date <= datetime.utcnow(),
+                Prediction.target_date <= datetime.now(timezone.utc),
                 ~Prediction.performance.any()
             ).all()
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 from app.db.database import get_db
@@ -171,7 +171,7 @@ def get_chart_patterns(
 
     # Apply date filter only if days is specified
     if days is not None:
-        start_date = datetime.now() - timedelta(days=days)
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
         query = query.filter(ChartPattern.end_date >= start_date)
 
     if confirmed_only:
@@ -221,7 +221,7 @@ def confirm_chart_pattern(
 
     # Update pattern
     pattern.user_confirmed = request.confirmed
-    pattern.confirmed_at = datetime.now()
+    pattern.confirmed_at = datetime.now(timezone.utc)
     pattern.confirmed_by = request.confirmed_by
     pattern.notes = request.notes
 

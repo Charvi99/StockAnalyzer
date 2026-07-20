@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db.database import get_db
 from app.schemas.stock import HealthCheckResponse
 
@@ -22,7 +22,7 @@ def health_check(db: Session = Depends(get_db)):
 
     return HealthCheckResponse(
         status="healthy" if db_status == "connected" else "unhealthy",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         database=db_status,
         version="1.0.0"
     )

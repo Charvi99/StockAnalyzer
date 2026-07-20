@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.db.database import get_db
@@ -225,7 +225,7 @@ def delete_old_news_articles(
         raise HTTPException(status_code=404, detail=f"Stock with id {stock_id} not found")
 
     # Calculate cutoff date
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Delete old articles
     deleted_count = db.query(News)\
@@ -255,7 +255,7 @@ def delete_all_old_news_articles(
     This is typically called by a scheduled Celery task.
     """
     # Calculate cutoff date
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Delete old articles
     deleted_count = db.query(News)\
@@ -281,7 +281,7 @@ def get_news_statistics(db: Session = Depends(get_db)):
     total_articles = db.query(News).count()
 
     # Articles by age
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     last_24h = db.query(News).filter(News.published_utc >= now - timedelta(days=1)).count()
     last_7d = db.query(News).filter(News.published_utc >= now - timedelta(days=7)).count()
     last_14d = db.query(News).filter(News.published_utc >= now - timedelta(days=14)).count()

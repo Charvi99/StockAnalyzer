@@ -59,13 +59,13 @@ def cleanup_old_news_articles():
     """
     from app.db.database import SessionLocal
     from app.models.news import News
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     logger.info("🗑️ Starting news article cleanup (14-day retention)")
 
     db = SessionLocal()
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=14)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=14)
 
         # Delete old articles
         deleted_count = db.query(News)\

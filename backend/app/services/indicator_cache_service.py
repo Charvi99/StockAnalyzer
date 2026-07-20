@@ -28,7 +28,7 @@ Usage:
 import hashlib
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -207,7 +207,7 @@ class IndicatorCacheService:
                 'confidence': recommendation_data.get('confidence'),
                 'reasoning': recommendation_data.get('reasoning'),
                 'signals': recommendation_data.get('signals'),  # JSONB: {"buy": 8, "sell": 2, "hold": 2}
-                'calculated_at': datetime.utcnow(),
+                'calculated_at': datetime.now(timezone.utc),
                 'price_hash': price_hash
             }
 

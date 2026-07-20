@@ -12,7 +12,7 @@ Key responsibilities:
 - Update analysis timestamps after successful analysis
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -59,7 +59,7 @@ class AnalysisCompletenessService:
             Float between 0.0 and 1.0 representing completeness percentage
         """
         score = 0.0
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         max_age = timedelta(hours=max_age_hours)
         ml_max_age = timedelta(hours=AnalysisCompletenessService.ML_MAX_AGE_HOURS)
 
@@ -125,7 +125,7 @@ class AnalysisCompletenessService:
             List of component names that are missing or stale
         """
         missing = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         max_age = timedelta(hours=max_age_hours)
         ml_max_age = timedelta(hours=AnalysisCompletenessService.ML_MAX_AGE_HOURS)
 
@@ -205,7 +205,7 @@ class AnalysisCompletenessService:
                 Valid values: 'chart_patterns', 'candlestick_patterns',
                              'sentiment', 'technical_indicators', 'ml_prediction', 'comprehensive'
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         for component in components_completed:
             if component == 'chart_patterns':
@@ -290,7 +290,7 @@ class AnalysisCompletenessService:
         Returns:
             Dictionary with detailed completeness information
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         missing = AnalysisCompletenessService.get_missing_components(stock, db)
 
         return {

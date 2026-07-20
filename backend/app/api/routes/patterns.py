@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 from app.db.database import get_db
@@ -43,7 +43,7 @@ def detect_patterns(
 
     # Get price data for analysis
     if request.days is not None:
-        start_date = datetime.now() - timedelta(days=request.days)
+        start_date = datetime.now(timezone.utc) - timedelta(days=request.days)
         prices = db.query(StockPrice).filter(
             and_(
                 StockPrice.stock_id == stock_id,
@@ -143,7 +143,7 @@ def get_patterns(
         raise HTTPException(status_code=404, detail="Stock not found")
 
     # Build query
-    start_date = datetime.now() - timedelta(days=days)
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
     query = db.query(CandlestickPattern).filter(
         and_(
             CandlestickPattern.stock_id == stock_id,
@@ -194,7 +194,7 @@ def confirm_pattern(
 
     # Update pattern
     pattern.user_confirmed = request.confirmed
-    pattern.confirmed_at = datetime.now()
+    pattern.confirmed_at = datetime.now(timezone.utc)
     pattern.confirmed_by = request.confirmed_by
     pattern.notes = request.notes
 

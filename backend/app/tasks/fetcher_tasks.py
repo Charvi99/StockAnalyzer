@@ -152,14 +152,11 @@ def fetch_stock_data_incremental(db, stock_id: int, symbol: str, timeframe: str)
             # Polygon returns timestamps in milliseconds
             bar_timestamp = datetime.fromtimestamp(bar.timestamp / 1000, tz=timezone.utc)
 
-            # Remove timezone for database comparison (database stores naive timestamps)
-            bar_timestamp_naive = bar_timestamp.replace(tzinfo=None)
-
             # Check if price record already exists (handles 1-hour overlap)
             existing_price = db.query(StockPrice).filter(
                 StockPrice.stock_id == stock_id,
                 StockPrice.timeframe == timeframe,
-                StockPrice.timestamp == bar_timestamp_naive
+                StockPrice.timestamp == bar_timestamp
             ).first()
 
             if existing_price:
@@ -176,7 +173,7 @@ def fetch_stock_data_incremental(db, stock_id: int, symbol: str, timeframe: str)
                 price = StockPrice(
                     stock_id=stock_id,
                     timeframe=timeframe,
-                    timestamp=bar_timestamp_naive,
+                    timestamp=bar_timestamp,
                     open=float(bar.open),
                     high=float(bar.high),
                     low=float(bar.low),
@@ -1121,7 +1118,7 @@ def test_fetch_task():
             'status': 'success',
             'message': 'Celery worker is running!',
             'stock_count': stock_count,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         logger.error(f"Error in test_fetch_task: {e}")

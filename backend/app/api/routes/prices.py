@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 import logging
 from app.db.database import get_db
@@ -63,7 +63,7 @@ def fetch_stock_data(
     # Update fetch timing for countdown timer
     try:
         from datetime import timedelta
-        stock.last_fetch_at = datetime.utcnow()
+        stock.last_fetch_at = datetime.now(timezone.utc)
         # Calculate next fetch time based on priority (high=1h, medium=4h, low=24h)
         if stock.priority == 'high':
             stock.next_fetch_at = stock.last_fetch_at + timedelta(hours=1)

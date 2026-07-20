@@ -18,33 +18,33 @@ class Stock(Base):
     # Priority system fields
     priority = Column(String(10), default='medium', server_default='medium', nullable=False)
     priority_score = Column(DECIMAL(8, 2), default=50.0, server_default='50.0', nullable=False)
-    priority_updated_at = Column(TIMESTAMP, nullable=True)
+    priority_updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     # Statistics for priority calculation
     avg_volume_30d = Column(BigInteger, nullable=True)
     avg_price_30d = Column(DECIMAL(12, 4), nullable=True)
     volatility_30d = Column(DECIMAL(8, 4), nullable=True)
     pattern_count_30d = Column(Integer, default=0, server_default='0', nullable=False)
-    last_pattern_date = Column(TIMESTAMP, nullable=True)
+    last_pattern_date = Column(TIMESTAMP(timezone=True), nullable=True)
 
     # Fetch timing fields (for countdown timer)
-    last_fetch_at = Column(TIMESTAMP, nullable=True)
-    next_fetch_at = Column(TIMESTAMP, nullable=True)
+    last_fetch_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    next_fetch_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     # Analysis tracking fields - track when each analysis component was last executed
-    last_chart_pattern_detection = Column(TIMESTAMP, nullable=True)
-    last_candlestick_detection = Column(TIMESTAMP, nullable=True)
-    last_sentiment_analysis = Column(TIMESTAMP, nullable=True)
-    last_technical_analysis = Column(TIMESTAMP, nullable=True)
-    last_ml_prediction = Column(TIMESTAMP, nullable=True)
+    last_chart_pattern_detection = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_candlestick_detection = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_sentiment_analysis = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_technical_analysis = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_ml_prediction = Column(TIMESTAMP(timezone=True), nullable=True)
 
     # Overall analysis status
     analysis_complete = Column(Boolean, default=False, server_default='false', nullable=False)
     analysis_score = Column(DECIMAL(3, 2), default=0.00, server_default='0.00', nullable=False)
-    last_comprehensive_analysis = Column(TIMESTAMP, nullable=True)
+    last_comprehensive_analysis = Column(TIMESTAMP(timezone=True), nullable=True)
 
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         CheckConstraint("priority IN ('high', 'medium', 'low')", name="check_priority_value"),
@@ -69,7 +69,7 @@ class StockPrice(Base):
     # Composite primary key: (stock_id, timeframe, timestamp)
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), primary_key=True)
     timeframe = Column(String(10), primary_key=True)  # '1m', '5m', '15m', '1h', '4h', '1d', '1w'
-    timestamp = Column(TIMESTAMP, primary_key=True)
+    timestamp = Column(TIMESTAMP(timezone=True), primary_key=True)
 
     id = Column(Integer, server_default=text("nextval('stock_prices_id_seq'::regclass)"))
     open = Column(DECIMAL(12, 4))
@@ -96,14 +96,14 @@ class Prediction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    prediction_date = Column(TIMESTAMP, nullable=False)
-    target_date = Column(TIMESTAMP, nullable=False)
+    prediction_date = Column(TIMESTAMP(timezone=True), nullable=False)
+    target_date = Column(TIMESTAMP(timezone=True), nullable=False)
     predicted_price = Column(DECIMAL(12, 4))
     predicted_change_percent = Column(DECIMAL(8, 4))
     confidence_score = Column(DECIMAL(5, 4))
     model_version = Column(String(50))
     recommendation = Column(String(10))
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         CheckConstraint("recommendation IN ('BUY', 'SELL', 'HOLD')", name="check_recommendation"),
@@ -123,7 +123,7 @@ class PredictionPerformance(Base):
     actual_change_percent = Column(DECIMAL(8, 4))
     prediction_error = Column(DECIMAL(12, 4))
     accuracy_score = Column(DECIMAL(5, 4))
-    evaluated_at = Column(TIMESTAMP, server_default=func.now())
+    evaluated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     # Relationship
     prediction = relationship("Prediction", back_populates="performance")
@@ -152,7 +152,7 @@ class TechnicalIndicator(Base):
     signals = Column(JSONB, nullable=True)  # {"buy": 8, "sell": 2, "hold": 2}
 
     # Cache metadata
-    calculated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    calculated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     price_hash = Column(String(32), nullable=True)  # MD5 hash for cache invalidation
 
     # Unique constraint: one cache entry per stock per timeframe
@@ -169,7 +169,7 @@ class SentimentScore(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False)
+    timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
     sentiment_index = Column(DECIMAL(8, 4))
     positive_count = Column(Integer, default=0)
     negative_count = Column(Integer, default=0)
@@ -179,7 +179,7 @@ class SentimentScore(Base):
     neutral_pct = Column(DECIMAL(5, 2))
     total_articles = Column(Integer, default=0)
     trend = Column(String(20))
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         CheckConstraint("trend IN ('Rise', 'Fall', 'Neutral')", name="check_trend"),
@@ -196,14 +196,14 @@ class CandlestickPattern(Base):
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
     pattern_name = Column(String(100), nullable=False)
     pattern_type = Column(String(20), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False)
+    timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
     confidence_score = Column(DECIMAL(5, 4), default=1.0)
     candle_data = Column(JSONB)  # Stores OHLC data for the pattern
     user_confirmed = Column(Boolean, default=None, nullable=True)  # NULL = not reviewed, TRUE = confirmed, FALSE = rejected
-    confirmed_at = Column(TIMESTAMP, nullable=True)
+    confirmed_at = Column(TIMESTAMP(timezone=True), nullable=True)
     confirmed_by = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         CheckConstraint("pattern_type IN ('bullish', 'bearish', 'neutral')", name="check_pattern_type"),
@@ -221,8 +221,8 @@ class ChartPattern(Base):
     pattern_name = Column(String(100), nullable=False)
     pattern_type = Column(String(20), nullable=False)  # reversal, continuation
     signal = Column(String(20), nullable=False)  # bullish, bearish, neutral
-    start_date = Column(TIMESTAMP, nullable=False)
-    end_date = Column(TIMESTAMP, nullable=False)
+    start_date = Column(TIMESTAMP(timezone=True), nullable=False)
+    end_date = Column(TIMESTAMP(timezone=True), nullable=False)
     breakout_price = Column(DECIMAL(12, 4))
     target_price = Column(DECIMAL(12, 4))
     stop_loss = Column(DECIMAL(12, 4))
@@ -238,10 +238,10 @@ class ChartPattern(Base):
     alignment_score = Column(DECIMAL(5, 4))  # Cross-timeframe alignment (0.0-1.0)
 
     user_confirmed = Column(Boolean, default=None, nullable=True)
-    confirmed_at = Column(TIMESTAMP, nullable=True)
+    confirmed_at = Column(TIMESTAMP(timezone=True), nullable=True)
     confirmed_by = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         CheckConstraint("pattern_type IN ('reversal', 'continuation')", name="check_chart_pattern_type"),

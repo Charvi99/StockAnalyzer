@@ -4,10 +4,12 @@ BU6 audit — DB schema source-inspection tests.
 Runnable without a DB (inspects SQLAlchemy column metadata in-process):
     python3 backend/tests/test_bu6_schema.py
 
-Locks in the two BU6 facts so a future change is intentional and visible:
-  S1 — every TIMESTAMP column is currently WITHOUT TIME ZONE (naive). This is the
-       structural root of B3/R6/F2. If someone migrates a column to TIMESTAMPTZ, this
-       test must be updated deliberately (it lists which columns changed).
+Locks in the schema facts so a future change is intentional and visible:
+  S1 — every TIMESTAMP column is now WITH TIME ZONE (TIMESTAMPTZ), after the
+       TIMESTAMPTZ migration that closed the B3/R6/F2 root cause. Reverting any column
+       to naive fails this test.
+  S1b — the codebase uses datetime.now(timezone.utc) everywhere (no utcnow()/bare
+        datetime.now()), except market_hours.py (America/New_York, deferred).
   S2 — reports which foreign-key columns lack an index (the unindexed-FK perf finding).
 """
 import sys
@@ -40,9 +42,10 @@ def _all_tables(models):
             continue
 
 
-def test_s1_all_timestamps_are_naive():
-    """Every TIMESTAMP column is WITHOUT TIME ZONE today (the B3/R6/F2 root cause).
-    A TIMESTAMPTZ migration MUST update this test on purpose."""
+def test_s1_all_timestamps_are_tz_aware():
+    """Every TIMESTAMP column is now WITH TIME ZONE (TIMESTAMPTZ) — the TIMESTAMPTZ migration
+    closed the B3/R6/F2 root cause. Locks the aware state; if someone reverts a column to naive,
+    this test fails."""
     models = _import_models()
     if models is None:
         return  # env can't import; skip gracefully
@@ -53,11 +56,29 @@ def test_s1_all_timestamps_are_naive():
                 (aware if getattr(col.type, "timezone", False) else naive).append(
                     f"{tbl.name}.{col.name}"
                 )
-    assert not aware, (
-        f"these columns are TIMESTAMPTZ/aware — if intentional, update this test: {aware}"
+    assert not naive, (
+        f"these TIMESTAMP columns are still naive (timezone=False) — re-migrate them: {naive}"
     )
-    # sanity: we actually found naive timestamps (proves the import worked)
-    assert naive, "expected to find naive TIMESTAMP columns; import may have failed silently"
+    # sanity: we actually found aware timestamps (proves the import worked)
+    assert aware, "expected to find TIMESTAMPTZ columns; import may have failed silently"
+
+
+def test_no_naive_datetime_calls_remain():
+    """Guard: after the TIMESTAMPTZ migration the codebase uses datetime.now(timezone.utc)
+    everywhere (no utcnow(), no bare datetime.now()) — except market_hours.py (America/New_York,
+    deferred). A naive datetime compared to an aware column raises TypeError."""
+    import subprocess
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    proc = subprocess.run(
+        ["grep", "-rnE", r"datetime\.utcnow\(\)|datetime\.now\(\)", "backend/app",
+         "--include=*.py"],
+        capture_output=True, text=True, cwd=repo,
+    )
+    hits = [ln for ln in proc.stdout.splitlines()
+            if "__pycache__" not in ln
+            and "datetime.now(timezone" not in ln
+            and "market_hours.py" not in ln]
+    assert not hits, f"naive datetime calls remain (convert to now(timezone.utc)): {hits}"
 
 
 def test_s2_reports_unindexed_foreign_keys():

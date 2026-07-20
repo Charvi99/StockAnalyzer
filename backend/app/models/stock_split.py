@@ -21,8 +21,8 @@ class StockSplit(Base):
     split_ratio = Column(DECIMAL(12, 6), nullable=False)  # Calculated ratio (split_to / split_from)
 
     # Timestamps
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     stock = relationship("Stock", back_populates="splits")

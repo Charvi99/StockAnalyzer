@@ -8,7 +8,7 @@ from app.models.timeframe import Timeframe
 from app.config.timeframe_config import TimeframeConfig
 from app.services.timeframe_aggregator import TimeframeAggregator
 from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import logging
 
@@ -43,7 +43,7 @@ class TimeframeService:
         """
         # Calculate date range
         if end_date is None:
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
 
         if lookback_days is not None:
             start_date = end_date - timedelta(days=lookback_days)

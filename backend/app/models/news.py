@@ -19,7 +19,7 @@ class News(Base):
     publisher = Column(String(255), nullable=True)
     title = Column(Text, nullable=False)
     author = Column(String(255), nullable=True)
-    published_utc = Column(TIMESTAMP, nullable=False, index=True)
+    published_utc = Column(TIMESTAMP(timezone=True), nullable=False, index=True)
     article_url = Column(Text, nullable=True)
     image_url = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
@@ -32,8 +32,8 @@ class News(Base):
     ticker = Column(String(10), nullable=True, index=True)  # Specific ticker for multi-ticker articles
 
     # Timestamps
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     stock = relationship("Stock", back_populates="news")

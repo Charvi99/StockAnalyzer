@@ -10,7 +10,7 @@ in the News table with sentiment, sentiment_score, and sentiment_reasoning field
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.db.database import get_db
@@ -74,7 +74,7 @@ async def analyze_stock_sentiment(
         # Save sentiment score to database
         sentiment_score = SentimentScore(
             stock_id=stock_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             sentiment_index=sentiment_index,
             positive_count=positive_count,
             negative_count=negative_count,
@@ -119,7 +119,7 @@ async def analyze_stock_sentiment(
             total_articles=total_articles,
             trend=trend,
             news=news_response,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except HTTPException:
@@ -199,7 +199,7 @@ async def analyze_multiple_stocks(
             # Save sentiment score to database
             sentiment_score = SentimentScore(
                 stock_id=stock.id,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 sentiment_index=sentiment_index,
                 positive_count=positive_count,
                 negative_count=negative_count,
@@ -240,7 +240,7 @@ async def analyze_multiple_stocks(
             tickers=ticker_results,
             news=news_response,
             total_articles_analyzed=total_articles,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except Exception as e:

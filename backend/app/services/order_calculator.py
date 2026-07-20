@@ -7,7 +7,7 @@ to calculate recommended entry, stop loss, and take profit levels
 
 from typing import Dict, Optional, List
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 import logging
@@ -213,12 +213,12 @@ class OrderCalculatorService:
                 'nearest_lvn': volume_profile['nearest_lvn'],
                 'position_in_profile': volume_profile['position_in_profile'],
             },
-            'timestamp': datetime.utcnow()
+            'timestamp': datetime.now(timezone.utc)
         }
 
     def _get_recent_chart_patterns(self, stock_id: int, days: int = 30) -> List[ChartPattern]:
         """Get recent chart patterns"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         patterns = self.db.query(ChartPattern).filter(
             ChartPattern.stock_id == stock_id,
             ChartPattern.created_at >= cutoff_date
@@ -227,7 +227,7 @@ class OrderCalculatorService:
 
     def _get_recent_candlestick_patterns(self, stock_id: int, days: int = 14) -> List[CandlestickPattern]:
         """Get recent candlestick patterns"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         patterns = self.db.query(CandlestickPattern).filter(
             CandlestickPattern.stock_id == stock_id,
             CandlestickPattern.timestamp >= cutoff_date
@@ -255,7 +255,7 @@ class OrderCalculatorService:
 
     def _calculate_support_resistance(self, stock_id: int, lookback_days: int = 90) -> Dict:
         """Calculate nearest support and resistance levels"""
-        cutoff_date = datetime.utcnow() - timedelta(days=lookback_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         prices = self.db.query(StockPrice).filter(
             StockPrice.stock_id == stock_id,
             StockPrice.timestamp >= cutoff_date
@@ -332,7 +332,7 @@ class OrderCalculatorService:
 
     def _get_daily_prices(self, stock_id: int, days: int = 90) -> pd.DataFrame:
         """Get daily price data for swing trading analysis"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         prices = self.db.query(StockPrice).filter(
             StockPrice.stock_id == stock_id,
             StockPrice.timestamp >= cutoff_date
@@ -739,7 +739,7 @@ class OrderCalculatorService:
         Sample weekly bars from daily data
         """
         # Get 1 year of daily data to construct weekly bars
-        cutoff_date = datetime.utcnow() - timedelta(days=365)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=365)
         prices = self.db.query(StockPrice).filter(
             StockPrice.stock_id == stock_id,
             StockPrice.timestamp >= cutoff_date

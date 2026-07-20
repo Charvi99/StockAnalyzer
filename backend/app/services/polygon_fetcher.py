@@ -4,7 +4,7 @@ Official docs: https://polygon.io/docs/stocks/getting-started
 """
 
 from polygon import RESTClient
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict
 import logging
 import os
@@ -44,7 +44,7 @@ class PolygonFetcher:
         Returns:
             Tuple of (start_date, end_date) as datetime objects
         """
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
 
         period_map = {
             '1d': timedelta(days=1),
