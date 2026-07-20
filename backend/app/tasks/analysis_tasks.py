@@ -13,6 +13,7 @@ from app.celery_app import celery_app
 from datetime import datetime, timezone
 import logging
 from app.services.analysis_completeness import AnalysisCompletenessService
+from app.config.pattern_thresholds import swing_detector_kwargs, swing_detect_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -74,17 +75,11 @@ def analyze_stock_comprehensive(self, stock_id: int, symbol: str):
             detector = MultiTimeframePatternDetector(
                 db=db,
                 stock_id=stock_id,
-                min_pattern_length=5,
-                peak_order=5,
-                min_confidence=0.7,
-                min_r_squared=0.85
+                **swing_detector_kwargs()
             )
 
             result = detector.detect_all_patterns(
-                days=30,
-                exclude_patterns=['Rounding Top', 'Rounding Bottom'],
-                remove_overlaps=True,
-                overlap_threshold=0.3
+                **swing_detect_kwargs()
             )
 
             detected_patterns = result['patterns']

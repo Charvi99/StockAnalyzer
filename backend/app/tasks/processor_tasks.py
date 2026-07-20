@@ -7,6 +7,7 @@ These tasks run after price data is updated to:
 - Generate trading signals
 """
 from app.celery_app import celery_app
+from app.config.pattern_thresholds import swing_detector_kwargs, swing_detect_kwargs
 import logging
 
 logger = logging.getLogger(__name__)
@@ -48,17 +49,11 @@ def detect_patterns_high_priority(self):
                 detector = MultiTimeframePatternDetector(
                     db=db,
                     stock_id=stock.id,
-                    min_pattern_length=5,
-                    peak_order=5,
-                    min_confidence=0.7,
-                    min_r_squared=0.85
+                    **swing_detector_kwargs()
                 )
                 
                 result = detector.detect_all_patterns(
-                    days=30,  # Analyze last 30 days
-                    exclude_patterns=['Rounding Top', 'Rounding Bottom'],  # Exclude high false-positive patterns
-                    remove_overlaps=True,
-                    overlap_threshold=0.3
+                    **swing_detect_kwargs()
                 )
                 
                 detected_patterns = result['patterns']
@@ -164,17 +159,11 @@ def detect_patterns_medium_priority(self):
                 detector = MultiTimeframePatternDetector(
                     db=db,
                     stock_id=stock.id,
-                    min_pattern_length=5,
-                    peak_order=5,
-                    min_confidence=0.7,
-                    min_r_squared=0.85
+                    **swing_detector_kwargs()
                 )
                 
                 result = detector.detect_all_patterns(
-                    days=30,  # Analyze last 30 days
-                    exclude_patterns=['Rounding Top', 'Rounding Bottom'],
-                    remove_overlaps=True,
-                    overlap_threshold=0.3
+                    **swing_detect_kwargs()
                 )
                 
                 detected_patterns = result['patterns']
@@ -280,17 +269,11 @@ def detect_patterns_low_priority(self):
                 detector = MultiTimeframePatternDetector(
                     db=db,
                     stock_id=stock.id,
-                    min_pattern_length=5,
-                    peak_order=5,
-                    min_confidence=0.7,
-                    min_r_squared=0.85
+                    **swing_detector_kwargs()
                 )
                 
                 result = detector.detect_all_patterns(
-                    days=30,  # Analyze last 30 days
-                    exclude_patterns=['Rounding Top', 'Rounding Bottom'],
-                    remove_overlaps=True,
-                    overlap_threshold=0.3
+                    **swing_detect_kwargs()
                 )
                 
                 detected_patterns = result['patterns']

@@ -121,33 +121,36 @@ def test_risk_portfolio_heat_full_parity():
 # ---------------------------------------------------------------------------
 # 2. PATTERN CONFIG SNAPSHOT (4 task sites)
 # ---------------------------------------------------------------------------
-_EXPECTED_KWARGS_MARKERS = [
-    "min_pattern_length=5",
-    "peak_order=5",
-    "min_confidence=0.7",
-    "min_r_squared=0.85",
-    "days=30",
-    "exclude_patterns=['Rounding Top', 'Rounding Bottom']",
-    "remove_overlaps=True",
-    "overlap_threshold=0.3",
-]
+def test_pattern_thresholds_canonical_values():
+    """The shared config holds the canonical swing-pattern thresholds (single source of truth
+    after Stage 3). Lock the values — this is the P1/P2 over-filtering tuning lever."""
+    from app.config.pattern_thresholds import swing_detector_kwargs, swing_detect_kwargs
+    assert swing_detector_kwargs() == {
+        "min_pattern_length": 5, "peak_order": 5,
+        "min_confidence": 0.7, "min_r_squared": 0.85,
+    }
+    assert swing_detect_kwargs() == {
+        "days": 30,
+        "exclude_patterns": ["Rounding Top", "Rounding Bottom"],
+        "remove_overlaps": True, "overlap_threshold": 0.3,
+    }
+    # Fresh dict each call — no shared-mutation footgun when **-spread at call sites:
+    assert swing_detector_kwargs() is not swing_detector_kwargs()
 
 
-def test_pattern_config_analysis_tasks_snapshot():
-    """analysis_tasks.py (1 site) currently passes the canonical pattern kwargs."""
-    src = _read("app/tasks/analysis_tasks.py")
-    missing = [m for m in _EXPECTED_KWARGS_MARKERS if m not in src]
-    assert not missing, f"analysis_tasks.py no longer has canonical kwargs: {missing}"
-
-
-def test_pattern_config_processor_tasks_three_sites_snapshot():
-    """processor_tasks.py has 3 priority tasks (high/medium/low), each an identical copy of the
-    canonical kwargs — so e.g. 'min_confidence=0.7' appears >= 3 times."""
-    src = _read("app/tasks/processor_tasks.py")
-    for marker in _EXPECTED_KWARGS_MARKERS:
-        assert marker in src, f"processor_tasks.py missing canonical kwarg: {marker}"
-    assert src.count("min_confidence=0.7") >= 3, (
-        f"expected >=3 identical pattern sites in processor_tasks.py, got {src.count('min_confidence=0.7')}"
+def test_pattern_task_sites_use_shared_config():
+    """The 4 task sites delegate to the shared config (no more hardcoded literals)."""
+    at = _read("app/tasks/analysis_tasks.py")
+    pt = _read("app/tasks/processor_tasks.py")
+    for src, label in [(at, "analysis_tasks"), (pt, "processor_tasks")]:
+        assert "from app.config.pattern_thresholds import" in src, f"{label} must import the shared config"
+        assert "**swing_detector_kwargs()" in src, f"{label} must spread swing_detector_kwargs()"
+        assert "**swing_detect_kwargs()" in src, f"{label} must spread swing_detect_kwargs()"
+    # processor_tasks has 3 priority tasks -> 3 detector-construction sites
+    assert pt.count("**swing_detector_kwargs()") >= 3, "processor_tasks lost a pattern site"
+    # No stale hardcoded literals remain in either task file:
+    assert "min_confidence=0.7" not in at and "min_confidence=0.7" not in pt, (
+        "stale hardcoded pattern literal still present in a task file"
     )
 
 
