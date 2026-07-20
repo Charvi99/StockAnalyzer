@@ -36,7 +36,7 @@ def test_positive_env_gitignored_only_example_tracked():
 
 
 def test_positive_api_keys_via_env_not_hardcoded():
-    src = _read("app/services/polygon_fetcher.py") + "\n" + _read("app/services/quiverquant_fetcher.py")
+    src = _read("app/services/polygon_fetcher.py") + "\n" + _read("app/services/quiverquant_fetcher_v2.py")
     assert "os.getenv" in src and "POLYGON_API_KEY" in src and "QUIVERQUANT_API_KEY" in src, (
         "API keys must be read from env, not hardcoded"
     )
