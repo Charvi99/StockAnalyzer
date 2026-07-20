@@ -71,6 +71,31 @@ def calculate_position_size(
             'warnings': ['Invalid stop-loss: same as entry price']
         }
 
+    # Guard: invalid capital or entry price would divide by zero downstream
+    # (int(max_position_value / entry_price) at :82 and /account_capital at :90).
+    # These are config/data errors, not market conditions — return a no-trade
+    # result rather than crash the order-calc endpoint. (BU5 audit)
+    if account_capital <= 0:
+        return {
+            'position_size': 0,
+            'position_value': 0,
+            'risk_amount': 0,
+            'capital_at_risk_percent': 0,
+            'position_as_percent_of_capital': 0,
+            'risk_per_share': round(risk_per_share, 2),
+            'warnings': ['Invalid account capital: must be > 0']
+        }
+    if entry_price <= 0:
+        return {
+            'position_size': 0,
+            'position_value': 0,
+            'risk_amount': 0,
+            'capital_at_risk_percent': 0,
+            'position_as_percent_of_capital': 0,
+            'risk_per_share': round(risk_per_share, 2),
+            'warnings': ['Invalid entry price: must be > 0']
+        }
+
     # Calculate maximum risk amount
     max_risk_amount = account_capital * (risk_per_trade_percent / 100)
 
@@ -229,6 +254,19 @@ def calculate_portfolio_heat(
         risk_per_share = abs(position['entry_price'] - position['stop_loss'])
         position_risk = risk_per_share * position['position_size']
         total_risk += position_risk
+
+    # Guard: account_capital == 0 would divide by zero below. A non-positive
+    # capital is a config error — block new positions rather than crash.
+    # (BU5 audit)
+    if account_capital <= 0:
+        return {
+            'total_risk_amount': round(total_risk, 2),
+            'portfolio_heat_percent': 0.0,
+            'max_allowed_heat_percent': max_portfolio_heat_percent,
+            'positions_at_risk': len(open_positions),
+            'can_add_position': False,
+            'remaining_risk_capacity': 0
+        }
 
     heat_percent = (total_risk / account_capital) * 100
     can_add_position = heat_percent < max_portfolio_heat_percent
