@@ -219,14 +219,34 @@ def test_rec_engine1_policy_constants_locked():
         assert marker in src, f"Engine #1 policy constant changed/missing: {marker}"
 
 
-def test_rec_engine2_exists_and_returns_recommendation_response():
-    """Engine #2 lives in routes/analysis.py as _get_recommendation_for_stock and returns the
-    frontend RecommendationResponse. Lock its presence (Stage 4A moves it to a service, zero logic change)."""
-    src = _read("app/api/routes/analysis.py")
-    assert "def _get_recommendation_for_stock" in src, "Engine #2 entrypoint missing from analysis.py"
-    # Helper logic that defines Engine #2 as the swing-trading product:
-    for helper in ["_check_weekly_trend", "_detect_swing_points", "_evaluate_swing_trading_context"]:
-        assert helper in src, f"Engine #2 helper {helper} missing from analysis.py"
+def test_rec_engine2_lives_in_service_route_delegates():
+    """Stage 4A moved Engine #2 (~717 LOC) from routes/analysis.py to
+    services/realtime_recommendation.py (behavior-preserving). Lock its new home, that the
+    route delegates to it (no inline logic), and that the service->route import inversion
+    in order_calculator is fixed."""
+    svc = _read("app/services/realtime_recommendation.py")
+    route = _read("app/api/routes/analysis.py")
+    oc = _read("app/services/order_calculator.py")
+
+    # Engine #2 + its helpers now live in the service:
+    assert "def _get_recommendation_for_stock" in svc, "Engine #2 entrypoint missing from service"
+    for helper in ["_check_weekly_trend", "_detect_swing_points",
+                   "_categorize_candlestick_pattern", "_evaluate_swing_trading_context"]:
+        assert f"def {helper}" in svc, f"Engine #2 helper {helper} missing from service"
+
+    # Route no longer holds the logic inline — it imports + delegates:
+    assert "from app.services.realtime_recommendation import _get_recommendation_for_stock" in route, (
+        "route must import Engine #2 from the service"
+    )
+    assert "def _get_recommendation_for_stock" not in route and "def _check_weekly_trend" not in route, (
+        "route still defines Engine #2 inline — Stage 4A incomplete"
+    )
+
+    # The service->route inversion is fixed (order_calculator imports the service, not the route):
+    assert "from app.services.realtime_recommendation import" in oc, (
+        "order_calculator must import Engine #2 from the service"
+    )
+    assert "from app.api.routes.analysis import" not in oc, "service->route inversion still present"
 
 
 # ---------------------------------------------------------------------------

@@ -95,8 +95,9 @@ class OrderCalculatorService:
         support_resistance = self._calculate_support_resistance(stock_id, lookback_days=90)
 
         # PHASE 2A: Get overall recommendation (includes weekly trend filter)
-        # Import here to avoid circular dependency
-        from app.api.routes.analysis import _get_recommendation_for_stock
+        # Engine #2 now lives in the service layer (Stage 4A) — this fixes the prior
+        # service->route import inversion (service importing from a route module).
+        from app.services.realtime_recommendation import _get_recommendation_for_stock
 
         try:
             overall_rec = _get_recommendation_for_stock(stock, self.db)
