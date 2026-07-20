@@ -12,6 +12,7 @@ from app.db.database import get_db
 from app.models.stock import Stock
 from app.services.timeframe_service import TimeframeService
 from app.services.risk_management import RiskManager, calculate_risk_metrics_for_pattern
+from app.utils.risk_utils import calculate_position_size
 
 router = APIRouter()
 
@@ -178,31 +179,15 @@ async def calculate_position_sizing(request: PositionSizingRequest):
     if risk_per_share == 0:
         raise HTTPException(status_code=400, detail="Stop-loss cannot equal entry price")
 
-    max_risk_amount = request.account_capital * (request.risk_per_trade_percent / 100)
-    position_size_by_risk = int(max_risk_amount / risk_per_share)
-
-    max_position_value = request.account_capital * (request.max_position_value_percent / 100)
-    max_position_size_by_value = int(max_position_value / request.entry_price)
-
-    position_size = min(position_size_by_risk, max_position_size_by_value)
-    position_value = position_size * request.entry_price
-    actual_risk = position_size * risk_per_share
-    actual_risk_percent = (actual_risk / request.account_capital) * 100
-
-    warnings = []
-    if position_size == 0:
-        warnings.append('Position size is 0 - risk parameters too conservative')
-    if position_value > max_position_value:
-        warnings.append(f'Position capped at {request.max_position_value_percent}% of capital')
-
-    return {
-        'position_size': position_size,
-        'position_value': round(position_value, 2),
-        'risk_amount': round(actual_risk, 2),
-        'capital_at_risk_percent': round(actual_risk_percent, 2),
-        'position_as_percent_of_capital': round((position_value / request.account_capital) * 100, 2),
-        'warnings': warnings if warnings else None
-    }
+    # Delegate to the single source of truth (Stage 2 collapse — BU5 R7). This also
+    # turns a latent ZeroDivisionError (account_capital <= 0) into a safe no-trade result.
+    return calculate_position_size(
+        account_capital=request.account_capital,
+        risk_per_trade_percent=request.risk_per_trade_percent,
+        entry_price=request.entry_price,
+        stop_loss=request.stop_loss,
+        max_position_value_percent=request.max_position_value_percent,
+    )
 
 
 @router.post("/api/risk-management/trailing-stop")

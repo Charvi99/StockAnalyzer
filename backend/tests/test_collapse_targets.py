@@ -79,34 +79,31 @@ def test_risk_position_size_happy_path_parity():
     assert a == b, f"position_size happy-path drift:\n risk_utils={a}\n RiskManager={b}"
 
 
-def test_risk_position_size_guard_branch_drift_documented():
-    """KNOWN DRIFT (Stage 2 reconciles): on the invalid-capital guard branch, risk_utils returns
-    risk_per_share but RiskManager omits it. Lock the current (divergent) behavior so the Stage 2
-    reconciliation is an explicit, visible change."""
+def test_risk_position_size_guard_branch_full_parity():
+    """Stage 2 RECONCILED the guard-branch drift: RiskManager now delegates to risk_utils, so the
+    invalid-capital guard branch returns the SAME dict (incl. risk_per_share). Full equality."""
     from app.utils.risk_utils import calculate_position_size as ru_pos
     from app.services.risk_management import RiskManager
 
     rm = RiskManager(_synthetic_df())
     a = ru_pos(account_capital=0, risk_per_trade_percent=1.0, entry_price=100, stop_loss=95)
     b = rm.calculate_position_size(account_capital=0, risk_per_trade_percent=1.0, entry_price=100, stop_loss=95)
-    assert "risk_per_share" in a, "risk_utils guard branch should still include risk_per_share"
-    assert "risk_per_share" not in b, "RiskManager guard branch currently omits risk_per_share (Stage 2 will fix)"
-    # The 6 keys RiskManager returns must still match risk_utils on the intersection.
-    assert all(a[k] == b[k] for k in b), "guard-branch intersection values diverged"
+    assert "risk_per_share" in b, "reconciled guard branch must include risk_per_share"
+    assert a == b, f"guard-branch drift returned after Stage 2:\n risk_utils={a}\n RiskManager={b}"
 
 
-def test_risk_trailing_stop_intersection_parity_and_atr_drift():
-    """KNOWN DRIFT (Stage 2 reconciles): risk_utils.calculate_trailing_stop returns an extra 'atr'
-    key that RiskManager omits. Values agree on the 4-key intersection."""
+def test_risk_trailing_stop_full_parity():
+    """Stage 2 RECONCILED the trailing-stop drift: RiskManager delegates to risk_utils (passing its
+    precomputed ATR), so both now return the same dict incl. 'atr'. Full equality."""
     from app.utils.risk_utils import calculate_trailing_stop as ru_ts
     from app.services.risk_management import RiskManager
 
     df = _synthetic_df()
     rm = RiskManager(df)
-    a = ru_ts(df, entry_price=100, current_price=110, direction="long", trailing_atr_multiplier=1.0)
+    a = ru_ts(entry_price=100, current_price=110, direction="long", trailing_atr_multiplier=1.0, df=df)
     b = rm.calculate_trailing_stop(entry_price=100, current_price=110, direction="long", trailing_atr_multiplier=1.0)
-    assert "atr" in a and "atr" not in b, "trailing-stop shape drift assumption changed — update Stage 2 plan"
-    assert all(a[k] == b[k] for k in b), f"trailing-stop intersection drift:\n risk_utils={a}\n RiskManager={b}"
+    assert "atr" in a and "atr" in b, "trailing-stop must include 'atr' on both sides after Stage 2"
+    assert a == b, f"trailing-stop drift returned after Stage 2:\n risk_utils={a}\n RiskManager={b}"
 
 
 def test_risk_portfolio_heat_full_parity():

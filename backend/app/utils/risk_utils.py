@@ -8,6 +8,22 @@ import numpy as np
 from typing import Dict, Optional
 
 
+def atr_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Shared True Range -> ATR rolling-mean series (single source of truth for the
+    TR/rolling math used by both `calculate_atr` here and `RiskManager._calculate_atr`).
+
+    Uses min_periods=1, so a partial ATR is available even when there are fewer than
+    `period` rows. Does not mutate the input df. (Stage 2 collapse — BU5 R7.)
+    """
+    df = df.copy()
+    high_low = df['high'] - df['low']
+    high_close = (df['high'] - df['close'].shift(1)).abs()
+    low_close = (df['low'] - df['close'].shift(1)).abs()
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return true_range.rolling(window=period, min_periods=1).mean()
+
+
 def calculate_atr(df: pd.DataFrame, period: int = 14) -> Optional[float]:
     """
     Calculate Average True Range (ATR)
@@ -22,19 +38,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> Optional[float]:
     if df.empty or len(df) < period:
         return None
 
-    df = df.copy()
-
-    # True Range calculation
-    df['high_low'] = df['high'] - df['low']
-    df['high_close'] = abs(df['high'] - df['close'].shift(1))
-    df['low_close'] = abs(df['low'] - df['close'].shift(1))
-
-    df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
-
-    # ATR is the rolling average of True Range
-    df['atr'] = df['true_range'].rolling(window=period, min_periods=1).mean()
-
-    return float(df['atr'].iloc[-1])
+    return float(atr_series(df, period).iloc[-1])
 
 
 def calculate_position_size(
@@ -165,26 +169,32 @@ def calculate_risk_reward_ratio(
 
 
 def calculate_trailing_stop(
-    df: pd.DataFrame,
     entry_price: float,
     current_price: float,
     direction: str = 'long',
-    trailing_atr_multiplier: float = 1.0
+    trailing_atr_multiplier: float = 1.0,
+    current_atr: Optional[float] = None,
+    df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, float]:
     """
     Calculate trailing stop-loss that moves with price
 
+    A precomputed `current_atr` may be passed to avoid recomputation (e.g. RiskManager,
+    which already has one); otherwise it is derived from `df` if provided. (Stage 2 collapse.)
+
     Args:
-        df: DataFrame with price data
         entry_price: Original entry price
         current_price: Current market price
         direction: 'long' or 'short'
         trailing_atr_multiplier: ATR multiplier for trailing stop (default: 1.0)
+        current_atr: Precomputed ATR (optional — skips the df-based recompute)
+        df: DataFrame with price data (used only if current_atr is not given)
 
     Returns:
-        Dictionary with trailing_stop, profit, profit_atr_multiple, and recommendation
+        Dictionary with trailing_stop, profit, profit_atr_multiple, recommendation, and atr
     """
-    current_atr = calculate_atr(df)
+    if current_atr is None and df is not None:
+        current_atr = calculate_atr(df)
 
     if not current_atr:
         return {
