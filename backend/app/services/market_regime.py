@@ -66,11 +66,17 @@ class MarketRegimeService:
 
         # Smoothed TR and DM
         df['atr'] = df['true_range'].rolling(window=period, min_periods=1).mean()
-        df['plus_di'] = 100 * (df['plus_dm'].rolling(window=period, min_periods=1).mean() / df['atr'])
-        df['minus_di'] = 100 * (df['minus_dm'].rolling(window=period, min_periods=1).mean() / df['atr'])
+        # Guard division by zero: flat / very-low-volatility bars yield atr=0 or
+        # plus_di+minus_di=0, which would otherwise produce inf and silently
+        # misclassify the regime (ADX comparisons against inf are wrong). NaN
+        # propagates and the regime correctly falls back to 'range'. (BU1 audit)
+        atr_safe = df['atr'].replace(0, np.nan)
+        df['plus_di'] = 100 * (df['plus_dm'].rolling(window=period, min_periods=1).mean() / atr_safe)
+        df['minus_di'] = 100 * (df['minus_dm'].rolling(window=period, min_periods=1).mean() / atr_safe)
 
         # Calculate DX and ADX
-        df['dx'] = 100 * abs(df['plus_di'] - df['minus_di']) / (df['plus_di'] + df['minus_di'])
+        di_sum = (df['plus_di'] + df['minus_di']).replace(0, np.nan)
+        df['dx'] = 100 * abs(df['plus_di'] - df['minus_di']) / di_sum
         df['adx'] = df['dx'].rolling(window=period, min_periods=1).mean()
 
         # Clean up intermediate columns

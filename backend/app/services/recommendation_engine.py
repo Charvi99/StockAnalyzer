@@ -147,32 +147,42 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
                 indicator_count = 0
 
                 # PHASE 1 INDICATORS
+                # NOTE: `indicators` is a DataFrame (calculate_all_indicators returns
+                # pd.DataFrame). Values must be read via .iloc[-1], NOT dict-style
+                # ['value'] — the old access raised KeyError and was silently swallowed
+                # by the except below, so RSI/MACD/SMA never contributed. (BU1 audit)
 
                 # RSI
-                if 'rsi' in indicators:
-                    rsi = indicators['rsi']['value']
-                    if rsi < 30:
-                        tech_score += 1.0  # Oversold - bullish
-                    elif rsi > 70:
-                        tech_score -= 1.0  # Overbought - bearish
-                    indicator_count += 1
+                if 'rsi' in indicators.columns:
+                    rsi = indicators['rsi'].iloc[-1]
+                    if pd.notna(rsi):
+                        if rsi < 30:
+                            tech_score += 1.0  # Oversold - bullish
+                        elif rsi > 70:
+                            tech_score -= 1.0  # Overbought - bearish
+                        indicator_count += 1
 
-                # MACD
-                if 'macd' in indicators:
-                    macd_signal = indicators['macd'].get('signal', 'neutral')
-                    if macd_signal == 'bullish':
-                        tech_score += 1.0
-                    elif macd_signal == 'bearish':
-                        tech_score -= 1.0
-                    indicator_count += 1
+                # MACD — 'macd_trend' is the bullish/bearish signal column
+                # (do NOT confuse with 'macd_signal', which is the signal LINE)
+                if 'macd_trend' in indicators.columns:
+                    macd_signal = indicators['macd_trend'].iloc[-1]
+                    if pd.notna(macd_signal):
+                        if macd_signal == 'bullish':
+                            tech_score += 1.0
+                        elif macd_signal == 'bearish':
+                            tech_score -= 1.0
+                        indicator_count += 1
 
-                # Moving Average Trend
-                if 'sma_50' in indicators and 'sma_200' in indicators:
-                    if indicators['sma_50']['value'] > indicators['sma_200']['value']:
-                        tech_score += 0.5  # Golden cross zone
-                    else:
-                        tech_score -= 0.5  # Death cross zone
-                    indicator_count += 1
+                # Moving Average Trend (golden / death cross)
+                if 'sma_50' in indicators.columns and 'sma_200' in indicators.columns:
+                    sma_50 = indicators['sma_50'].iloc[-1]
+                    sma_200 = indicators['sma_200'].iloc[-1]
+                    if pd.notna(sma_50) and pd.notna(sma_200):
+                        if sma_50 > sma_200:
+                            tech_score += 0.5  # Golden cross zone
+                        else:
+                            tech_score -= 0.5  # Death cross zone
+                        indicator_count += 1
 
                 # PHASE 2 & PHASE 3 NEW INDICATORS - Weighted by category
 
