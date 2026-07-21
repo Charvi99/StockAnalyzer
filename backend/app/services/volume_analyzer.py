@@ -237,15 +237,21 @@ class VolumeAnalyzer:
             Dictionary with volume analysis
         """
         try:
-            # Convert dates to pandas timestamps to match index
-            start_date = pd.Timestamp(start_date)
-            end_date = pd.Timestamp(end_date)
+            # Normalize start/end to the SAME tz as the DataFrame index so the range
+            # comparison doesn't raise "Invalid comparison between datetime64[ns, UTC]
+            # and Timestamp". After the TIMESTAMPTZ migration the price index is
+            # tz-aware UTC, but inputs may be naive or aware; this handles both (and a
+            # naive index, e.g. in backtests).
+            idx_tz = getattr(self.df.index, 'tz', None)
 
-            # Remove timezone info if present (to match index)
-            if start_date.tz is not None:
-                start_date = start_date.tz_localize(None)
-            if end_date.tz is not None:
-                end_date = end_date.tz_localize(None)
+            def _to_index_tz(ts):
+                ts = pd.Timestamp(ts)
+                if idx_tz is None:
+                    return ts.tz_localize(None) if ts.tz is not None else ts
+                return ts.tz_localize(idx_tz) if ts.tz is None else ts.tz_convert(idx_tz)
+
+            start_date = _to_index_tz(start_date)
+            end_date = _to_index_tz(end_date)
 
             # Get date range indices
             mask = (self.df.index >= start_date) & (self.df.index <= end_date)
