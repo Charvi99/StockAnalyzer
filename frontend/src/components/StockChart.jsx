@@ -40,7 +40,7 @@ const StockChart = memo(({ prices, symbol, stockId, indicatorParams, patterns = 
           days: '365',
           ...indicatorParams
         });
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8080'}/api/v1/stocks/${stockId}/indicators?${params}`);
+        const response = await fetch(`${process.env.REACT_APP_API_URL || (window.location.protocol + '//' + window.location.hostname + ':8080')}/api/v1/stocks/${stockId}/indicators?${params}`);
         const data = await response.json();
         setIndicatorData(data);
       } catch (error) {

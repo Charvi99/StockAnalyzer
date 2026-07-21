@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import IndicatorInfo from './IndicatorInfo';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_URL = process.env.REACT_APP_API_URL || (window.location.protocol + '//' + window.location.hostname + ':8080');
 
 const TechnicalAnalysis = ({ stockId, symbol, indicatorParams, setIndicatorParams, onAnalysisUpdated }) => {
   const [analysis, setAnalysis] = useState(null);

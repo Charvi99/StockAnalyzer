@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_URL = process.env.REACT_APP_API_URL || (window.location.protocol + '//' + window.location.hostname + ':8080');
 
 const OrderCalculator = ({ stockId, symbol }) => {
   const [calculating, setCalculating] = useState(false);

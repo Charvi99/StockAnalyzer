@@ -3,7 +3,7 @@ import axios from 'axios';
 import SignalRadar from './SignalRadar';
 import OrderCalculator from './OrderCalculator';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_URL = process.env.REACT_APP_API_URL || (window.location.protocol + '//' + window.location.hostname + ':8080');
 
 const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendationError }) => {
   const [regimeData, setRegimeData] = useState(null);
