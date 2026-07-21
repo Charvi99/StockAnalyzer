@@ -398,8 +398,9 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete, isAnal
         /* Analyzing badge */
         .analyzing-badge {
           position: absolute;
-          top: 16px;
-          left: 16px;
+          top: 12px;
+          left: 50%;
+          transform: translateX(-50%);
           z-index: 15;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
@@ -416,11 +417,11 @@ const StockCard = ({ stock, onViewDetails, onUntrack, onAnalysisComplete, isAnal
 
         @keyframes pulse-analyzing {
           0%, 100% {
-            transform: scale(1);
+            transform: translateX(-50%) scale(1);
             opacity: 1;
           }
           50% {
-            transform: scale(1.05);
+            transform: translateX(-50%) scale(1.05);
             opacity: 0.9;
           }
         }

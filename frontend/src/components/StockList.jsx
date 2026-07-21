@@ -187,15 +187,16 @@ const StockList = () => {
             message: `Running analysis for ${triggerResult.triggered_count} stocks...`
           });
 
-          // Keep the indicator visible for 30 seconds, then auto-hide
-          // Clear analyzing status after 60 seconds (analysis should be done by then)
+          // auto-trigger progress banner auto-hides after 30s
           setTimeout(() => {
             setAutoTriggerActive(false);
           }, 30000);
 
-          setTimeout(() => {
-            setAnalyzingStockIds(new Set());
-          }, 60000);
+          // Per-stock "Analyzing..." badges are cleared by the poll (checkForUpdates)
+          // when each stock's fresh data lands — NO blind timer. analyze_stock_comprehensive
+          // sets last_comprehensive_analysis on completion (even partial), and the poll's
+          // server-timestamp watermark reliably catches every stock, so a fallback that
+          // nukes all badges prematurely would only cause false "done" signals again.
         } else {
           console.log('✅ All stocks have fresh analysis data, no auto-trigger needed');
         }
@@ -220,83 +221,61 @@ const StockList = () => {
   useEffect(() => {
     if (!autoRefreshEnabled) return;
 
-    // Track last poll time
-    let lastPollTime = new Date().toISOString();
+    // Start ~60s in the past to absorb client/server clock skew on the first poll.
+    let lastPollTime = new Date(Date.now() - 60000).toISOString();
 
     const checkForUpdates = async () => {
       try {
-        console.log('🔍 [POLL] Checking for updates since:', lastPollTime);
-
-        // PHASE 4: Efficient check - only get IDs of updated stocks
+        // Only fetch IDs of updated stocks (cheap), then full data for just those.
         const recentUpdates = await getRecentUpdates(lastPollTime);
-        console.log('📊 [POLL] Recent updates response:', recentUpdates);
 
         if (recentUpdates.count > 0) {
-          console.log(`🔄 [POLL] ${recentUpdates.count} stocks updated, fetching full data...`);
-
-          // Fetch only the updated stocks
           const updatedStockIds = recentUpdates.updates.map(u => u.stock_id);
-          console.log('📦 [POLL] Fetching stock IDs:', updatedStockIds);
-
           const updatedData = await getAnalysisByIds(updatedStockIds);
-          console.log('✅ [POLL] Received updated data:', updatedData);
 
-          // Log specific fields for debugging
-          updatedData.stocks.forEach(s => {
-            console.log(`📈 [POLL] ${s.symbol}:`, {
-              analysis_score: s.analysis_score,
-              analysis_complete: s.analysis_complete,
-              final_recommendation: s.final_recommendation,
-              technical_recommendation: s.technical_recommendation
-            });
-          });
-
-          // Merge updates into existing stocks array (preserve scroll position)
+          // Merge only the changed stocks; unchanged stocks keep their object ref so
+          // a memoized StockCard skips re-rendering them.
           setStocks(prevStocks => {
-            console.log('🔄 [POLL] Merging updates into state...');
             const updatedMap = new Map(updatedData.stocks.map(s => [s.stock_id, s]));
-            const newStocks = prevStocks.map(stock => {
-              if (updatedMap.has(stock.stock_id)) {
-                const updated = updatedMap.get(stock.stock_id);
-                console.log(`✏️ [POLL] Updating ${stock.symbol}:`, {
-                  old_score: stock.analysis_score,
-                  new_score: updated.analysis_score,
-                  old_recommendation: stock.final_recommendation,
-                  new_recommendation: updated.final_recommendation
-                });
-                return { ...updated, _loading: false };
-              }
-              return stock;
-            });
-            console.log('✅ [POLL] State merge complete');
-            return newStocks;
+            return prevStocks.map(stock =>
+              updatedMap.has(stock.stock_id)
+                ? { ...updatedMap.get(stock.stock_id), _loading: false }
+                : stock
+            );
           });
 
-          // Show toast notification
+          // Clear the "Analyzing..." badge for stocks whose fresh data just landed —
+          // the real completion signal (badge stays until the stock is actually updated,
+          // not cleared by a blind timer).
+          setAnalyzingStockIds(prev => {
+            if (prev.size === 0) return prev;
+            const next = new Set(prev);
+            updatedStockIds.forEach(id => next.delete(id));
+            return next;
+          });
+
+          // Toast = the "these tickers are really updated" signal the user watches for.
           const symbols = recentUpdates.updates.map(u => u.symbol).slice(0, 3).join(', ');
-          const message = recentUpdates.count === 1
-            ? `${symbols} updated`
-            : recentUpdates.count <= 3
+          const message = recentUpdates.count <= 3
             ? `${symbols} updated`
             : `${symbols} and ${recentUpdates.count - 3} more updated`;
-
           showToast(message, 'success', 4000);
-          console.log(`🎉 [POLL] Toast shown: "${message}"`);
-
-          console.log(`✅ [POLL] Update complete for stocks:`,
-            recentUpdates.updates.map(u => u.symbol).join(', '));
 
           setLastRefresh(new Date());
 
-          // Update last poll time to now
-          lastPollTime = new Date().toISOString();
-          console.log('⏰ [POLL] Next poll will check from:', lastPollTime);
-        } else {
-          console.log('⏭️ [POLL] No new analysis data, skipping refresh');
+          // Advance the watermark from the SERVER's timestamps (max updated_at), NOT
+          // the client clock: client/server clock skew made the poll step over some
+          // completions, leaving their "Analyzing..." badges stuck. (The verbose
+          // per-tick console.logs that retained large response objects in dev-mode
+          // memory were removed here too — they caused the tab to balloon ~75->495MB.)
+          const maxServerTs = recentUpdates.updates.reduce((mx, u) => {
+            const t = new Date(u.updated_at).getTime();
+            return Number.isFinite(t) && t > mx ? t : mx;
+          }, 0);
+          if (maxServerTs) lastPollTime = new Date(maxServerTs).toISOString();
         }
       } catch (err) {
-        console.error('❌ [POLL] Auto-refresh check failed:', err);
-        console.error('❌ [POLL] Error details:', err.message, err.stack);
+        console.error('[POLL] Auto-refresh check failed:', err.message);
       }
     };
 

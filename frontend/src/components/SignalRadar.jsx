@@ -44,10 +44,10 @@ const SignalRadar = ({ recommendation }) => {
         factor: 'Chart Pattern',
         value: processSignal(recommendation.chart_pattern_signal, recommendation.chart_pattern_confidence),
       },
-      {
-        factor: 'Overall',
-        value: processSignal(recommendation.final_recommendation, recommendation.overall_confidence),
-      },
+      // 'Overall' is intentionally NOT a radar axis: it is the *combined*
+      // recommendation (shown as the header badge below). Plotting it as an axis
+      // made the polygon's overall reach just duplicate the Technical axis.
+      // (user issue #3)
     ];
 
     return data.map(item => ({ ...item, normalizedValue: item.value + 100 }));
@@ -85,7 +85,14 @@ const SignalRadar = ({ recommendation }) => {
 
   return (
     <div className="signal-radar">
-      <h3>Signal Strength Analysis</h3>
+      <div className="radar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Signal Strength Analysis</h3>
+        <div className="overall-badge" title="Combined recommendation across all factors" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 10, border: `2px solid ${finalColor}`, background: finalColor + '20' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', color: '#6b7280' }}>OVERALL</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: finalColor }}>{recommendation.final_recommendation}</span>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>{((recommendation.overall_confidence || 0) * 100).toFixed(0)}%</span>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={400}>
         <RadarChart cx="50%" cy="50%" outerRadius="80%" data={thresholdData}>
           <PolarGrid />
