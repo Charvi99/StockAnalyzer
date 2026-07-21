@@ -127,12 +127,13 @@ def test_pattern_thresholds_canonical_values():
     from app.config.pattern_thresholds import swing_detector_kwargs, swing_detect_kwargs
     assert swing_detector_kwargs() == {
         "min_pattern_length": 5, "peak_order": 5,
-        "min_confidence": 0.7, "min_r_squared": 0.85,
+        "min_confidence": 0.5, "min_r_squared": 0.70,
     }
     assert swing_detect_kwargs() == {
-        "days": 30,
+        "days": 90,
         "exclude_patterns": ["Rounding Top", "Rounding Bottom"],
         "remove_overlaps": True, "overlap_threshold": 0.3,
+        "timeframes": ["4h", "1d"],
     }
     # Fresh dict each call — no shared-mutation footgun when **-spread at call sites:
     assert swing_detector_kwargs() is not swing_detector_kwargs()
@@ -228,11 +229,16 @@ def test_rec_engine2_lives_in_service_route_delegates():
     route = _read("app/api/routes/analysis.py")
     oc = _read("app/services/order_calculator.py")
 
-    # Engine #2 + its helpers now live in the service:
+    # Engine #2 entrypoint lives in the service; its 4 pure helpers were lifted into
+    # the pure signal layer (Phase 0.4a) and imported back into the service:
     assert "def _get_recommendation_for_stock" in svc, "Engine #2 entrypoint missing from service"
-    for helper in ["_check_weekly_trend", "_detect_swing_points",
-                   "_categorize_candlestick_pattern", "_evaluate_swing_trading_context"]:
-        assert f"def {helper}" in svc, f"Engine #2 helper {helper} missing from service"
+    core = _read("app/services/signal/core.py")
+    for helper in ["def check_weekly_trend", "def detect_swing_points",
+                   "def categorize_candlestick_pattern", "def evaluate_swing_trading_context"]:
+        assert helper in core, f"Engine #2 pure helper {helper} missing from signal/core.py"
+    assert "from app.services.signal.core import" in svc, (
+        "service must import the 4 helpers back from the pure signal layer (0.4a)"
+    )
 
     # Route no longer holds the logic inline — it imports + delegates:
     assert "from app.services.realtime_recommendation import _get_recommendation_for_stock" in route, (
