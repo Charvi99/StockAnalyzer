@@ -215,9 +215,12 @@ def analyze_stock_comprehensive(self, stock_id: int, symbol: str):
             from app.models.stock import StockPrice
             import pandas as pd
 
-            # Fetch price data for last 90 days for technical indicators
+            # Fetch price data for last 90 days for technical indicators (daily bars
+            # only — without the timeframe filter this mixed 1h/4h/1d/1w rows, since
+            # stock_prices holds every timeframe).
             prices = db.query(StockPrice).filter(
-                StockPrice.stock_id == stock_id
+                StockPrice.stock_id == stock_id,
+                StockPrice.timeframe == '1d'
             ).order_by(StockPrice.timestamp.desc()).limit(90).all()
 
             if not prices:

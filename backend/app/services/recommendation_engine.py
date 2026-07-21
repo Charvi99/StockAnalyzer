@@ -76,11 +76,11 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
 
                 # Weight by confidence and multi-timeframe confirmation
                 bullish_score = sum(
-                    p.confidence_score * (1 + p.confirmation_level * 0.2)
+                    float(p.confidence_score) * (1 + float(p.confirmation_level or 0) * 0.2)
                     for p in recent_patterns if p.signal == 'bullish'
                 )
                 bearish_score = sum(
-                    p.confidence_score * (1 + p.confirmation_level * 0.2)
+                    float(p.confidence_score) * (1 + float(p.confirmation_level or 0) * 0.2)
                     for p in recent_patterns if p.signal == 'bearish'
                 )
 
@@ -97,12 +97,12 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
         try:
             recent_cs = db.query(CandlestickPattern).filter(
                 CandlestickPattern.stock_id == stock_id,
-                CandlestickPattern.date >= datetime.now(timezone.utc).date() - timedelta(days=7)
+                CandlestickPattern.timestamp >= datetime.now(timezone.utc) - timedelta(days=7)
             ).all()
 
             if recent_cs:
-                bullish_cs = sum(p.confidence_score for p in recent_cs if p.signal == 'bullish')
-                bearish_cs = sum(p.confidence_score for p in recent_cs if p.signal == 'bearish')
+                bullish_cs = sum(float(p.confidence_score) for p in recent_cs if p.signal == 'bullish')
+                bearish_cs = sum(float(p.confidence_score) for p in recent_cs if p.signal == 'bearish')
 
                 total_cs = bullish_cs + bearish_cs
                 if total_cs > 0:

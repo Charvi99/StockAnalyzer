@@ -42,6 +42,11 @@ celery_app.conf.update(
         'app.tasks.fetcher_tasks.*': {'queue': 'fetcher'},
         'app.tasks.processor_tasks.*': {'queue': 'processor'},
         'app.tasks.maintenance_tasks.*': {'queue': 'maintenance'},
+        # analysis_tasks -> processor (CPU-bound). Without this, analysis tasks fall
+        # into the default 'celery' queue, which the worker does NOT consume (it only
+        # listens on fetcher/processor/maintenance), so scheduled + batch analysis
+        # never executed — the whole analysis pipeline was silently dead via Celery.
+        'app.tasks.analysis_tasks.*': {'queue': 'processor'},
     },
 
     # Priority system (0-10, higher = more urgent)
