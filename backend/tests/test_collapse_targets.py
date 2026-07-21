@@ -235,15 +235,18 @@ def test_rec_engine2_lives_in_service_route_delegates():
     route = _read("app/api/routes/analysis.py")
     oc = _read("app/services/order_calculator.py")
 
-    # Engine #2 entrypoint lives in the service; its 4 pure helpers were lifted into
-    # the pure signal layer (Phase 0.4a) and imported back into the service:
+    # Engine #2 entrypoint lives in the service; its scoring was lifted into the
+    # pure signal layer (Phase 0.4c: signal/swing.py, which uses the 0.4a helpers
+    # in signal/core.py). The service delegates to signal_swing:
     assert "def _get_recommendation_for_stock" in svc, "Engine #2 entrypoint missing from service"
     core = _read("app/services/signal/core.py")
     for helper in ["def check_weekly_trend", "def detect_swing_points",
                    "def categorize_candlestick_pattern", "def evaluate_swing_trading_context"]:
         assert helper in core, f"Engine #2 pure helper {helper} missing from signal/core.py"
-    assert "from app.services.signal.core import" in svc, (
-        "service must import the 4 helpers back from the pure signal layer (0.4a)"
+    swing = _read("app/services/signal/swing.py")
+    assert "def signal_swing(" in swing, "Engine #2 pure signal function missing from signal/swing.py"
+    assert "from app.services.signal.swing import signal_swing" in svc, (
+        "service must delegate to the pure signal_swing function (0.4c)"
     )
 
     # Route no longer holds the logic inline — it imports + delegates:
