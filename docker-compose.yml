@@ -95,7 +95,38 @@ services:
       dockerfile: Dockerfile
     container_name: stock_analyzer_celery_worker
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=7 --queues=fetcher,processor,maintenance
+    # I/O-bound (Polygon API waits + inter-stock sleeps) — safe to run above core count.
+    # Fetcher + maintenance only; CPU-bound analysis runs on the dedicated celery_processor.
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=8 --queues=fetcher,maintenance
+    environment:
+      DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-demo}
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backend_models:/app/ml/models
+      - ml_models:/app/ml_models  # Access to trained ML models
+
+  # ============================================
+  # CELERY PROCESSOR WORKER - CPU-bound analysis (chart patterns, indicators)
+  # Dedicated pool so CPU-bound analysis never contends with I/O-bound fetching.
+  # Concurrency capped below core count (8 cores) to leave headroom for the
+  # fetcher bursts + backend/db/frontend.
+  # ============================================
+  celery_processor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock_analyzer_celery_processor
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=6 --queues=processor
     environment:
       DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
       CELERY_BROKER_URL: redis://redis:6379/0
