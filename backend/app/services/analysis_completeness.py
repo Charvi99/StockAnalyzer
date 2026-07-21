@@ -27,14 +27,19 @@ class AnalysisCompletenessService:
     """
     Service for managing analysis completeness tracking.
 
-    Analysis Score Calculation:
-    - Chart patterns (recent): 20%
-    - Candlestick patterns (recent): 20%
-    - Sentiment analysis (recent): 20%
-    - Technical indicators (recent): 20%
-    - ML predictions (if available): 20%
+    Analysis Score Calculation (counts ONLY the steps that
+    ``analyze_stock_comprehensive`` actually runs):
+    - Chart patterns (recent):      1/3
+    - Candlestick patterns (recent): 1/3
+    - Technical indicators (recent): 1/3
 
-    "Recent" is defined by max_age parameter (default: 24 hours for most, 7 days for ML)
+    ML predictions are NOT part of the active pipeline (model not running) and
+    sentiment is derived from news at fetch time (not an analysis step), so neither
+    is counted. Previously all five were counted at 20% each, which capped the score
+    at 0.60 and made ``analysis_complete`` (>=0.80) unreachable — the root cause of
+    the "⚠ 60% forever" display and the perpetual re-analysis loop.
+
+    "Recent" is defined by max_age parameter (default: 24 hours).
     """
 
     # Staleness thresholds (hours)
@@ -61,9 +66,9 @@ class AnalysisCompletenessService:
         score = 0.0
         now = datetime.now(timezone.utc)
         max_age = timedelta(hours=max_age_hours)
-        ml_max_age = timedelta(hours=AnalysisCompletenessService.ML_MAX_AGE_HOURS)
+        per_component = 1.0 / 3.0  # chart / candlestick / technical — the steps that actually run
 
-        # Component 1: Chart Patterns (20%)
+        # Component 1: Chart Patterns (1/3)
         if stock.last_chart_pattern_detection and (now - stock.last_chart_pattern_detection) < max_age:
             # Verify we actually have patterns in database
             pattern_count = db.query(func.count(ChartPattern.id)).filter(
@@ -71,39 +76,27 @@ class AnalysisCompletenessService:
             ).scalar()
             if pattern_count > 0 or (now - stock.last_chart_pattern_detection) < timedelta(hours=1):
                 # Either has patterns, or was checked very recently (no patterns found is valid)
-                score += 0.20
+                score += per_component
 
-        # Component 2: Candlestick Patterns (20%)
+        # Component 2: Candlestick Patterns (1/3)
         if stock.last_candlestick_detection and (now - stock.last_candlestick_detection) < max_age:
             candlestick_count = db.query(func.count(CandlestickPattern.id)).filter(
                 CandlestickPattern.stock_id == stock.id
             ).scalar()
             if candlestick_count > 0 or (now - stock.last_candlestick_detection) < timedelta(hours=1):
-                score += 0.20
+                score += per_component
 
-        # Component 3: Sentiment Analysis (20%)
-        if stock.last_sentiment_analysis and (now - stock.last_sentiment_analysis) < max_age:
-            sentiment_count = db.query(func.count(SentimentScore.id)).filter(
-                SentimentScore.stock_id == stock.id
-            ).scalar()
-            if sentiment_count > 0:
-                score += 0.20
-
-        # Component 4: Technical Indicators (20%)
+        # Component 3: Technical Indicators (1/3)
         if stock.last_technical_analysis and (now - stock.last_technical_analysis) < max_age:
             indicator_count = db.query(func.count(TechnicalIndicator.id)).filter(
                 TechnicalIndicator.stock_id == stock.id
             ).scalar()
             if indicator_count > 0:
-                score += 0.20
+                score += per_component
 
-        # Component 5: ML Predictions (20%) - Optional, longer staleness threshold
-        if stock.last_ml_prediction and (now - stock.last_ml_prediction) < ml_max_age:
-            prediction_count = db.query(func.count(Prediction.id)).filter(
-                Prediction.stock_id == stock.id
-            ).scalar()
-            if prediction_count > 0:
-                score += 0.20
+        # NOTE: sentiment (derived from news at fetch time, not an analysis step) and
+        # ML predictions (model not running) are intentionally NOT counted — counting
+        # them capped the score at 0.60 and made analysis_complete unreachable.
 
         return round(score, 2)
 
@@ -127,27 +120,14 @@ class AnalysisCompletenessService:
         missing = []
         now = datetime.now(timezone.utc)
         max_age = timedelta(hours=max_age_hours)
-        ml_max_age = timedelta(hours=AnalysisCompletenessService.ML_MAX_AGE_HOURS)
 
-        # Check Chart Patterns
+        # Only the components the analysis pipeline actually runs (see calculate_completeness_score)
         if not stock.last_chart_pattern_detection or (now - stock.last_chart_pattern_detection) >= max_age:
             missing.append("chart_patterns")
-
-        # Check Candlestick Patterns
         if not stock.last_candlestick_detection or (now - stock.last_candlestick_detection) >= max_age:
             missing.append("candlestick_patterns")
-
-        # Check Sentiment Analysis
-        if not stock.last_sentiment_analysis or (now - stock.last_sentiment_analysis) >= max_age:
-            missing.append("sentiment")
-
-        # Check Technical Indicators
         if not stock.last_technical_analysis or (now - stock.last_technical_analysis) >= max_age:
             missing.append("technical_indicators")
-
-        # Check ML Predictions (optional, longer threshold)
-        if not stock.last_ml_prediction or (now - stock.last_ml_prediction) >= ml_max_age:
-            missing.append("ml_prediction")
 
         return missing
 
