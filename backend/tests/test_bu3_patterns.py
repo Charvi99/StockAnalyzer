@@ -108,6 +108,33 @@ def test_p2_r_squared_double_penalized():
     assert q < 0.9, f"quality already lowered by R² weight: {q:.3f}"
 
 
+def test_p1_production_code_is_fixed():
+    """Regression guard: the REAL ChartPatternDetector._calculate_pattern_quality
+    (not the replica) must treat base_confidence as live for continuation patterns.
+    Before the P1/D12 fix the dangling 0.0 weight (zip misalignment) zeroed it. The
+    method body references no self.* attributes, so we bypass __init__ (no DataFrame
+    needed). base_confidence is read from pattern_data['confidence_score']."""
+    try:
+        from app.services.chart_patterns import ChartPatternDetector
+    except Exception as e:  # env-dependent (numpy/pandas)
+        import warnings
+        warnings.warn(f"chart_patterns import skipped in this env: {e}")
+        return
+    det = ChartPatternDetector.__new__(ChartPatternDetector)
+    pd_cont = {"pattern_type": "continuation",
+               "trendlines": {"a": {"r_squared": 0.9}},
+               "volume_profile": {"volume_score": 0.5}}
+    lo = det._calculate_pattern_quality({**pd_cont, "confidence_score": 0.0})
+    hi = det._calculate_pattern_quality({**pd_cont, "confidence_score": 1.0})
+    # Fixed formula: base_confidence moves the score by 0.25 (0.20/0.80 renormalized
+    # over sum(weights)=0.80, prior-trend slot absent for continuation patterns).
+    assert abs((hi - lo) - 0.25) < 1e-9, (
+        f"P1 REGRESSION: production continuation-pattern score moved {hi - lo:.4f} "
+        f"(expected 0.25). base_confidence is dead again — the dangling 0.0 weight / "
+        "zip misalignment returned to _calculate_pattern_quality."
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

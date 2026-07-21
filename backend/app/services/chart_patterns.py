@@ -393,13 +393,17 @@ class ChartPatternDetector:
             scores.append(volume_score)
             weights.append(0.25)  # 25% weight
 
-        # Prior trend strength (for reversal patterns)
+        # Prior trend strength — reversal patterns only. A continuation pattern has
+        # no prior trend to score, so the factor is skipped entirely (both score and
+        # weight omitted). Previously this branch appended a bare 0.0 weight with no
+        # matching score, misaligning scores/weights: zip() then paired base_confidence
+        # with the 0.0 weight (dropping its 0.20 contribution) while sum(weights) still
+        # counted 0.20 in the denominator — deflating every continuation pattern's
+        # confidence (audit P1/D12, the over-filter).
         if pattern_data.get('pattern_type') == 'reversal' and 'prior_trend' in pattern_data:
             trend_strength = pattern_data['prior_trend'].get('strength', 0.0)
             scores.append(trend_strength)
             weights.append(0.20)  # 20% weight
-        else:
-            weights.append(0.0)  # Not applicable for continuation patterns
 
         # Pattern-specific quality factors
         base_confidence = pattern_data.get('confidence_score', 0.7)
