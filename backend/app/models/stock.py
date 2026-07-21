@@ -95,7 +95,7 @@ class Prediction(Base):
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
     prediction_date = Column(TIMESTAMP(timezone=True), nullable=False)
     target_date = Column(TIMESTAMP(timezone=True), nullable=False)
     predicted_price = Column(DECIMAL(12, 4))
@@ -118,7 +118,7 @@ class PredictionPerformance(Base):
     __tablename__ = "prediction_performance"
 
     id = Column(Integer, primary_key=True, index=True)
-    prediction_id = Column(Integer, ForeignKey("predictions.id", ondelete="CASCADE"), nullable=False)
+    prediction_id = Column(Integer, ForeignKey("predictions.id", ondelete="CASCADE"), nullable=False, index=True)
     actual_price = Column(DECIMAL(12, 4))
     actual_change_percent = Column(DECIMAL(8, 4))
     prediction_error = Column(DECIMAL(12, 4))
@@ -168,7 +168,7 @@ class SentimentScore(Base):
     __tablename__ = "sentiment_scores"
 
     id = Column(Integer, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
     timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
     sentiment_index = Column(DECIMAL(8, 4))
     positive_count = Column(Integer, default=0)
@@ -193,7 +193,7 @@ class CandlestickPattern(Base):
     __tablename__ = "candlestick_patterns"
 
     id = Column(Integer, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
     pattern_name = Column(String(100), nullable=False)
     pattern_type = Column(String(20), nullable=False)
     timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
@@ -217,7 +217,7 @@ class ChartPattern(Base):
     __tablename__ = "chart_patterns"
 
     id = Column(Integer, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
     pattern_name = Column(String(100), nullable=False)
     pattern_type = Column(String(20), nullable=False)  # reversal, continuation
     signal = Column(String(20), nullable=False)  # bullish, bearish, neutral

@@ -10,7 +10,8 @@ Locks in the schema facts so a future change is intentional and visible:
        to naive fails this test.
   S1b — the codebase uses datetime.now(timezone.utc) everywhere (no utcnow()/bare
         datetime.now()), except market_hours.py (America/New_York, deferred).
-  S2 — reports which foreign-key columns lack an index (the unindexed-FK perf finding).
+  S2 — every foreign-key column is indexed (FIXED via the 20260721_fk migration); the
+       test now fails if any future FK regresses to unindexed.
 """
 import sys
 import os
@@ -91,30 +92,26 @@ def test_no_naive_datetime_calls_remain():
     assert not ft_hits, f"naive fromtimestamp (add tz=timezone.utc): {ft_hits}"
 
 
-def test_s2_reports_unindexed_foreign_keys():
-    """S2: confirm the known unindexed FKs are still unindexed (locks the finding).
-    If someone indexes one, this test fails so the finding doc is updated."""
+def test_s2_all_foreign_keys_are_indexed():
+    """S2 (FIXED): every foreign-key column is now indexed (via index=True, part of the
+    primary key, or a single-column unique constraint), so joins / filter-by-stock /
+    cascade-deletes use an index instead of a sequential scan. The 20260721_fk migration
+    plus the index=True model flags closed the S2/D21 finding. A future model that adds an
+    unindexed FK fails this test so it is caught before merge."""
     models = _import_models()
     if models is None:
         return
-    known_offenders = {
-        ("chart_patterns", "stock_id"),
-        ("candlestick_patterns", "stock_id"),
-        ("sentiment_scores", "stock_id"),
-        ("predictions", "stock_id"),
-    }
-    found_offenders = set()
+    unindexed = set()
     for _cls_name, tbl in _all_tables(models):
         for col in tbl.columns:
-            for fk in col.foreign_keys:
-                if not (col.primary_key or col.index):
-                    found_offenders.add((tbl.name, col.name))
-    missing = known_offenders - found_offenders
-    # If this fails, someone indexed an FK — great, shrink known_offenders.
-    assert not missing, (
-        f"expected these FKs to still be unindexed (S2); they got indexed (update the test): {missing}"
+            if not col.foreign_keys:
+                continue
+            if not (col.primary_key or col.index or col.unique):
+                unindexed.add((tbl.name, col.name))
+    assert not unindexed, (
+        f"these foreign-key columns are unindexed (S2 regression) — add index=True + a migration: "
+        f"{sorted(unindexed)}"
     )
-    print(f"   S2 unindexed FKs confirmed: {sorted(found_offenders)}")
 
 
 if __name__ == "__main__":
