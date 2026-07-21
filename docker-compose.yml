@@ -50,7 +50,8 @@ services:
       dockerfile: Dockerfile
     container_name: stock_analyzer_frontend
     environment:
-      REACT_APP_API_URL: http://127.0.0.1:8080
+      # REACT_APP_API_URL intentionally unset — api.js derives the backend host from
+      # window.location so the UI works via localhost, Tailscale IP, or LAN IP.
       HOST: 0.0.0.0
     ports:
       - "3000:3000"  # Use standard React port (outside dynamic range)

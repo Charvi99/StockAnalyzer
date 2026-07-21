@@ -80,6 +80,16 @@ def test_no_naive_datetime_calls_remain():
             and "market_hours.py" not in ln]
     assert not hits, f"naive datetime calls remain (convert to now(timezone.utc)): {hits}"
 
+    # Also guard datetime.fromtimestamp(...) WITHOUT tz= — it returns a naive datetime
+    # that breaks bulk-insert-RETURNING into TIMESTAMPTZ columns (the AAPL /fetch 400).
+    proc2 = subprocess.run(
+        ["grep", "-rnE", r"fromtimestamp\(", "backend/app", "--include=*.py"],
+        capture_output=True, text=True, cwd=repo,
+    )
+    ft_hits = [ln for ln in proc2.stdout.splitlines()
+               if "__pycache__" not in ln and "tz=" not in ln]
+    assert not ft_hits, f"naive fromtimestamp (add tz=timezone.utc): {ft_hits}"
+
 
 def test_s2_reports_unindexed_foreign_keys():
     """S2: confirm the known unindexed FKs are still unindexed (locks the finding).

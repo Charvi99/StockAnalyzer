@@ -62,7 +62,7 @@ class PolygonFetcher:
         }
 
         if period == 'ytd':
-            start_date = datetime(end_date.year, 1, 1)
+            start_date = datetime(end_date.year, 1, 1, tzinfo=timezone.utc)
         elif period in period_map:
             start_date = end_date - period_map[period]
         else:
@@ -190,7 +190,7 @@ class PolygonFetcher:
                 prices = []
                 for bar in aggs:
                     # Polygon returns timestamps in milliseconds
-                    timestamp = datetime.fromtimestamp(bar.timestamp / 1000)
+                    timestamp = datetime.fromtimestamp(bar.timestamp / 1000, tz=timezone.utc)
 
                     prices.append({
                         'timestamp': timestamp,
@@ -245,7 +245,7 @@ class PolygonFetcher:
                 return None
 
             # Convert timestamp from nanoseconds
-            timestamp = datetime.fromtimestamp(last_trade.sip_timestamp / 1_000_000_000)
+            timestamp = datetime.fromtimestamp(last_trade.sip_timestamp / 1_000_000_000, tz=timezone.utc)
 
             return {
                 'symbol': symbol.upper(),
@@ -278,7 +278,7 @@ class PolygonFetcher:
                 return None
 
             bar = prev_close[0]
-            timestamp = datetime.fromtimestamp(bar.timestamp / 1000)
+            timestamp = datetime.fromtimestamp(bar.timestamp / 1000, tz=timezone.utc)
 
             return {
                 'timestamp': timestamp,
