@@ -214,6 +214,13 @@ class RecommendationResponse(BaseModel):
     chart_pattern_confidence: Optional[float] = None
     chart_pattern_count: Optional[int] = None
 
+    # Strategy consensus (Phase 0.5): aggregated vote across the registered
+    # trading strategies. Surfaces the "Strategies" radar axis from the engine
+    # response itself (no extra fetch); the per-strategy breakdown comes from
+    # the /strategies/{stock_id}/snapshot endpoint.
+    strategy_consensus_signal: Optional[str] = None
+    strategy_consensus_confidence: Optional[float] = None
+
     # Dividend & split signals (if available)
     dividend_split_signal: Optional[Dict] = None
 

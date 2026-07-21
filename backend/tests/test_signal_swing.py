@@ -125,6 +125,32 @@ def test_sentiment_vote_from_scores():
     assert sr.component_scores["sentiment"] > 0
 
 
+# ── Phase 0.5: strategy-consensus component ────────────────────────────────
+def test_strategy_consensus_in_component_weights():
+    """Phase 0.5 added 'strategy' to COMPONENT_WEIGHTS (drives the config_version
+    change the ledger uses to attribute pre/post-strategy signals)."""
+    assert "strategy" in COMPONENT_WEIGHTS
+
+
+def test_strategy_consensus_joins_vote():
+    """A BUY strategy consensus joins the weighted vote as the 'strategy' component
+    and is carried in extras for the radar axis + ledger."""
+    sr = signal_swing(_short_df(), _tech("HOLD", 0.5), [], [], None, (None, None, None), None,
+                      strategy_consensus=("BUY", 0.8))
+    assert sr.component_scores["strategy"] == 0.8
+    assert sr.extras["strategy_consensus_signal"] == "BUY"
+    assert sr.extras["strategy_consensus_confidence"] == 0.8
+
+
+def test_absent_strategy_consensus_scores_zero():
+    """Without a strategy consensus (the pre-0.5 / failed-consensus case), the
+    strategy component scores 0, does not join the vote, and extras are None."""
+    sr = signal_swing(_short_df(), _tech("BUY", 0.8), [], [], None, (None, None, None), None)
+    assert sr.component_scores["strategy"] == 0.0
+    assert sr.extras["strategy_consensus_signal"] is None
+    assert sr.extras["strategy_consensus_confidence"] is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

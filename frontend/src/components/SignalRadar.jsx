@@ -44,6 +44,14 @@ const SignalRadar = ({ recommendation }) => {
         factor: 'Chart Pattern',
         value: processSignal(recommendation.chart_pattern_signal, recommendation.chart_pattern_confidence),
       },
+      {
+        // Phase 0.5: aggregated vote across the registered trading strategies.
+        factor: 'Strategies',
+        value: processSignal(
+          recommendation.strategy_consensus_signal,
+          recommendation.strategy_consensus_confidence
+        ),
+      },
       // 'Overall' is intentionally NOT a radar axis: it is the *combined*
       // recommendation (shown as the header badge below). Plotting it as an axis
       // made the polygon's overall reach just duplicate the Technical axis.

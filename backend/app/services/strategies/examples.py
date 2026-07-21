@@ -1,47 +1,44 @@
 """
-Example Trading Strategies
+Built-in example trading strategies (Phase 0.5).
 
-This module contains example strategies that demonstrate how to extend
-the BaseStrategy class to create custom trading strategies.
+Each strategy subclasses :class:`BaseStrategy` and is decorated with
+``@register_strategy`` so the :class:`StrategyManager` picks it up via
+auto-discovery — no manual registration list.
 
-Use these as templates for creating your own strategies!
+Parameter names that flow into ``TechnicalIndicators.calculate_all_indicators``
+use the canonical indicator kwargs (``rsi_period``/``macd_fast``/…), which
+removes the audit-finding **S3** mismatch at its source. The ``analyze()``
+bodies are preserved verbatim from the pre-0.5 behavior.
 """
+from typing import Any, Dict, Tuple
 
-from typing import Dict, Tuple, Any
 import pandas as pd
-from .base_strategy import BaseStrategy
+
+from .base import BaseStrategy, register_strategy
 
 
+@register_strategy
 class RSIOversoldOverboughtStrategy(BaseStrategy):
-    """
-    Simple RSI-based strategy.
+    """BUY when RSI < oversold; SELL when RSI > overbought."""
 
-    BUY when RSI < oversold_threshold
-    SELL when RSI > overbought_threshold
-    """
+    name = "RSI Oversold/Overbought"
+    description = "Buy when RSI is oversold, sell when overbought"
 
-    def __init__(self):
-        super().__init__(
-            name="RSI Oversold/Overbought",
-            description="Buy when RSI is oversold, sell when overbought",
-            parameters={
-                'oversold_threshold': 30,
-                'overbought_threshold': 70,
-                'rsi_period': 14
-            }
-        )
+    def get_default_parameters(self) -> Dict[str, Any]:
+        return {
+            'oversold_threshold': 30,
+            'overbought_threshold': 70,
+            'rsi_period': 14,  # canonical: flows into calculate_all_indicators
+        }
 
     def analyze(
         self,
         prices: pd.DataFrame,
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
     ) -> Tuple[str, float, Dict[str, Any]]:
-        """Analyze using RSI indicator."""
-
         if not self.validate_data(prices):
             return 'HOLD', 0.0, {'reason': 'Insufficient data'}
 
-        # Get RSI value
         rsi = indicators.get('RSI', {})
         rsi_value = rsi.get('value', 50)
 
@@ -49,13 +46,10 @@ class RSIOversoldOverboughtStrategy(BaseStrategy):
         oversold = self.parameters['oversold_threshold']
         overbought = self.parameters['overbought_threshold']
 
-        # Generate signal
         if rsi_value < oversold:
-            # Oversold - potential buy signal
             confidence = (oversold - rsi_value) / oversold
-            stop_loss = current_price * 0.95  # 5% stop loss
-            take_profit = current_price * 1.10  # 10% take profit
-
+            stop_loss = current_price * 0.95
+            take_profit = current_price * 1.10
             return 'BUY', min(confidence, 1.0), {
                 'entry_price': current_price,
                 'stop_loss': round(stop_loss, 2),
@@ -63,52 +57,40 @@ class RSIOversoldOverboughtStrategy(BaseStrategy):
                 'rsi_value': round(rsi_value, 2),
                 'reason': f'RSI oversold at {rsi_value:.1f} (< {oversold})'
             }
-
         elif rsi_value > overbought:
-            # Overbought - potential sell signal
             confidence = (rsi_value - overbought) / (100 - overbought)
-
             return 'SELL', min(confidence, 1.0), {
                 'exit_price': current_price,
                 'rsi_value': round(rsi_value, 2),
                 'reason': f'RSI overbought at {rsi_value:.1f} (> {overbought})'
             }
-
         else:
-            return 'HOLD', 0.5, {
-                'reason': f'RSI neutral at {rsi_value:.1f}'
-            }
+            return 'HOLD', 0.5, {'reason': f'RSI neutral at {rsi_value:.1f}'}
 
     def get_min_data_points(self) -> int:
         return self.parameters['rsi_period'] + 5
 
 
+@register_strategy
 class MACDCrossoverStrategy(BaseStrategy):
-    """
-    MACD Crossover Strategy.
+    """BUY on MACD bullish crossover; SELL on bearish crossover."""
 
-    BUY when MACD crosses above signal line (bullish crossover)
-    SELL when MACD crosses below signal line (bearish crossover)
-    """
+    name = "MACD Crossover"
+    description = "Trade MACD signal line crossovers"
 
-    def __init__(self):
-        super().__init__(
-            name="MACD Crossover",
-            description="Trade MACD signal line crossovers",
-            parameters={
-                'fast_period': 12,
-                'slow_period': 26,
-                'signal_period': 9
-            }
-        )
+    def get_default_parameters(self) -> Dict[str, Any]:
+        # Canonical indicator names (S3): flow into calculate_all_indicators.
+        return {
+            'macd_fast': 12,
+            'macd_slow': 26,
+            'macd_signal': 9,
+        }
 
     def analyze(
         self,
         prices: pd.DataFrame,
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
     ) -> Tuple[str, float, Dict[str, Any]]:
-        """Analyze using MACD crossovers."""
-
         if not self.validate_data(prices):
             return 'HOLD', 0.0, {'reason': 'Insufficient data'}
 
@@ -119,13 +101,10 @@ class MACDCrossoverStrategy(BaseStrategy):
 
         current_price = prices.iloc[-1]['close']
 
-        # Check for crossover
         if histogram > 0 and macd > signal_line:
-            # Bullish crossover
             confidence = min(abs(histogram) / 2, 1.0)
             stop_loss = current_price * 0.97
             take_profit = current_price * 1.08
-
             return 'BUY', confidence, {
                 'entry_price': current_price,
                 'stop_loss': round(stop_loss, 2),
@@ -135,11 +114,8 @@ class MACDCrossoverStrategy(BaseStrategy):
                 'histogram': round(histogram, 4),
                 'reason': 'MACD bullish crossover detected'
             }
-
         elif histogram < 0 and macd < signal_line:
-            # Bearish crossover
             confidence = min(abs(histogram) / 2, 1.0)
-
             return 'SELL', confidence, {
                 'exit_price': current_price,
                 'macd': round(macd, 4),
@@ -147,41 +123,32 @@ class MACDCrossoverStrategy(BaseStrategy):
                 'histogram': round(histogram, 4),
                 'reason': 'MACD bearish crossover detected'
             }
-
         else:
-            return 'HOLD', 0.3, {
-                'reason': 'No MACD crossover signal'
-            }
+            return 'HOLD', 0.3, {'reason': 'No MACD crossover signal'}
 
     def get_min_data_points(self) -> int:
-        return self.parameters['slow_period'] + self.parameters['signal_period'] + 5
+        return self.parameters['macd_slow'] + self.parameters['macd_signal'] + 5
 
 
+@register_strategy
 class MovingAverageCrossoverStrategy(BaseStrategy):
-    """
-    Moving Average Crossover Strategy (Golden Cross / Death Cross).
+    """Golden Cross / Death Cross (short MA vs long MA)."""
 
-    BUY when short MA crosses above long MA (Golden Cross)
-    SELL when short MA crosses below long MA (Death Cross)
-    """
+    name = "MA Crossover (Golden/Death Cross)"
+    description = "Trade when fast MA crosses slow MA"
 
-    def __init__(self):
-        super().__init__(
-            name="MA Crossover (Golden/Death Cross)",
-            description="Trade when fast MA crosses slow MA",
-            parameters={
-                'ma_short_period': 50,
-                'ma_long_period': 200
-            }
-        )
+    def get_default_parameters(self) -> Dict[str, Any]:
+        # Strategy-only (not indicator-calc kwargs); names kept for clarity.
+        return {
+            'ma_short_period': 50,
+            'ma_long_period': 200,
+        }
 
     def analyze(
         self,
         prices: pd.DataFrame,
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
     ) -> Tuple[str, float, Dict[str, Any]]:
-        """Analyze using MA crossovers."""
-
         if not self.validate_data(prices):
             return 'HOLD', 0.0, {'reason': 'Insufficient data'}
 
@@ -191,16 +158,12 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
 
         current_price = prices.iloc[-1]['close']
 
-        # Calculate crossover strength
         if ma_short > ma_long:
-            # Golden Cross (bullish)
             distance = ((ma_short - ma_long) / ma_long) * 100
-            confidence = min(distance / 5, 1.0)  # Max confidence at 5% distance
-
-            if distance > 0.5:  # Significant crossover
+            confidence = min(distance / 5, 1.0)
+            if distance > 0.5:
                 stop_loss = ma_long * 0.98
                 take_profit = current_price * 1.15
-
                 return 'BUY', confidence, {
                     'entry_price': current_price,
                     'stop_loss': round(stop_loss, 2),
@@ -210,13 +173,10 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                     'distance_pct': round(distance, 2),
                     'reason': f'Golden Cross: MA{self.parameters["ma_short_period"]} above MA{self.parameters["ma_long_period"]}'
                 }
-
         elif ma_short < ma_long:
-            # Death Cross (bearish)
             distance = ((ma_long - ma_short) / ma_long) * 100
             confidence = min(distance / 5, 1.0)
-
-            if distance > 0.5:  # Significant crossover
+            if distance > 0.5:
                 return 'SELL', confidence, {
                     'exit_price': current_price,
                     'ma_short': round(ma_short, 2),
@@ -225,40 +185,31 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                     'reason': f'Death Cross: MA{self.parameters["ma_short_period"]} below MA{self.parameters["ma_long_period"]}'
                 }
 
-        return 'HOLD', 0.3, {
-            'reason': 'No significant MA crossover'
-        }
+        return 'HOLD', 0.3, {'reason': 'No significant MA crossover'}
 
     def get_min_data_points(self) -> int:
         return self.parameters['ma_long_period'] + 10
 
 
+@register_strategy
 class BollingerBandsMeanReversionStrategy(BaseStrategy):
-    """
-    Bollinger Bands Mean Reversion Strategy.
+    """BUY at lower band (oversold); SELL at upper band (overbought)."""
 
-    BUY when price touches lower band (oversold)
-    SELL when price touches upper band (overbought)
-    """
+    name = "Bollinger Bands Mean Reversion"
+    description = "Buy at lower band, sell at upper band"
 
-    def __init__(self):
-        super().__init__(
-            name="Bollinger Bands Mean Reversion",
-            description="Buy at lower band, sell at upper band",
-            parameters={
-                'bb_window': 20,
-                'bb_std': 2.0,
-                'touch_threshold': 0.005  # Price within 0.5% of band
-            }
-        )
+    def get_default_parameters(self) -> Dict[str, Any]:
+        return {
+            'bb_window': 20,   # canonical: flows into calculate_all_indicators
+            'bb_std': 2.0,     # canonical
+            'touch_threshold': 0.005,
+        }
 
     def analyze(
         self,
         prices: pd.DataFrame,
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
     ) -> Tuple[str, float, Dict[str, Any]]:
-        """Analyze using Bollinger Bands."""
-
         if not self.validate_data(prices):
             return 'HOLD', 0.0, {'reason': 'Insufficient data'}
 
@@ -270,16 +221,13 @@ class BollingerBandsMeanReversionStrategy(BaseStrategy):
         current_price = prices.iloc[-1]['close']
         threshold = self.parameters['touch_threshold']
 
-        # Check if price is at bands
         lower_distance = abs(current_price - bb_lower) / bb_lower
         upper_distance = abs(current_price - bb_upper) / bb_upper
 
         if lower_distance < threshold:
-            # Price at lower band - oversold
             confidence = 1.0 - lower_distance / threshold
             stop_loss = bb_lower * 0.98
             take_profit = bb_middle
-
             return 'BUY', confidence, {
                 'entry_price': current_price,
                 'stop_loss': round(stop_loss, 2),
@@ -289,11 +237,8 @@ class BollingerBandsMeanReversionStrategy(BaseStrategy):
                 'bb_lower': round(bb_lower, 2),
                 'reason': 'Price touched lower Bollinger Band (oversold)'
             }
-
         elif upper_distance < threshold:
-            # Price at upper band - overbought
             confidence = 1.0 - upper_distance / threshold
-
             return 'SELL', confidence, {
                 'exit_price': current_price,
                 'bb_upper': round(bb_upper, 2),
@@ -301,48 +246,37 @@ class BollingerBandsMeanReversionStrategy(BaseStrategy):
                 'bb_lower': round(bb_lower, 2),
                 'reason': 'Price touched upper Bollinger Band (overbought)'
             }
-
         else:
-            return 'HOLD', 0.4, {
-                'reason': 'Price within Bollinger Bands'
-            }
+            return 'HOLD', 0.4, {'reason': 'Price within Bollinger Bands'}
 
     def get_min_data_points(self) -> int:
         return self.parameters['bb_window'] + 5
 
 
+@register_strategy
 class TrendFollowingStrategy(BaseStrategy):
-    """
-    Multi-Indicator Trend Following Strategy.
+    """Multi-indicator trend following (ADX + MA + RSI)."""
 
-    Combines ADX (trend strength), moving averages (trend direction),
-    and RSI (entry timing) for robust trend following.
-    """
+    name = "Multi-Indicator Trend Following"
+    description = "Follow strong trends using ADX, MA, and RSI"
 
-    def __init__(self):
-        super().__init__(
-            name="Multi-Indicator Trend Following",
-            description="Follow strong trends using ADX, MA, and RSI",
-            parameters={
-                'adx_threshold': 25,  # Minimum ADX for strong trend
-                'rsi_buy_max': 60,    # Don't buy if RSI too high
-                'rsi_sell_min': 40,   # Don't sell if RSI too low
-                'ma_short': 20,
-                'ma_long': 50
-            }
-        )
+    def get_default_parameters(self) -> Dict[str, Any]:
+        return {
+            'adx_threshold': 25,
+            'rsi_buy_max': 60,
+            'rsi_sell_min': 40,
+            'ma_short': 20,
+            'ma_long': 50,
+        }
 
     def analyze(
         self,
         prices: pd.DataFrame,
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
     ) -> Tuple[str, float, Dict[str, Any]]:
-        """Analyze using multiple indicators."""
-
         if not self.validate_data(prices):
             return 'HOLD', 0.0, {'reason': 'Insufficient data'}
 
-        # Get indicator values
         adx_data = indicators.get('ADX', {})
         adx = adx_data.get('value', 0)
 
@@ -355,20 +289,14 @@ class TrendFollowingStrategy(BaseStrategy):
 
         current_price = prices.iloc[-1]['close']
 
-        # Check for strong trend
         if adx < self.parameters['adx_threshold']:
-            return 'HOLD', 0.2, {
-                'reason': f'No strong trend detected (ADX: {adx:.1f})'
-            }
+            return 'HOLD', 0.2, {'reason': f'No strong trend detected (ADX: {adx:.1f})'}
 
-        # Uptrend conditions
         if ma_short > ma_long and rsi < self.parameters['rsi_buy_max']:
             trend_strength = min(adx / 50, 1.0)
             confidence = trend_strength * 0.8
-
             stop_loss = ma_short * 0.96
             take_profit = current_price * 1.12
-
             return 'BUY', confidence, {
                 'entry_price': current_price,
                 'stop_loss': round(stop_loss, 2),
@@ -379,12 +307,9 @@ class TrendFollowingStrategy(BaseStrategy):
                 'ma_long': round(ma_long, 2),
                 'reason': f'Strong uptrend (ADX: {adx:.1f}, MA bullish, RSI: {rsi:.1f})'
             }
-
-        # Downtrend conditions
         elif ma_short < ma_long and rsi > self.parameters['rsi_sell_min']:
             trend_strength = min(adx / 50, 1.0)
             confidence = trend_strength * 0.8
-
             return 'SELL', confidence, {
                 'exit_price': current_price,
                 'adx': round(adx, 1),
@@ -393,11 +318,8 @@ class TrendFollowingStrategy(BaseStrategy):
                 'ma_long': round(ma_long, 2),
                 'reason': f'Strong downtrend (ADX: {adx:.1f}, MA bearish, RSI: {rsi:.1f})'
             }
-
         else:
-            return 'HOLD', 0.3, {
-                'reason': 'Trend detected but conditions not met for entry'
-            }
+            return 'HOLD', 0.3, {'reason': 'Trend detected but conditions not met for entry'}
 
     def get_min_data_points(self) -> int:
         return max(self.parameters['ma_long'], 50) + 10

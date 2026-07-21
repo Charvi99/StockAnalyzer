@@ -8,6 +8,7 @@ const API_URL = process.env.REACT_APP_API_URL || (window.location.protocol + '//
 const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendationError }) => {
   const [regimeData, setRegimeData] = useState(null);
   const [regimeLoading, setRegimeLoading] = useState(false);
+  const [strategySnapshot, setStrategySnapshot] = useState(null);
 
   // Load market regime data
   useEffect(() => {
@@ -29,6 +30,24 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
     };
 
     loadRegimeData();
+  }, [stock?.stock_id]);
+
+  // Load strategy snapshot (Phase 0.5) — per-strategy signals + the consensus
+  // that also feeds the engine's "strategy" vote component.
+  useEffect(() => {
+    const loadStrategySnapshot = async () => {
+      if (!stock?.stock_id) return;
+      try {
+        const response = await axios.get(
+          `${API_URL}/api/v1/strategies/${stock.stock_id}/snapshot`
+        );
+        setStrategySnapshot(response.data);
+      } catch (err) {
+        console.error('Error loading strategy snapshot:', err);
+        // Silently fail - the radar axis comes from the recommendation response.
+      }
+    };
+    loadStrategySnapshot();
   }, [stock?.stock_id]);
   if (recommendationLoading) {
     return (
@@ -106,6 +125,34 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
       <div className="radar-section">
         <SignalRadar recommendation={recommendation} />
       </div>
+
+      {/* Strategy Consensus list (Phase 0.5) — per-strategy breakdown */}
+      {strategySnapshot && strategySnapshot.strategies && (
+        <div className="strategy-list-section">
+          <div className="strategy-list-header">
+            <h3>📐 Trading Strategies</h3>
+            {strategySnapshot.consensus && strategySnapshot.consensus.signal && (
+              <span className={`stat-badge ${strategySnapshot.consensus.signal.toLowerCase()}`}>
+                Consensus: {strategySnapshot.consensus.signal}{' '}
+                {((strategySnapshot.consensus.confidence || 0) * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+          <div className="strategy-list">
+            {strategySnapshot.strategies.map((s) => (
+              <div key={s.name} className="strategy-item">
+                <span className="strategy-name">{s.name}</span>
+                <span className={`stat-badge ${(s.signal || 'hold').toLowerCase()}`}>
+                  {s.signal || 'N/A'}
+                </span>
+                <span className="strategy-conf">
+                  {((s.confidence || 0) * 100).toFixed(0)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Statistics Dashboard */}
       <div className="statistics-dashboard">
@@ -616,6 +663,59 @@ const OverviewTab = ({ stock, recommendation, recommendationLoading, recommendat
           border-radius: 12px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           overflow: hidden;
+        }
+
+        /* Phase 0.5: per-strategy list */
+        .strategy-list-section {
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .strategy-list-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .strategy-list-header h3 {
+          margin: 0;
+          font-size: 18px;
+          color: #111827;
+        }
+
+        .strategy-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .strategy-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 12px;
+          background: #f9fafb;
+          border-radius: 8px;
+          border: 1px solid #e5e7eb;
+        }
+
+        .strategy-name {
+          font-size: 13px;
+          font-weight: 600;
+          color: #374151;
+          flex: 1;
+        }
+
+        .strategy-conf {
+          font-size: 13px;
+          font-weight: 700;
+          color: #111827;
+          min-width: 44px;
+          text-align: right;
         }
       `}</style>
     </div>

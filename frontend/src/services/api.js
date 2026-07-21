@@ -307,6 +307,12 @@ export const executeAllStrategies = async (stockId) => {
   return response.data;
 };
 
+// Phase 0.5: one-call snapshot of every strategy's signal + the consensus.
+export const getStrategySnapshot = async (stockId) => {
+  const response = await api.get(`/api/v1/strategies/${stockId}/snapshot`);
+  return response.data;
+};
+
 // ============================================================================
 // Phase 2: Analysis Completeness & Auto-Trigger
 // ============================================================================

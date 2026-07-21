@@ -165,6 +165,23 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     except Exception as e:
         logger.warning(f"Dividend/split signal detection failed for stock {stock.id}: {e}")
 
+    # ── strategy consensus (Phase 0.5): one vote across all registered ────
+    # strategies, computed from the SAME df + indicators already built above
+    # (no extra DB/indicator work). Reuses the pure registry helper so the live
+    # engine, the snapshot endpoint, and the future ledger all agree. Failure
+    # is non-fatal: the engine behaves as before (no strategy component).
+    strategy_consensus = None
+    try:
+        from app.services.strategies import strategy_manager as _strategy_manager
+        consensus_rec, consensus_conf, _strat_breakdown = _strategy_manager.compute_strategy_consensus(
+            df.reset_index(), tech_recommendation['indicators']
+        )
+        if consensus_rec is not None:
+            strategy_consensus = (consensus_rec, consensus_conf)
+    except Exception as e:
+        logger.warning(f"Strategy consensus failed for stock {stock.id} ({stock.symbol}): {e}")
+        strategy_consensus = None
+
     # ============================================
     # PURE SIGNAL (no DB access below this point)
     # ============================================
@@ -176,6 +193,7 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         sentiment_scores=sentiment_scores,
         ml=ml,
         dividend_split_signal=dividend_split_signal,
+        strategy_consensus=strategy_consensus,
     )
 
     # ── latest price across all timeframes (trader-facing current price) ─
@@ -207,6 +225,8 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         ml_recommendation=ex.get('ml_recommendation'),
         ml_confidence=ex.get('ml_confidence'),
         predicted_price=ex.get('predicted_price'),
+        strategy_consensus_signal=ex.get('strategy_consensus_signal'),
+        strategy_consensus_confidence=ex.get('strategy_consensus_confidence'),
         sentiment_index=ex.get('sentiment_index'),
         sentiment_positive=ex.get('sentiment_positive'),
         sentiment_negative=ex.get('sentiment_negative'),

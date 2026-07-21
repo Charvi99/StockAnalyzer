@@ -38,12 +38,19 @@ logger = logging.getLogger(__name__)
 # ── Policy constants ─────────────────────────────────────────────────────────
 # Weighted vote over PRESENT components (normalized). A missing component cedes
 # its share to the rest instead of being silently dropped.
+STRATEGY_WEIGHT = 0.10  # Phase 0.5: weight of the strategy-consensus component
 COMPONENT_WEIGHTS = {
     "technical": 0.35,
     "chart_pattern": 0.25,
     "candlestick": 0.15,
     "sentiment": 0.15,
     "ml": 0.10,
+    # The strategy consensus across the registered strategies (Phase 0.5).
+    # The vote below is self-normalizing over the present components, so adding
+    # this claims ~STRATEGY_WEIGHT/(1+STRATEGY_WEIGHT) ≈ 9% of the vote from the
+    # existing components. Captured by _SWING_CONFIG_VERSION so the Phase 1
+    # ledger attributes pre/post-strategy signals to different versions.
+    "strategy": STRATEGY_WEIGHT,
 }
 ML_CONFIDENCE_GATE = 0.6       # ML only votes if confidence > this
 ALL_AGREE_BOOST = 1.1          # confidence multiplier when every component agrees
@@ -82,6 +89,7 @@ def signal_swing(
     sentiment_scores: Optional[List[float]],
     ml: Tuple[Optional[str], Optional[float], Optional[float]],
     dividend_split_signal: Optional[Dict[str, Any]],
+    strategy_consensus: Optional[Tuple[Optional[str], Optional[float]]] = None,
 ) -> SignalResult:
     """
     Pure Engine #2 signal: swing-aware weighted vote -> BUY/SELL/HOLD.
@@ -100,6 +108,10 @@ def signal_swing(
             newest-first, capped at 20), or None/empty.
         ml: ``(recommendation, confidence, predicted_price)`` or all-None.
         dividend_split_signal: DividendSplitDetector signal dict, or None.
+        strategy_consensus: ``(signal, confidence)`` aggregated across the
+            registered trading strategies (Phase 0.5), or None. When present
+            with confidence > 0 it joins the weighted vote as the "strategy"
+            component (weight = COMPONENT_WEIGHTS["strategy"]).
 
     Returns:
         SignalResult. ``extras`` carries the Engine #2-specific fields the adapter
@@ -235,6 +247,15 @@ def signal_swing(
     if ml_rec and ml_conf and ml_conf > ML_CONFIDENCE_GATE:
         components.append((ml_rec, ml_conf, COMPONENT_WEIGHTS["ml"]))
 
+    # Phase 0.5: strategy consensus (one component across all strategies).
+    strat_rec, strat_conf = strategy_consensus or (None, None)
+    if strat_rec and strat_conf is not None and strat_conf > 0:
+        components.append((strat_rec, strat_conf, COMPONENT_WEIGHTS["strategy"]))
+        reasoning.append(
+            f"📐 Strategy consensus ({strat_conf:.0%} confidence): {strat_rec} "
+            f"(aggregated vote across registered trading strategies)"
+        )
+
     total_weight = sum(w for _, _, w in components) or 1.0
     rec_scores = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
     for rec, conf, w in components:
@@ -350,6 +371,7 @@ def signal_swing(
             "candlestick": _signed(candlestick_signal, candlestick_conf),
             "sentiment": _signed(sentiment_rec, sentiment_conf),
             "ml": _signed(ml_rec, ml_conf),
+            "strategy": _signed(strat_rec, strat_conf),
         },
         config_version=_SWING_CONFIG_VERSION,
         reasoning=reasoning,
@@ -370,6 +392,8 @@ def signal_swing(
             "ml_recommendation": ml_rec,
             "ml_confidence": ml_conf,
             "predicted_price": predicted_price,
+            "strategy_consensus_signal": strat_rec,
+            "strategy_consensus_confidence": strat_conf,
             "risk_level": risk_level,
         },
     )

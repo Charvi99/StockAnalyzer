@@ -90,6 +90,11 @@ async def execute_strategy(
         Strategy analysis results with signal, confidence, and details
     """
     try:
+        strategy_manager.validate_parameters(request.strategy_name, request.parameters)
+    except ValueError as e:
+        # Unknown/misnamed parameter keys (audit S3) → 422, distinct from 404 below.
+        raise HTTPException(status_code=422, detail=str(e))
+    try:
         result = await strategy_manager.execute_strategy(
             strategy_name=request.strategy_name,
             stock_id=stock_id,
@@ -119,15 +124,27 @@ async def backtest_strategy(
     Returns:
         Backtest results including returns, win rate, trades, etc.
     """
+    # Phase 0.5: the toy in-base backtest was lookahead-biased (audit S2) and is
+    # removed. A real backtester lands in Phase 2. Return 410 Gone in the meantime.
+    raise HTTPException(
+        status_code=410,
+        detail="Backtest deprecated; a real backtester is coming in Phase 2. "
+               "Use GET /api/v1/strategies/{stock_id}/snapshot for current strategy signals.",
+    )
+
+
+@router.get("/{stock_id}/snapshot")
+async def strategy_snapshot(
+    stock_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    One-call snapshot: every registered strategy's current signal + the
+    aggregated consensus for a stock (Phase 0.5). Powers the per-strategy list
+    in the UI; the consensus also feeds the engine's "strategy" vote component.
+    """
     try:
-        result = await strategy_manager.backtest_strategy(
-            strategy_name=request.strategy_name,
-            stock_id=stock_id,
-            db=db,
-            initial_balance=request.initial_balance,
-            parameters=request.parameters
-        )
-        return result
+        return strategy_manager.snapshot(stock_id, db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -168,14 +185,17 @@ async def execute_all_strategies(
                     'signal': 'ERROR'
                 })
 
-        # Count signals
-        buy_count = sum(1 for r in results if r.get('signal') == 'BUY')
-        sell_count = sum(1 for r in results if r.get('signal') == 'SELL')
-        hold_count = sum(1 for r in results if r.get('signal') == 'HOLD')
+        # Count signals — exclude errored strategies from the denominator (audit S4).
+        valid = [r for r in results if r.get('signal') != 'ERROR']
+        buy_count = sum(1 for r in valid if r.get('signal') == 'BUY')
+        sell_count = sum(1 for r in valid if r.get('signal') == 'SELL')
+        hold_count = sum(1 for r in valid if r.get('signal') == 'HOLD')
 
         # Calculate consensus
-        total_strategies = len(results)
-        if buy_count > total_strategies / 2:
+        total_strategies = len(valid)
+        if total_strategies == 0:
+            consensus = 'HOLD'
+        elif buy_count > total_strategies / 2:
             consensus = 'BUY'
         elif sell_count > total_strategies / 2:
             consensus = 'SELL'

@@ -349,12 +349,9 @@ const TradingStrategies = ({ stockId }) => {
             >
               Execute Strategy
             </button>
-            <button
-              className={`tab-button ${activeTab === 'backtest' ? 'active' : ''}`}
-              onClick={() => setActiveTab('backtest')}
-            >
-              Backtest
-            </button>
+            {/* Backtest tab removed (Phase 0.5): the toy backtest was
+                lookahead-biased (audit S2) and is deprecated (410). A real
+                backtester lands in Phase 2. */}
             <button
               className={`tab-button ${activeTab === 'consensus' ? 'active' : ''}`}
               onClick={() => setActiveTab('consensus')}
@@ -365,7 +362,6 @@ const TradingStrategies = ({ stockId }) => {
 
           <div className="tab-content">
             {activeTab === 'execute' && renderExecuteTab()}
-            {activeTab === 'backtest' && renderBacktestTab()}
             {activeTab === 'consensus' && renderConsensusTab()}
           </div>
         </div>
