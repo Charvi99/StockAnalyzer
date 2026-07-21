@@ -61,6 +61,12 @@ celery_app.conf.update(
     task_acks_late=True,  # Acknowledge task after completion, not before
     task_reject_on_worker_lost=True,  # Re-queue if worker dies
 
+    # Task time limits — safety net so a runaway task can't hang a worker forever.
+    # 30-min hard cap is well above any legitimate batch (the medium-priority sweep
+    # of ~189 stocks takes ~10 min) but catches truly stuck tasks.
+    task_soft_time_limit=1800,
+    task_time_limit=1860,
+
     # Retry settings
     task_default_retry_delay=60,  # 1 minute
     task_max_retries=3,

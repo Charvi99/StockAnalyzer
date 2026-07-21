@@ -18,7 +18,7 @@ from app.config.pattern_thresholds import swing_detector_kwargs, swing_detect_kw
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=3, soft_time_limit=300, time_limit=360)
 def analyze_stock_comprehensive(self, stock_id: int, symbol: str):
     """
     Run comprehensive analysis for a single stock after data update

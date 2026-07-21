@@ -1,4 +1,12 @@
 
+# Default log rotation — prevents disk-fill on long unattended runs.
+# Each container's logs capped at 3 files x 10MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # PostgreSQL Database
   database:
@@ -25,6 +33,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock_analyzer_backend
+    logging: *default-logging
     environment:
       DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
       PYTHONUNBUFFERED: 1
@@ -94,6 +103,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock_analyzer_celery_worker
+    logging: *default-logging
     restart: unless-stopped
     # I/O-bound (Polygon API waits + inter-stock sleeps) — safe to run above core count.
     # Fetcher + maintenance only; CPU-bound analysis runs on the dedicated celery_processor.
@@ -125,6 +135,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock_analyzer_celery_processor
+    logging: *default-logging
     restart: unless-stopped
     command: celery -A app.celery_app worker --loglevel=info --concurrency=6 --queues=processor
     environment:
@@ -151,6 +162,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock_analyzer_celery_beat
+    logging: *default-logging
     restart: unless-stopped
     command: celery -A app.celery_app beat --loglevel=info
     environment:
