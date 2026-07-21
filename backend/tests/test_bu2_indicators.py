@@ -9,12 +9,15 @@ future "optimization" or refactor can't silently flip them:
 
   B6(2) — RSI fallback div-by-zero SELF-CORRECTS to 100 on a zero-down-bar window
           (the original "div by zero" hypothesis was a false positive).
-  B6(1) — pandas RSI (SMA-of-gains) DIVERGES from canonical Wilder RSI on the same
-          series — the parity gap is real and demonstrable.
+  B6(1) — [FIXED in production] pandas RSI formerly used SMA-of-gains and DIVERGED
+          from canonical Wilder RSI by tens of points. Production now uses Wilder
+          (see test_b6_production_rsi_uses_wilder); the rsi_sma replica below keeps
+          the old formula to document the parity gap that existed.
   Look-ahead (Bollinger) — bb_upper[-1] is a function of closes [..-1] INCLUSIVE,
           causal; flipping a synthetic "future" bar does not change the last signal.
-  B7     — VWAP is CUMULATIVE from the first bar of the slice, so it depends on the
-          fetch window length (60 vs 100 give different last-bar VWAP).
+  B7     — [FIXED in production] VWAP was CUMULATIVE from the slice start (window-
+          dependent). Production now uses a ROLLING VWAP (see
+          test_vwap_production_is_rolling); the vwap replica documents the old behavior.
   B5     — every calculate_* method copies its input (contract + the perf cost).
 """
 import sys
@@ -139,6 +142,66 @@ def test_modules_import():
     except Exception as e:  # pragma: no cover - env-dependent
         import warnings
         warnings.warn(f"module import skipped in this env: {e}")
+
+
+def test_b6_production_rsi_uses_wilder():
+    """Regression guard: production calculate_rsi (pandas fallback — talib absent in
+    this env) must match canonical Wilder RSI, NOT the SMA-of-gains version. Before
+    B6/D7 the fallback used rolling().mean() and diverged from TA-Lib by ~29 points
+    (e.g. 32.6 Wilder vs 3.4 SMA on this exact series)."""
+    try:
+        from app.services.technical_indicators import TechnicalIndicators
+    except Exception as e:  # env-dependent
+        import warnings
+        warnings.warn(f"technical_indicators import skipped: {e}")
+        return
+    rng = np.arange(120)
+    close = pd.Series(100 + np.sin(rng / 5) * 10 + rng * 0.2)
+    prod = TechnicalIndicators.calculate_rsi(pd.DataFrame({"close": close}), 14)["rsi"].iloc[-1]
+    wilder = rsi_wilder(close, 14).iloc[-1]
+    sma = rsi_sma(close, 14).iloc[-1]
+    assert abs(prod - wilder) < 0.5, (
+        f"production RSI ({prod:.3f}) must match Wilder ({wilder:.3f}); the "
+        "SMA-of-gains fallback regressed (B6/D7)."
+    )
+    assert abs(prod - sma) > 5.0, (
+        f"sanity: production RSI ({prod:.3f}) must NOT match the old SMA version "
+        f"({sma:.3f}) on a mixed series."
+    )
+    # Rising series -> RSI 100, never NaN (zero-down-bar self-correction preserved).
+    rise = TechnicalIndicators.calculate_rsi(
+        pd.DataFrame({"close": pd.Series(np.linspace(100, 200, 60))}), 14)["rsi"].iloc[-1]
+    assert not np.isnan(rise) and abs(rise - 100.0) < 1e-9, (
+        f"rising-series RSI must be 100 (got {rise}); zero-loss handling regressed."
+    )
+
+
+def test_vwap_production_is_rolling():
+    """Regression guard: production calculate_vwap must use a ROLLING window, so
+    prepending OLDER bars does NOT change the latest VWAP. Before B7/D8 it was
+    cumulative (window-dependent — the documented semantic issue)."""
+    try:
+        from app.services.technical_indicators import TechnicalIndicators
+    except Exception as e:  # env-dependent
+        import warnings
+        warnings.warn(f"technical_indicators import skipped: {e}")
+        return
+    n = 100
+    base = pd.DataFrame({
+        "high": np.linspace(101, 121, n), "low": np.linspace(99, 119, n),
+        "close": np.linspace(100, 120, n), "volume": np.full(n, 1000.0),
+    })
+    older = pd.DataFrame({
+        "high": np.linspace(50, 70, 50), "low": np.linspace(48, 68, 50),
+        "close": np.linspace(49, 69, 50), "volume": np.full(50, 1000.0),
+    })
+    short_vwap = TechnicalIndicators.calculate_vwap(base.copy())["vwap"].iloc[-1]
+    long_vwap = TechnicalIndicators.calculate_vwap(
+        pd.concat([older, base], ignore_index=True))["vwap"].iloc[-1]
+    assert abs(short_vwap - long_vwap) < 1e-9, (
+        "rolling VWAP must be independent of bars older than the window; "
+        f"short={short_vwap:.4f} vs long={long_vwap:.4f} (cumulative regressed — B7/D8)"
+    )
 
 
 if __name__ == "__main__":

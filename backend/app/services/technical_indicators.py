@@ -57,25 +57,18 @@ class TechnicalIndicators:
 
         df = data.copy()
 
-        # PHASE 3: Use TA-Lib if available (C-based, much faster)
+        # PHASE 3: Use TA-Lib if available (C-based, much faster); it uses Wilder
+        # smoothing. The pandas fallback (_rsi_pandas) also uses Wilder so both paths
+        # agree — the previous fallback used a simple rolling mean, which diverged
+        # from standard / TA-Lib RSI (audit B6/D7).
         if TALIB_AVAILABLE:
             try:
                 df['rsi'] = talib.RSI(df['close'].values, timeperiod=period)
             except Exception as e:
                 logger.warning(f"TA-Lib RSI failed, falling back to pandas: {e}")
-                # Fall back to pandas implementation
-                delta = df['close'].diff()
-                gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-                loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
-                rs = gain / loss
-                df['rsi'] = 100 - (100 / (1 + rs))
+                df['rsi'] = TechnicalIndicators._rsi_pandas(df['close'], period)
         else:
-            # Pandas implementation (slower but compatible)
-            delta = df['close'].diff()
-            gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-            loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
-            rs = gain / loss
-            df['rsi'] = 100 - (100 / (1 + rs))
+            df['rsi'] = TechnicalIndicators._rsi_pandas(df['close'], period)
 
         # Generate signal (same logic for both implementations)
         latest_rsi = df['rsi'].iloc[-1] if len(df) > 0 else None
@@ -91,6 +84,20 @@ class TechnicalIndicators:
                 df['rsi_reason'] = f"RSI={latest_rsi:.2f} (Neutral)"
 
         return df
+
+    @staticmethod
+    def _rsi_pandas(close: "pd.Series", period: int = 14) -> "pd.Series":
+        """Wilder RSI via pandas (the TA-Lib fallback). Wilder smoothing is an EMA
+        with alpha = 1/period; ``ewm(adjust=False)`` reproduces Wilder's recursion
+        exactly, so this matches TA-Lib / standard RSI (audit B6/D7 — the prior
+        ``rolling(window=period).mean()`` gave a non-standard "running-mean RSI")."""
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = (-delta).where(delta < 0, 0.0)
+        avg_gain = gain.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+        avg_loss = loss.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+        rs = avg_gain / avg_loss
+        return 100.0 - (100.0 / (1.0 + rs))
 
     @staticmethod
     def calculate_macd(data: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
@@ -797,9 +804,15 @@ class TechnicalIndicators:
         return df
 
     @staticmethod
-    def calculate_vwap(data: pd.DataFrame) -> pd.DataFrame:
+    def calculate_vwap(data: pd.DataFrame, window: int = 20) -> pd.DataFrame:
         """
         Calculate Volume Weighted Average Price (VWAP)
+
+        VWAP is intraday by definition (it resets each trading session). On daily /
+        weekly bars a cumulative VWAP converges to a stale lifetime average that barely
+        moves, so the above/below signal becomes meaningless. A rolling VWAP over
+        ``window`` bars is the standard daily-bar proxy: a responsive "recent
+        institutional average price" (audit B7/D8).
 
         VWAP signals:
         - Price above VWAP: Bullish
@@ -808,6 +821,7 @@ class TechnicalIndicators:
 
         Args:
             data: DataFrame with 'high', 'low', 'close', 'volume' columns
+            window: Rolling window in bars for the VWAP (default 20 ~ one month daily)
 
         Returns:
             DataFrame with VWAP column added
@@ -819,9 +833,12 @@ class TechnicalIndicators:
         # Calculate Typical Price
         df['tp'] = (df['high'] + df['low'] + df['close']) / 3
 
-        # Calculate VWAP
+        # Rolling VWAP over `window` bars (see docstring). min_periods=1 so early bars
+        # get a partial VWAP instead of NaN.
         df['tp_volume'] = df['tp'] * df['volume']
-        df['vwap'] = df['tp_volume'].cumsum() / df['volume'].cumsum()
+        vol_roll = df['volume'].rolling(window=window, min_periods=1).sum()
+        tpv_roll = df['tp_volume'].rolling(window=window, min_periods=1).sum()
+        df['vwap'] = tpv_roll / vol_roll
 
         # Generate signal
         if len(df) > 0:
