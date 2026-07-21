@@ -93,6 +93,21 @@ backend/ml/data/*.csv
 backend/ml/data/*.json
 backend/ml/data/*.parquet
 
+# ML-training generated datasets, outputs & models — large artifacts, NEVER commit.
+# (These previously got swept into history and blocked pushes at >100MB.)
+ml-training/outputs/
+ml-training/dataset_*/
+ml-training/datasets/
+ml-training/**/*.parquet
+ml-training/**/*.npz
+ml-training/**/*.pkl
+ml-training/**/*.h5
+ml-training/**/*.pt
+ml-training/**/*.ckpt
+ml-training/**/mlruns/
+ml-training/**/lightning_logs/
+ml-training/**/catboost_info/
+
 # Logs
 logs/
 *.log
