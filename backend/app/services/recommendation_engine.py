@@ -101,8 +101,8 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
             ).all()
 
             if recent_cs:
-                bullish_cs = sum(float(p.confidence_score) for p in recent_cs if p.signal == 'bullish')
-                bearish_cs = sum(float(p.confidence_score) for p in recent_cs if p.signal == 'bearish')
+                bullish_cs = sum(float(p.confidence_score) for p in recent_cs if p.pattern_type == 'bullish')
+                bearish_cs = sum(float(p.confidence_score) for p in recent_cs if p.pattern_type == 'bearish')
 
                 total_cs = bullish_cs + bearish_cs
                 if total_cs > 0:

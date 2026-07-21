@@ -442,8 +442,10 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     # Get latest prediction (use already-loaded relationship if available)
     latest_prediction = max(stock.predictions, key=lambda p: p.created_at, default=None) if stock.predictions else None
 
-    # Get latest sentiment (use already-loaded relationship if available)
-    latest_sentiment = max(stock.sentiment_scores, key=lambda s: s.timestamp, default=None) if stock.sentiment_scores else None
+    # NOTE: sentiment is derived below from the `news` table (Polygon insights written
+    # there by fetcher_tasks). The legacy `sentiment_scores` table is no longer
+    # populated — reading it always returned None, so sentiment never propagated
+    # (user-reported issue #4).
 
     # Prepare response
     latest = df.iloc[-1]
@@ -467,16 +469,36 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     if ml_conf:
         reasoning.append(f"ML prediction ({ml_conf:.0%} confidence): {ml_rec}")
 
+    # SENTIMENT — aggregated from recent news articles (Polygon per-ticker insights,
+    # written to the `news` table with sentiment_score in [-1, 1] by fetcher_tasks).
+    # Replaces the dead `sentiment_scores` read; produces the same -100..100 index
+    # and BUY/SELL/HOLD + confidence the rest of this function expects.
     sentiment_rec, sentiment_conf, sentiment_index = (None, None, None)
-    if latest_sentiment:
-        sentiment_index = float(latest_sentiment.sentiment_index)
+    sentiment_positive, sentiment_negative = (None, None)
+    recent_news = []
+    if stock.news:
+        news_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        recent_news = [
+            n for n in stock.news
+            if n.sentiment_score is not None
+            and n.published_utc is not None
+            and n.published_utc >= news_cutoff
+        ]
+    if recent_news:
+        # Newest-first, cap at 20 (match Engine #1's window)
+        recent_news = sorted(recent_news, key=lambda n: n.published_utc, reverse=True)[:20]
+        scores = [float(n.sentiment_score) for n in recent_news]
+        avg_sentiment = sum(scores) / len(scores)        # -1.0 .. 1.0
+        sentiment_index = avg_sentiment * 100.0          # -100 .. 100 (radar scale)
+        sentiment_positive = sum(1 for s in scores if s > 0)
+        sentiment_negative = sum(1 for s in scores if s < 0)
         if sentiment_index > 30:
             sentiment_rec, sentiment_conf = "BUY", min(abs(sentiment_index) / 100, 0.9)
         elif sentiment_index < -30:
             sentiment_rec, sentiment_conf = "SELL", min(abs(sentiment_index) / 100, 0.9)
         else:
             sentiment_rec, sentiment_conf = "HOLD", 0.5
-        reasoning.append(f"Market sentiment (index: {sentiment_index:.1f}, {sentiment_conf:.0%} confidence): {sentiment_rec} ({latest_sentiment.positive_count} positive, {latest_sentiment.negative_count} negative news)")
+        reasoning.append(f"Market sentiment (index: {sentiment_index:.1f}, {sentiment_conf:.0%} confidence): {sentiment_rec} ({sentiment_positive} positive, {sentiment_negative} negative news)")
 
     # Check weekly trend for swing trading validation (Phase 2A)
     # IMPORTANT: Must check weekly trend BEFORE filtering patterns
@@ -577,30 +599,36 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
     else:
         reasoning.append("No valid swing trading patterns detected (filtered by duration and trend alignment)")
 
-    # Combine all recommendations
-    recommendations = [(tech_recommendation['recommendation'], tech_recommendation['confidence'])]
-    weights = [0.4]
+    # Combine all AVAILABLE component signals into a weighted vote. Each component
+    # contributes (signal, confidence, weight); weights are normalized over the
+    # PRESENT components so a missing one (no ML, no sentiment, no chart pattern)
+    # simply cedes its share to the rest — instead of being silently dropped.
+    # (User-reported issues #2/#3: previously only technical+ML+sentiment were
+    # combined, so chart & candlestick signals — though computed — never moved the
+    # recommendation, and with no ML/sentiment the "Overall" collapsed to a copy of
+    # "Technical". Chart/candlestick are now weighted in.)
+    components = [
+        (tech_recommendation['recommendation'], tech_recommendation['confidence'], 0.35),
+    ]
+    if chart_pattern_signal:
+        components.append((chart_pattern_signal, chart_pattern_conf, 0.25))
+    if candlestick_signal:
+        components.append((candlestick_signal, candlestick_conf, 0.15))
+    if sentiment_rec:
+        components.append((sentiment_rec, sentiment_conf, 0.15))
     if ml_rec and ml_conf and ml_conf > 0.6:
-        recommendations.append((ml_rec, ml_conf))
-        weights.append(0.4)
-    else:
-        weights[0] += 0.4
+        components.append((ml_rec, ml_conf, 0.10))
 
-    if sentiment_rec and sentiment_conf:
-        recommendations.append((sentiment_rec, sentiment_conf))
-        weights.append(0.2)
-    else:
-        extra_weight = 0.2 / len(weights)
-        weights = [w + extra_weight for w in weights]
-
+    total_weight = sum(w for _, _, w in components) or 1.0
     rec_scores = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
-    for (rec, conf), weight in zip(recommendations, weights):
-        rec_scores[rec] += conf * weight
+    for rec, conf, w in components:
+        rec_scores[rec] += conf * (w / total_weight)
 
     final_rec = max(rec_scores, key=rec_scores.get)
     final_conf = rec_scores[final_rec]
 
-    if len(recommendations) >= 2 and len(set([r[0] for r in recommendations])) == 1:
+    component_recs = [c[0] for c in components]
+    if len(components) >= 2 and len(set(component_recs)) == 1:
         reasoning.append("✓ All indicators agree")
         final_conf = min(final_conf * 1.1, 1.0)
     else:
@@ -741,8 +769,8 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         ml_confidence=ml_conf,
         predicted_price=predicted_price,
         sentiment_index=sentiment_index,
-        sentiment_positive=latest_sentiment.positive_count if latest_sentiment else None,
-        sentiment_negative=latest_sentiment.negative_count if latest_sentiment else None,
+        sentiment_positive=sentiment_positive,
+        sentiment_negative=sentiment_negative,
         candlestick_signal=candlestick_signal,
         candlestick_confidence=candlestick_conf,
         candlestick_pattern_count=candlestick_count,

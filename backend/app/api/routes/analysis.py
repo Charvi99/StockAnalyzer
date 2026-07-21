@@ -75,7 +75,8 @@ def get_dashboard_analysis(db: Session = Depends(get_db)):
         selectinload(Stock.predictions),
         selectinload(Stock.sentiment_scores),
         selectinload(Stock.candlestick_patterns),
-        selectinload(Stock.chart_patterns)
+        selectinload(Stock.chart_patterns),
+        selectinload(Stock.news)  # for news-derived sentiment (avoids N+1)
     ).all()
 
     logger.info(f"Loaded {len(stocks)} stocks with optimized selective loading (1d/200d only)")
@@ -143,7 +144,8 @@ def get_dashboard_analysis_chunk(
         selectinload(Stock.predictions),
         selectinload(Stock.sentiment_scores),
         selectinload(Stock.candlestick_patterns),
-        selectinload(Stock.chart_patterns)
+        selectinload(Stock.chart_patterns),
+        selectinload(Stock.news)  # for news-derived sentiment (avoids N+1)
     ).order_by(Stock.symbol).offset(offset).limit(limit).all()
 
     logger.info(f"Loaded {len(stocks)} stocks for chunk (offset={offset}) with selective loading")
@@ -586,8 +588,20 @@ def check_analysis_completeness(
             stock, db, request.max_age_hours
         )
 
-        # Check if analysis should be triggered
-        needs_refresh = (score < request.min_score_threshold) or (stock.last_comprehensive_analysis is None)
+        # Check if analysis should be triggered. A stock that was comprehensively
+        # analyzed recently must NOT be re-flagged just because its score is structurally
+        # below threshold: sentiment is handled during news fetch (no analysis step) and
+        # ml_prediction isn't running, so ~3/5 components cap the score at ~0.6 < 0.8 and
+        # re-analysis can NEVER raise it. Without this cooldown guard every incomplete
+        # stock loops forever (analyzed -> still incomplete -> needs_refresh -> re-trigger),
+        # re-analyzing ~40+ stocks every ~60s. Cooldown reuses max_age_hours.
+        recently_analyzed = (
+            stock.last_comprehensive_analysis is not None
+            and stock.last_comprehensive_analysis > datetime.now(timezone.utc) - timedelta(hours=request.max_age_hours)
+        )
+        needs_refresh = (not recently_analyzed) and (
+            (score < request.min_score_threshold) or (stock.last_comprehensive_analysis is None)
+        )
 
         if needs_refresh:
             needs_analysis_count += 1
