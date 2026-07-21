@@ -203,9 +203,10 @@ def test_calculate_levels_v2_is_the_live_call():
 # 4. REC ENGINE POLICY LOCK (constants only — shallow)
 # ---------------------------------------------------------------------------
 def test_rec_engine1_policy_constants_locked():
-    """Engine #1 (recommendation_engine.py) policy: 6 fixed weights, BUY/SELL threshold 0.3,
-    regime->score map. Lock the magic numbers (behavior is DB-coupled; this catches accidental drift)."""
-    src = _read("app/services/recommendation_engine.py")
+    """Engine #1 policy (6 fixed weights, BUY/SELL threshold, regime->score map). Phase 0.4b
+    moved these from recommendation_engine.py into the pure signal layer
+    (signal/systematic.py); lock them in their new home."""
+    src = _read("app/services/signal/systematic.py")
     for marker in [
         "'chart_patterns': 0.28",
         "'candlestick_patterns': 0.14",
@@ -213,11 +214,16 @@ def test_rec_engine1_policy_constants_locked():
         "'sentiment': 0.13",
         "'market_regime': 0.12",
         "'dividend_split_signals': 0.10",
-        "if weighted_score > 0.3:",
+        "BUY_SELL_THRESHOLD = 0.3",
         "'trending_up': 0.8",
         "'trending_down': -0.8",
     ]:
         assert marker in src, f"Engine #1 policy constant changed/missing: {marker}"
+    # And the adapter must still delegate to the pure function (no inline scoring revival):
+    adapter = _read("app/services/recommendation_engine.py")
+    assert "from app.services.signal.systematic import signal_systematic" in adapter, (
+        "Engine #1 adapter must delegate to the pure signal function (0.4b)"
+    )
 
 
 def test_rec_engine2_lives_in_service_route_delegates():
