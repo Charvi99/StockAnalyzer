@@ -62,7 +62,12 @@
       "Bash(timeout 40 docker-compose logs:*)",
       "Bash(timeout 60 bash:*)",
       "Bash(/tmp/dashboard_test.json)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(grep -iE 'celerybeat|\\\\.db$|catboost_info|mlruns|lightning_logs|outputs/')",
+      "Bash(git checkout *)",
+      "Bash(python3 tests/test_bu5_risk.py)",
+      "Bash(docker compose *)",
+      "Bash(python3 tests/test_bu6_schema.py)"
     ],
     "deny": [],
     "ask": []
