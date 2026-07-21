@@ -11,8 +11,11 @@ identical kwargs. Centralizing them:
 Notes on the values:
   - 'Rounding Top' / 'Rounding Bottom' are excluded because they historically
     produced high false positives.
-  - ``min_r_squared=0.85`` + ``min_confidence=0.7`` are the strict filters under
-    review for being too aggressive.
+  - ``min_r_squared=0.70`` + ``min_confidence=0.5`` were relaxed from 0.85/0.7: the
+    original strict values starved recall — on the ~90-day backfill window the
+    background detection found ~nothing, so chart patterns only appeared via the
+    manual route (which uses looser defaults). Keep these as the single tuning lever
+    if recall/precision needs re-balancing after the test run.
 
 These accessors return FRESH dicts so call sites can ``**``-spread them without
 risking shared-state mutation. The HTTP route (``routes/chart_patterns.py``)
@@ -28,16 +31,21 @@ def swing_detector_kwargs():
     return {
         "min_pattern_length": 5,
         "peak_order": 5,
-        "min_confidence": 0.7,
-        "min_r_squared": 0.85,
+        "min_confidence": 0.5,
+        "min_r_squared": 0.70,
     }
 
 
 def swing_detect_kwargs():
     """``detect_all_patterns`` kwargs (lookback window + overlap/exclude filtering)."""
     return {
-        "days": 30,
+        "days": 90,
         "exclude_patterns": ["Rounding Top", "Rounding Bottom"],
         "remove_overlaps": True,
         "overlap_threshold": 0.3,
+        # Skip the 1h timeframe in background detection. Profiling showed 1h alone is
+        # ~5.2s/stock (~70% of chart-detection time) while 4h+1d cover the swing-relevant
+        # structure; 1h chart patterns are mostly noise that cross-timeframe confirmation
+        # filters out regardless. ~3.4x faster analysis, negligible signal loss.
+        "timeframes": ["4h", "1d"],
     }

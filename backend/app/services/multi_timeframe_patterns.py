@@ -132,7 +132,8 @@ class MultiTimeframePatternDetector:
                            days: Optional[int] = None,
                            exclude_patterns: List[str] = None,
                            remove_overlaps: bool = True,
-                           overlap_threshold: float = 0.1) -> Dict:
+                           overlap_threshold: float = 0.1,
+                           timeframes: Optional[List[str]] = None) -> Dict:
         """
         Detect patterns across multiple timeframes and find cross-timeframe confirmations
 
@@ -141,15 +142,23 @@ class MultiTimeframePatternDetector:
             exclude_patterns: Pattern types to exclude
             remove_overlaps: Remove overlapping patterns within each timeframe
             overlap_threshold: Overlap threshold for pattern removal
+            timeframes: Which timeframes to scan. Defaults to self.TIMEFRAMES
+                (['1h','4h','1d']). The background/swing path passes ['4h','1d'] to
+                SKIP 1h — 1h detection is ~5s/stock (~70% of chart-detection wall time)
+                and its patterns are the noisiest and largely filtered out by cross-
+                timeframe confirmation anyway, so dropping it is a ~3.4x speedup with
+                negligible signal loss for swing trading.
 
         Returns:
             Dictionary containing multi-timeframe enhanced patterns
         """
         if exclude_patterns is None:
             exclude_patterns = []
+        if timeframes is None:
+            timeframes = self.TIMEFRAMES
 
-        # Step 1: Detect patterns on each timeframe
-        for timeframe in self.TIMEFRAMES:
+        # Step 1: Detect patterns on each requested timeframe
+        for timeframe in timeframes:
             patterns = self._detect_patterns_for_timeframe(
                 timeframe=timeframe,
                 days=days,
