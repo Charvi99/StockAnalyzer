@@ -6,6 +6,9 @@ from app.models.news import News
 from app.models.dividend import Dividend
 from app.models.stock_split import StockSplit
 from app.models.short_interest import ShortInterest
+from app.models.ledger import (
+    PaperAccount, PaperTrade, PaperSignalLog, PaperEquitySnapshot,
+)
 
 __all__ = [
     "Stock",
@@ -16,4 +19,8 @@ __all__ = [
     "Dividend",
     "StockSplit",
     "ShortInterest",
+    "PaperAccount",
+    "PaperTrade",
+    "PaperSignalLog",
+    "PaperEquitySnapshot",
 ]
