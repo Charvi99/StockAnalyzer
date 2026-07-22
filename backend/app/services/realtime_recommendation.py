@@ -166,15 +166,17 @@ def _get_recommendation_for_stock(stock: Stock, db: Session) -> RecommendationRe
         logger.warning(f"Dividend/split signal detection failed for stock {stock.id}: {e}")
 
     # ── strategy consensus (Phase 0.5): one vote across all registered ────
-    # strategies, computed from the SAME df + indicators already built above
-    # (no extra DB/indicator work). Reuses the pure registry helper so the live
-    # engine, the snapshot endpoint, and the future ledger all agree. Failure
+    # strategies. Computed via the SAME path as /snapshot
+    # (compute_consensus_for_stock: fresh indicators over a clean window), NOT
+    # from tech_recommendation['indicators'] — those cached values diverge from
+    # a fresh calc and flipped mixed-stock directions (JBHT: SELL on the list,
+    # HOLD on the radar). One source of truth ⇒ radar == list == tab. Failure
     # is non-fatal: the engine behaves as before (no strategy component).
     strategy_consensus = None
     try:
         from app.services.strategies import strategy_manager as _strategy_manager
-        consensus_rec, consensus_conf, _strat_breakdown = _strategy_manager.compute_strategy_consensus(
-            df.reset_index(), tech_recommendation['indicators']
+        consensus_rec, consensus_conf, _strat_breakdown = _strategy_manager.compute_consensus_for_stock(
+            stock.id, db
         )
         if consensus_rec is not None:
             strategy_consensus = (consensus_rec, consensus_conf)

@@ -245,8 +245,28 @@ class StrategyManager:
             'source_version': self.source_version,
         }
 
-    def snapshot(self, stock_id: int, db: Session) -> Dict[str, Any]:
-        """All strategies + consensus for a stock in one indicator calculation."""
+    def compute_consensus_for_stock(
+        self,
+        stock_id: int,
+        db: Session,
+        overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Tuple[Optional[str], Optional[float], List[Dict[str, Any]]]:
+        """THE single source of truth for a live stock's strategy consensus.
+
+        Loads a clean OHLCV window, computes indicators FRESH, and runs the
+        weighted vote. Used by BOTH :meth:`snapshot` and the recommendation
+        engine adapter so the radar axis, the per-strategy list, and the
+        Strategies tab always agree.
+
+        The adapter previously fed the cached ``tech_recommendation['indicators']``
+        into :meth:`compute_strategy_consensus`; those cached values diverge from
+        a fresh ``calculate_all_indicators`` calc and flip mixed-stock directions
+        (e.g. JBHT SELL on the list vs HOLD on the radar). Routing everyone
+        through this one method removes the second indicator context entirely.
+
+        Raises ValueError if the stock or its price data is missing.
+        Returns ``(consensus_rec, consensus_conf, breakdown)``.
+        """
         from app.models.stock import Stock
         from app.services.technical_indicators import TechnicalIndicators
 
@@ -262,10 +282,17 @@ class StrategyManager:
 
         prices_df = TechnicalIndicators.calculate_all_indicators(prices_df)
         indicators = TechnicalIndicators.generate_recommendation(prices_df)['indicators']
+        return self.compute_strategy_consensus(prices_df, indicators, overrides)
 
-        consensus_rec, consensus_conf, breakdown = self.compute_strategy_consensus(
-            prices_df, indicators
-        )
+    def snapshot(self, stock_id: int, db: Session) -> Dict[str, Any]:
+        """All strategies + consensus for a stock (delegates to the shared path)."""
+        from app.models.stock import Stock
+
+        stock = db.query(Stock).filter(Stock.id == stock_id).first()
+        if not stock:
+            raise ValueError(f"Stock with id {stock_id} not found")
+
+        consensus_rec, consensus_conf, breakdown = self.compute_consensus_for_stock(stock_id, db)
         return {
             'stock_id': stock_id,
             'stock_symbol': stock.symbol,
