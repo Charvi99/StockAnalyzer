@@ -26,6 +26,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped  # auto-restart on host reboot (data collection must survive)
 
   # FastAPI Backend
   backend:
@@ -50,6 +51,7 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    restart: unless-stopped  # auto-restart on host reboot
     # Command is now handled by start.sh script in Dockerfile
 
   # React Frontend
