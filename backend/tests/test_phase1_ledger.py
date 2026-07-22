@@ -28,6 +28,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.services.signal.types import SignalResult
 from app.services.signal.systematic import signal_systematic
 from app.services.ledger_signal_adapter import signal_for_ledger
+from app.services.ledger_service import (
+    _is_fresh_buy,
+    _exit_reason,
+    _exit_fill_price,
+    _apply_slippage,
+    _realized_pnl_long,
+    _scale_price_for_split,
+    _scale_size_for_split,
+    LEDGER_MAX_HOLD_DAYS,
+)
 
 ADAPTER_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "services", "ledger_signal_adapter.py")
 ORDER_CALC_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "services", "order_calculator.py")
@@ -208,7 +218,102 @@ def test_c3_override_skips_engine2_recall():
     )
 
 
-# ── Step 4 (LedgerService math) is appended when the service lands. ───────────
+# ── Step 4: LedgerService pure decision math ─────────────────────────────────
+def test_fresh_buy_detection():
+    """A fresh BUY is a transition INTO buy (last != BUY and now == BUY)."""
+    assert _is_fresh_buy(None, "BUY") is True       # never logged -> fresh
+    assert _is_fresh_buy("HOLD", "BUY") is True
+    assert _is_fresh_buy("SELL", "BUY") is True
+    assert _is_fresh_buy("BUY", "BUY") is False     # continuous BUY: not fresh (no pyramid)
+    assert _is_fresh_buy("HOLD", "HOLD") is False
+    assert _is_fresh_buy("BUY", "SELL") is False
+    assert _is_fresh_buy(None, "HOLD") is False
+
+
+def test_exit_reason_stop_loss_wins_same_day():
+    """When one day's range spans BOTH stop and target, assume the stop hit first
+    (conservative). This is the key exit-evaluation subtlety."""
+    # low <= SL AND high >= TP  -> stop_loss wins
+    assert _exit_reason(day_high=120, day_low=90, stop_loss=95, take_profit=115,
+                        trading_days_held=3, current_signal="BUY") == "stop_loss"
+
+
+def test_exit_reason_barrier_then_flip_then_maxhold():
+    """Priority: stop_loss > take_profit > signal_flip > max_hold > None."""
+    assert _exit_reason(120, 90, 95, 115, 3, "BUY") == "stop_loss"      # SL only
+    assert _exit_reason(120, 100, 95, 115, 3, "BUY") == "take_profit"  # TP only (low>SL)
+    assert _exit_reason(105, 100, 95, 115, 3, "SELL") == "signal_flip"  # no barrier, SELL
+    assert _exit_reason(105, 100, 95, 115, 3, "HOLD") is None           # nothing, short hold
+    assert _exit_reason(105, 100, 95, 115, LEDGER_MAX_HOLD_DAYS, "BUY") == "max_hold"
+    # max_hold yields to signal_flip when the engine flips.
+    assert _exit_reason(105, 100, 95, 115, LEDGER_MAX_HOLD_DAYS, "SELL") == "signal_flip"
+
+
+def test_exit_fill_price():
+    """Barrier exits fill at the barrier; discretionary exits fill at market."""
+    assert _exit_fill_price("stop_loss", 95.0, 115.0, 100.0) == 95.0
+    assert _exit_fill_price("take_profit", 95.0, 115.0, 100.0) == 115.0
+    assert _exit_fill_price("signal_flip", 95.0, 115.0, 100.0) == 100.0
+    assert _exit_fill_price("max_hold", 95.0, 115.0, 100.0) == 100.0
+
+
+def test_realized_pnl_long_win_and_loss_no_commission():
+    """v1 (0 commission): pnl = (fill-entry)*size; pct = pnl / (entry*size)."""
+    pnl, pct = _realized_pnl_long(100.0, 110.0, 10, commission_per_share=0.0)
+    assert abs(pnl - 100.0) < 1e-9
+    assert abs(pct - 0.10) < 1e-9
+    pnl, pct = _realized_pnl_long(100.0, 90.0, 10, commission_per_share=0.0)
+    assert abs(pnl - (-100.0)) < 1e-9
+    assert abs(pct - (-0.10)) < 1e-9
+
+
+def test_realized_pnl_long_nets_both_leg_commissions():
+    """Commission on entry+exit reduces pnl and raises the cost basis."""
+    pnl, pct = _realized_pnl_long(100.0, 110.0, 10, commission_per_share=0.5)
+    # pnl = (10)*10 - 0.5*10*2 = 100 - 10 = 90
+    assert abs(pnl - 90.0) < 1e-9
+    # cost_basis = 1000 + 5 = 1005
+    assert abs(pct - (90.0 / 1005.0)) < 1e-9
+
+
+def test_realized_pnl_matches_cash_accounting():
+    """realized_pnl must equal the net cash change (proceeds - cost). This is the
+    invariant that keeps the equity snapshot honest."""
+    entry, fill, size, comm = 100.0, 108.0, 40, 0.25
+    cost = entry * size + comm * size
+    proceeds = fill * size - comm * size
+    pnl, _ = _realized_pnl_long(entry, fill, size, commission_per_share=comm)
+    assert abs((proceeds - cost) - pnl) < 1e-9
+
+
+def test_equity_equals_cash_plus_open_value_no_commission():
+    """With 0 commission, account equity = starting_cash + sum(unrealized)."""
+    starting_cash = 100000.0
+    entry, size, mark = 100.0, 50, 110.0
+    cost = entry * size  # commission 0
+    cash = starting_cash - cost
+    open_value = mark * size
+    equity = cash + open_value
+    unrealized = (mark - entry) * size
+    assert abs(equity - (starting_cash + unrealized)) < 1e-9
+
+
+def test_apply_slippage():
+    """0 bps is a no-op; positive bps worsens a BUY fill (higher price)."""
+    assert _apply_slippage(100.0, 0) == 100.0
+    assert abs(_apply_slippage(100.0, 10) - 100.1) < 1e-9  # +10bps = +0.1%
+
+
+def test_split_scaling():
+    """A 2-for-1 split halves prices and doubles share count; position value holds."""
+    assert _scale_price_for_split(100.0, 2.0) == 50.0
+    assert _scale_size_for_split(100, 2.0) == 200
+    # value preserved: price/ratio * size*ratio == price*size
+    assert abs(_scale_price_for_split(100.0, 2.0) * _scale_size_for_split(100, 2.0)
+               - (100.0 * 100)) < 1e-9
+    # zero-ratio guard (defensive — never divides by zero)
+    assert _scale_price_for_split(100.0, 0.0) == 100.0
+    assert _scale_size_for_split(100, 0.0) == 100
 
 
 if __name__ == "__main__":
