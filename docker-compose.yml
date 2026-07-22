@@ -116,6 +116,16 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       POLYGON_API_KEY: ${POLYGON_API_KEY:-demo}
       PYTHONUNBUFFERED: 1
+      # Alert delivery (Phase 1.11) — optional. The check_ledger_health task always
+      # logs; it pushes to a webhook / SMTP email only when these are set in .env.
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_FORMAT: ${ALERT_WEBHOOK_FORMAT:-slack}
+      ALERT_SMTP_HOST: ${ALERT_SMTP_HOST:-}
+      ALERT_SMTP_PORT: ${ALERT_SMTP_PORT:-587}
+      ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
     depends_on:
       database:
         condition: service_healthy

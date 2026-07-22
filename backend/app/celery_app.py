@@ -243,6 +243,21 @@ celery_app.conf.beat_schedule = {
         'options': {'queue': 'maintenance', 'priority': 5,
                     'kwargs': {'engine': 'engine_2'}}
     },
+
+    # ────────────────────────────────────────
+    # LEDGER HEALTH (Phase 1.11 hardening)
+    # ────────────────────────────────────────
+
+    # Daily staleness + reconciliation check: fires 1h after the 19:00 cycles so the
+    # day's snapshot exists. Alerts (log/webhook/email) if an engine stalled or its
+    # books drifted. CAVEAT: scheduled by the beat, so it catches a stalled worker /
+    # erroring cycle but NOT the beat itself dying — pair with an external uptime
+    # monitor on /health for full dead-beat coverage.
+    'check-ledger-health-daily': {
+        'task': 'app.tasks.ledger_tasks.check_ledger_health',
+        'schedule': crontab(minute=0, hour=20),  # 8:00 PM ET (1h after the cycles)
+        'options': {'queue': 'maintenance', 'priority': 6}
+    },
 }
 
 # ============================================

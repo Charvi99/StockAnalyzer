@@ -22,6 +22,7 @@ from datetime import date
 
 from app.celery_app import celery_app
 from app.db.database import SessionLocal
+from app.models.ledger import PaperAccount
 from app.utils.market_hours import get_current_et_time, is_market_holiday, is_weekend
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,94 @@ def run_paper_trading_cycle(self, engine: str = "engine_1"):
         db.rollback()
         logger.error("[ledger %s] cycle failed for %s: %s", engine, cycle_id, e)
         raise self.retry(exc=e, countdown=300)
+
+    finally:
+        db.close()
+
+
+@celery_app.task
+def check_ledger_health():
+    """Daily ledger health verification (Phase 1.11 hardening).
+
+    Scheduled ~1h after the 19:00 paper-trading cycles so the day's snapshot
+    already exists. For each engine it checks two things and alerts if either fails:
+
+      - **staleness** — no fresh snapshot ⇒ the beat / worker / cycle stalled.
+      - **reconciliation** — the latest snapshot's cash/equity/realized P&L must
+        match a fresh recomputation from the live tables (catches a crash-mid-cycle
+        that debited cash without recording the trade, a mark-to-market bug, etc.).
+
+    Pushes via ``alert_service.notify_alert`` (always logs; webhook/email if
+    configured). **Never raises**: a health checker that crashes on its own error
+    masks the very problem it's meant to surface, so even a meta-failure best-effort
+    fires an alert and swallows.
+
+    Limitation: this task is itself scheduled by the beat, so it catches a stalled
+    worker / erroring cycle but NOT the beat container dying (a dead beat schedules
+    nothing). Full dead-beat coverage needs an external monitor pinging /health.
+    """
+    from app.services.alert_service import notify_alert
+    from app.services.ledger_health_service import compute_engine_health, reconcile_account
+
+    logger.info("[ledger-health] starting daily check")
+    db = SessionLocal()
+    try:
+        health = compute_engine_health(db)
+        stalled = [h for h in health if h["status"] in ("stale", "no_data")]
+
+        recon_problems = []
+        for h in health:
+            acct = db.query(PaperAccount).filter(PaperAccount.engine == h["engine"]).first()
+            if acct is None:
+                continue
+            r = reconcile_account(db, acct.id)
+            if r.get("has_snapshot") and not r.get("ok"):
+                recon_problems.append(r)
+
+        if not stalled and not recon_problems:
+            logger.info("[ledger-health] all engines healthy + reconciled")
+            return {"status": "ok", "engines": len(health)}
+
+        lines = []
+        for h in stalled:
+            lines.append(
+                f"- {h['engine']}: {h['status']} — last snapshot "
+                f"{h['last_snapshot_date']} ({h['days_since_snapshot']}d ago); "
+                f"equity ${h['equity']:.0f}, {h['open_trades']} open positions"
+            )
+        for r in recon_problems:
+            d = r["deltas"]
+            lines.append(
+                f"- {r['engine']}: books don't reconcile (snapshot @ {r['snapshot_date']}) — "
+                f"cash Δ${d['cash']:.2f}, equity Δ${d['equity']:.2f}, realized Δ${d['realized']:.2f}"
+            )
+        notify_alert(
+            subject=(
+                f"Paper-trading ledger needs attention "
+                f"({len(stalled)} stalled, {len(recon_problems)} not reconciling)"
+            ),
+            body="\n".join(lines),
+            severity="error" if stalled else "warning",
+        )
+        return {
+            "status": "alerted",
+            "stalled": len(stalled),
+            "recon_problems": len(recon_problems),
+        }
+
+    except Exception as e:
+        # The checker itself failed (e.g. DB unreachable) — exactly when an alert is
+        # most valuable. Best-effort fire one, then swallow. Never raise (see docstring).
+        logger.exception("[ledger-health] check itself failed: %s", e)
+        try:
+            notify_alert(
+                subject="Ledger health check ITSELF failed",
+                body=f"The daily check_ledger_health task errored:\n\n{e}",
+                severity="error",
+            )
+        except Exception:
+            logger.exception("[ledger-health] failed to send the meta-alert too")
+        return {"status": "error", "error": str(e)}
 
     finally:
         db.close()

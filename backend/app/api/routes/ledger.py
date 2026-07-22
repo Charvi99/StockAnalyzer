@@ -30,6 +30,7 @@ from app.db.database import get_db
 from app.models.ledger import PaperAccount, PaperEquitySnapshot, PaperTrade
 from app.models.stock import Stock
 from app.services.benchmark_service import get_spy_series
+from app.services.ledger_health_service import compute_engine_health, reconcile_account
 from app.utils.market_hours import get_current_et_time
 
 router = APIRouter()
@@ -200,12 +201,6 @@ def _engine_stats(db: Session, account_id: int) -> dict:
     }
 
 
-def _stale_threshold_days() -> int:
-    """Calendar-day slack before a missing snapshot is flagged 'stale'. The beat
-    is daily but skips weekends/holidays, so allow a long-weekend buffer (3)."""
-    return 3
-
-
 # ── endpoints ─────────────────────────────────────────────────────────────────
 @router.get("/accounts")
 def list_accounts(db: Session = Depends(get_db)):
@@ -331,35 +326,24 @@ def engine_config(db: Session = Depends(get_db)):
 
 @router.get("/health")
 def health(db: Session = Depends(get_db)):
-    """The heartbeat. A stale/missing last snapshot ⇒ the daily beat stalled."""
-    now_et = get_current_et_time().date()
-    week_ago = get_current_et_time() - timedelta(days=7)
+    """The heartbeat. A stale/missing last snapshot ⇒ the daily beat stalled.
 
-    out = []
-    for r in _account_summary_rows(db):
-        eng = r["engine"]
-        last = r["last_snapshot_date"]
-        opened_this_week = (
-            db.query(PaperTrade)
-            .filter(PaperTrade.engine == eng, PaperTrade.entry_date >= week_ago)
-            .count()
-        )
-        if last is None:
-            status = "no_data"
-        elif (now_et - last).days > _stale_threshold_days():
-            status = "stale"
-        else:
-            status = "ok"
-        out.append(
-            {
-                "engine": eng,
-                "status": status,
-                "last_snapshot_date": last.isoformat() if last else None,
-                "days_since_snapshot": (now_et - last).days if last else None,
-                "open_trades": r["open_trades"],
-                "trades_opened_this_week": opened_this_week,
-                "equity": r["equity"],
-                "cash": r["cash"],
-            }
-        )
-    return {"checked_at_et": now_et.isoformat(), "engines": out}
+    Delegates to ledger_health_service.compute_engine_health so this endpoint and
+    the Celery ``check_ledger_health`` task share one staleness implementation and
+    can never drift apart. Response shape is unchanged."""
+    return {
+        "checked_at_et": get_current_et_time().date().isoformat(),
+        "engines": compute_engine_health(db),
+    }
+
+
+@router.get("/reconciliation")
+def reconciliation(db: Session = Depends(get_db)):
+    """Per-engine bookkeeping reconciliation: does the latest snapshot match a fresh
+    recomputation of cash / equity / realized P&L? Read-only diagnostic (the
+    ``check_ledger_health`` task alerts on drift beyond tolerance)."""
+    accounts = db.query(PaperAccount).order_by(PaperAccount.engine).all()
+    return {
+        "checked_at_et": get_current_et_time().date().isoformat(),
+        "engines": [reconcile_account(db, a.id) for a in accounts],
+    }

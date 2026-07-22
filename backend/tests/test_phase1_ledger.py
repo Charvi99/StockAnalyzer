@@ -659,6 +659,133 @@ def test_equity_endpoint_includes_benchmark():
     )
 
 
+# ── Step 1.11: hardening — alert + health + reconciliation ────────────────────
+def test_notify_alert_log_only_when_unconfigured():
+    """With no ALERT_* env, notify_alert just logs and returns an empty-channel
+    report — and crucially NEVER raises (the alert path can't be a 2nd failure)."""
+    import os as _os
+    from app.services.alert_service import (
+        notify_alert, webhook_configured, email_configured,
+    )
+    keys = ["ALERT_WEBHOOK_URL", "ALERT_WEBHOOK_FORMAT", "ALERT_SMTP_HOST", "ALERT_SMTP_PORT",
+            "ALERT_SMTP_USER", "ALERT_SMTP_PASSWORD", "ALERT_EMAIL_FROM", "ALERT_EMAIL_TO"]
+    saved = {k: _os.environ.pop(k, None) for k in keys}
+    try:
+        assert not webhook_configured() and not email_configured()
+        report = notify_alert("test subject", "test body", severity="info")
+        assert report["subject"] == "test subject"
+        assert report["channels"] == {}, f"no channels configured; got {report['channels']}"
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                _os.environ[k] = v
+
+
+def test_notify_alert_is_fault_tolerant():
+    """notify_alert wraps every push in try/except so a dead webhook/SMTP can never
+    abort the health checker (source guard)."""
+    src = _src("app/services/alert_service.py")
+    assert "def notify_alert(" in src
+    assert "webhook_configured()" in src and "email_configured()" in src
+    tree = ast.parse(src)
+    fn = _fn(tree, "notify_alert")
+    assert fn is not None, "notify_alert not found"
+    assert any(isinstance(n, ast.ExceptHandler) for n in ast.walk(fn)), (
+        "notify_alert must wrap pushes in try/except (a delivery failure must never raise)"
+    )
+
+
+def test_health_service_exposes_staleness_and_reconciliation():
+    """ledger_health_service exposes compute_engine_health + reconcile_account and
+    the two thresholds the task + /health rely on."""
+    src = _src("app/services/ledger_health_service.py")
+    assert "def compute_engine_health(" in src
+    assert "def reconcile_account(" in src
+    assert "STALE_THRESHOLD_DAYS" in src and "RECONCILE_TOLERANCE" in src
+
+
+def test_reconcile_checks_three_invariants():
+    """reconcile_account recomputes cash / equity / realized and compares to the
+    snapshot — the three invariants that catch silent bookkeeping drift."""
+    src = _src("app/services/ledger_health_service.py")
+    assert "float(snap.cash) - cash" in src, "reconcile must check snapshot cash vs live cash"
+    assert "float(snap.equity) - (cash + open_value)" in src, (
+        "reconcile must check equity vs cash + recomputed open value"
+    )
+    assert "float(snap.realized_pnl_cumulative)" in src, (
+        "reconcile must check realized cumulative vs sum of closed P&L"
+    )
+
+
+def test_health_route_delegates_and_reconciliation_exists():
+    """/health delegates to compute_engine_health (shared with the task) and a new
+    read-only GET /reconciliation exposes reconcile_account."""
+    tree = ast.parse(_src("app/api/routes/ledger.py"))
+    paths = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for d in node.decorator_list:
+                if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) \
+                        and d.func.attr == "get" and d.args and isinstance(d.args[0], ast.Constant):
+                    paths.add(d.args[0].value)
+    assert "/reconciliation" in paths, "missing GET /reconciliation endpoint"
+    src = _src("app/api/routes/ledger.py")
+    assert "compute_engine_health(db)" in src, "/health must delegate to compute_engine_health"
+
+
+def test_check_ledger_health_task_registered():
+    """check_ledger_health is a @celery_app.task that runs both checks + alerts."""
+    tree = ast.parse(_src("app/tasks/ledger_tasks.py"))
+    fn = _fn(tree, "check_ledger_health")
+    assert fn is not None, "check_ledger_health task not found"
+    dec_names = []
+    for d in fn.decorator_list:
+        f = d.func if isinstance(d, ast.Call) else d   # @celery_app.task() vs bare @celery_app.task
+        if isinstance(f, ast.Attribute):
+            dec_names.append(f.attr)
+        elif isinstance(f, ast.Name):
+            dec_names.append(f.id)
+    assert "task" in dec_names, "check_ledger_health must be a @celery_app.task"
+    calls = _func_calls(fn)
+    assert "compute_engine_health" in calls, "task must compute engine health"
+    assert "reconcile_account" in calls, "task must reconcile each engine"
+    assert "notify_alert" in calls, "task must dispatch alerts via notify_alert"
+
+
+def test_check_ledger_health_never_raises():
+    """The health checker must catch its own failures (a crashing checker masks the
+    problem) — there's a generic `except Exception` that does not re-raise."""
+    fn = _fn(ast.parse(_src("app/tasks/ledger_tasks.py")), "check_ledger_health")
+    found_catchall = False
+    for node in ast.walk(fn):
+        if isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Name) \
+                and node.type.id == "Exception":
+            raises_propagate = any(
+                isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(node)
+            )
+            if not raises_propagate:
+                found_catchall = True
+    assert found_catchall, "check_ledger_health needs a non-re-raising except Exception"
+
+
+def test_beat_schedules_health_check_daily():
+    """beat_schedule has a daily check_ledger_health entry at 20:00 ET (1h after the
+    19:00 cycles) on the maintenance queue."""
+    tree = ast.parse(_src("app/celery_app.py"))
+    entry = _beat_entry(tree, "check_ledger_health")
+    assert entry is not None, "no beat_schedule entry for check_ledger_health"
+    sched = _entry_field(entry, "schedule")
+    assert isinstance(sched, ast.Call), "schedule must be a crontab(...) call"
+    assert _kw_value(sched, "hour") == 20, "health check must run at hour=20 (8pm ET)"
+    assert _kw_value(sched, "minute") == 0
+    opts = _entry_field(entry, "options")
+    opt_map = {}
+    for kk, vv in zip(opts.keys, opts.values):
+        if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant):
+            opt_map[kk.value] = vv.value
+    assert opt_map.get("queue") == "maintenance", "health check must run on maintenance queue"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
