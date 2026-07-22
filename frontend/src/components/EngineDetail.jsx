@@ -30,6 +30,24 @@ const EngineDetail = ({ engine, account, summary, healthEntry, equitySeries, ben
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [sortKey, setSortKey] = useState('entry_date');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const toggleSort = (field) => {
+    if (sortKey === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(field); setSortDir('desc'); }
+  };
+  const sortedTrades = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...trades].sort((a, b) => {
+      const av = a[sortKey]; const bv = b[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;            // nulls sort last
+      if (bv == null) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * dir;
+      return (Number(av) - Number(bv)) * dir;
+    });
+  }, [trades, sortKey, sortDir]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,9 +83,17 @@ const EngineDetail = ({ engine, account, summary, healthEntry, equitySeries, ben
   return (
     <div className="ed">
       <div className="ed-toolbar">
-        <button className="ed-back" onClick={onBack}>← All engines</button>
-        <h2 style={{ color }}>{(engine || '').replace('_', ' #')}</h2>
-        <button className="ptl-refresh" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
+        <button className="ed-back" onClick={onBack} title="Back to all engines">
+          <span className="ed-back-arrow">←</span> All engines
+        </button>
+        <div className="ed-title-wrap">
+          <span className="ed-title-dot" style={{ background: color }} />
+          <h2 className="ed-title">{(engine || '').replace('_', ' #')}</h2>
+          {account?.config_version && <span className="ed-title-cv">cfg {account.config_version}</span>}
+        </div>
+        <button className="ptl-refresh ed-refresh" onClick={load} disabled={loading}>
+          {loading ? 'Refreshing…' : '↻ Refresh'}
+        </button>
       </div>
 
       {/* Header / account summary */}
@@ -119,13 +145,18 @@ const EngineDetail = ({ engine, account, summary, healthEntry, equitySeries, ben
             <table className="ptl-trades">
               <thead>
                 <tr>
-                  <th>Symbol</th><th>Signal</th><th>Status</th>
-                  <th>Entry</th><th>SL / TP</th><th>Exit</th>
-                  <th>Realized</th><th>Unrealized</th>
+                  <SortTh label="Symbol" field="symbol" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <th>Signal</th>
+                  <SortTh label="Status" field="status" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortTh label="Entry" field="entry_date" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <th>SL / TP</th>
+                  <SortTh label="Exit" field="exit_date" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortTh label="Realized" field="realized_pnl" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+                  <SortTh label="Unrealized" field="unrealized_pnl" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                 </tr>
               </thead>
               <tbody>
-                {trades.map((t) => (
+                {sortedTrades.map((t) => (
                   <React.Fragment key={t.id}>
                     <tr className={`ptl-trade-row ptl-trade--${t.status}`} onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}>
                       <td><strong>{t.symbol}</strong> <span className="ptl-expand">{expandedId === t.id ? '▾' : '▸'}</span></td>
@@ -186,6 +217,15 @@ const EngineDetail = ({ engine, account, summary, healthEntry, equitySeries, ben
         )}
       </section>
     </div>
+  );
+};
+
+const SortTh = ({ label, field, sortKey, sortDir, onToggle }) => {
+  const active = sortKey === field;
+  return (
+    <th className={`ed-sort-th${active ? ' active' : ''}`} onClick={() => onToggle(field)} title={`Sort by ${label}`}>
+      {label}<span className="ed-sort-arrow">{active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}</span>
+    </th>
   );
 };
 
