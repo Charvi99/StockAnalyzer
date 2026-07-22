@@ -194,7 +194,7 @@ def get_dashboard_analysis_chunk(
 
 
 @router.post("/stocks/{stock_id}/analyze-complete")
-async def analyze_complete(
+def analyze_complete(
     stock_id: int,
     db: Session = Depends(get_db)
 ):
@@ -393,7 +393,7 @@ def create_ml_prediction(
 
 
 @router.post("/stocks/{stock_id}/order-calculator")
-async def calculate_order_parameters(
+def calculate_order_parameters(
     stock_id: int,
     account_size: float = Query(default=10000.0, ge=100, le=10000000, description="Total account size"),
     risk_percentage: float = Query(default=2.0, ge=0.5, le=10.0, description="Risk percentage per trade"),
@@ -428,7 +428,7 @@ async def calculate_order_parameters(
 
 
 @router.post("/stocks/{stock_id}/trailing-stop")
-async def calculate_trailing_stop(
+def calculate_trailing_stop(
     stock_id: int,
     entry_price: float = Query(..., description="Original entry price"),
     current_price: float = Query(..., description="Current market price"),
@@ -460,7 +460,7 @@ async def calculate_trailing_stop(
 
 
 @router.post("/portfolio/risk")
-async def calculate_portfolio_risk(
+def calculate_portfolio_risk(
     open_positions: list[dict] = Body(..., description="List of open positions with entry_price, stop_loss, position_size"),
     account_capital: float = Body(..., ge=100, description="Total account capital"),
     max_portfolio_heat_percent: float = Body(default=6.0, ge=1.0, le=20.0, description="Maximum portfolio risk percentage"),
@@ -485,7 +485,7 @@ async def calculate_portfolio_risk(
 
 
 @router.get("/stocks/{stock_id}/market-regime")
-async def get_market_regime(
+def get_market_regime(
     stock_id: int,
     lookback_periods: int = Query(default=100, ge=50, le=500, description="Number of periods to analyze"),
     db: Session = Depends(get_db)

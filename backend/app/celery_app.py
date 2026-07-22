@@ -74,18 +74,12 @@ celery_app.conf.update(
     # Result backend settings
     result_expires=3600,  # Task results expire after 1 hour
 
-    # Rate limiting (Polygon.io Stocks Starter plan: 100 requests/minute)
-    task_annotations={
-        'app.tasks.fetcher_tasks.fetch_stock_prices': {
-            'rate_limit': '100/m'  # 100 tasks per minute (Starter plan)
-        },
-        'app.tasks.fetcher_tasks.fetch_stock_news': {
-            'rate_limit': '5/m'
-        },
-        'app.tasks.fetcher_tasks.fetch_stock_metadata': {
-            'rate_limit': '5/m'
-        },
-    },
+    # H2 (audit): the task_annotations rate-limits referenced non-existent task
+    # names (fetch_stock_prices / fetch_stock_news / fetch_stock_metadata) so they
+    # never applied — dead config. Removed. Polygon's Stocks Starter tier is
+    # effectively unlimited, so per-task rate limiting isn't needed; if a real
+    # limit is wanted later, point keys at the actual tasks
+    # (fetch_high/medium/low_priority_stocks, fetch_*_priority_news).
 )
 
 # ============================================
