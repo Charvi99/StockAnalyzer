@@ -366,11 +366,15 @@ def analyze_stock_comprehensive(self, stock_id: int, symbol: str):
 
 
 @celery_app.task(bind=True)
-def analyze_high_priority_stocks(self):
+def analyze_high_priority_stocks(self, stock_ids=None):
     """
-    Run comprehensive analysis for all high-priority stocks
+    Run comprehensive analysis for high-priority stocks.
 
-    Triggered after high-priority price fetch completes
+    Triggered after the high-priority price fetch batch completes. Pass ``stock_ids``
+    (the IDs of stocks freshly fetched in that batch) to analyze ONLY those — this
+    avoids analyzing stocks whose fetch failed (empty data) and removes the previous
+    double-scheduling (H1). Pass None (manual trigger) to analyze all tracked
+    high-priority stocks.
     """
     from app.db.database import SessionLocal
     from app.models.stock import Stock
@@ -379,10 +383,13 @@ def analyze_high_priority_stocks(self):
 
     db = SessionLocal()
     try:
-        stocks = db.query(Stock).filter(
+        query = db.query(Stock).filter(
             Stock.is_tracked == True,
             Stock.priority == 'high'
-        ).all()
+        )
+        if stock_ids is not None:
+            query = query.filter(Stock.id.in_(stock_ids))
+        stocks = query.all()
 
         results = []
         for stock in stocks:
@@ -410,11 +417,12 @@ def analyze_high_priority_stocks(self):
 
 
 @celery_app.task(bind=True)
-def analyze_medium_priority_stocks(self):
+def analyze_medium_priority_stocks(self, stock_ids=None):
     """
-    Run comprehensive analysis for all medium-priority stocks
+    Run comprehensive analysis for medium-priority stocks.
 
-    Triggered after medium-priority price fetch completes
+    See ``analyze_high_priority_stocks``: pass ``stock_ids`` to analyze only the
+    freshly-fetched stocks (H1 fix + avoids empty-data analysis); None → all.
     """
     from app.db.database import SessionLocal
     from app.models.stock import Stock
@@ -423,10 +431,13 @@ def analyze_medium_priority_stocks(self):
 
     db = SessionLocal()
     try:
-        stocks = db.query(Stock).filter(
+        query = db.query(Stock).filter(
             Stock.is_tracked == True,
             Stock.priority == 'medium'
-        ).all()
+        )
+        if stock_ids is not None:
+            query = query.filter(Stock.id.in_(stock_ids))
+        stocks = query.all()
 
         results = []
         for stock in stocks:
@@ -453,11 +464,12 @@ def analyze_medium_priority_stocks(self):
 
 
 @celery_app.task(bind=True)
-def analyze_low_priority_stocks(self):
+def analyze_low_priority_stocks(self, stock_ids=None):
     """
-    Run comprehensive analysis for all low-priority stocks
+    Run comprehensive analysis for low-priority stocks.
 
-    Triggered after low-priority price fetch completes
+    See ``analyze_high_priority_stocks``: pass ``stock_ids`` to analyze only the
+    freshly-fetched stocks (H1 fix + avoids empty-data analysis); None → all.
     """
     from app.db.database import SessionLocal
     from app.models.stock import Stock
@@ -466,10 +478,13 @@ def analyze_low_priority_stocks(self):
 
     db = SessionLocal()
     try:
-        stocks = db.query(Stock).filter(
+        query = db.query(Stock).filter(
             Stock.is_tracked == True,
             Stock.priority == 'low'
-        ).all()
+        )
+        if stock_ids is not None:
+            query = query.filter(Stock.id.in_(stock_ids))
+        stocks = query.all()
 
         results = []
         for stock in stocks:

@@ -270,6 +270,7 @@ def fetch_high_priority_stocks(self):
         # Fetch data for each stock
         results = []
         success_count = 0
+        success_stock_ids = []  # IDs fetched OK → analyzed once after the batch (H1 fix)
         error_count = 0
 
         import time
@@ -309,15 +310,11 @@ def fetch_high_priority_stocks(self):
                     cache_success = IndicatorCacheService.calculate_and_cache(db, stock.id, timeframe='1d')
                     logger.info(f"Cache {'✅ success' if cache_success else '❌ failed'} for {stock.symbol}")
 
-                    # CRITICAL FOR SWING TRADING: Trigger comprehensive analysis after successful fetch
-                    # This recalculates patterns, indicators, and recommendation based on fresh data
-                    from app.tasks.analysis_tasks import analyze_stock_comprehensive
-                    logger.info(f"🔬 Triggering comprehensive analysis for {stock.symbol}...")
-                    analyze_stock_comprehensive.apply_async(
-                        args=[stock.id, stock.symbol],
-                        countdown=2  # Small delay to ensure cache is fully written
-                    )
-                    logger.info(f"✅ Analysis queued for {stock.symbol}")
+                    # H1 fix: do NOT queue per-stock analysis here. The batch task
+                    # (analyze_<priority>_priority_stocks) is queued once after this whole
+                    # fetch loop completes and analyzes every successfully-fetched stock —
+                    # queuing here too caused each stock to be analyzed twice per cycle.
+                    success_stock_ids.append(stock.id)
 
                 elif result['status'] == 'error':
                     error_count += 1
@@ -346,11 +343,13 @@ def fetch_high_priority_stocks(self):
         logger.info(f"✅ Fetch complete: {success_count} success, {error_count} errors")
         logger.info(f"📊 Total bars: {total_bars_inserted} inserted, {total_bars_updated} updated")
 
-        # Trigger comprehensive analysis for high-priority stocks after fetch completes
+        # Trigger analysis ONLY after the full fetch batch completes, and only for stocks
+        # that were freshly fetched (H1 fix: was double-scheduled per-stock, and re-analyzed
+        # stocks whose fetch had failed).
         if success_count > 0:
             from app.tasks.analysis_tasks import analyze_high_priority_stocks
-            logger.info("🔬 Queuing comprehensive analysis for high-priority stocks...")
-            analyze_high_priority_stocks.apply_async(countdown=30)  # Run 30s after fetch
+            logger.info(f"🔬 Queuing analysis for {len(success_stock_ids)} freshly-fetched high-priority stocks...")
+            analyze_high_priority_stocks.apply_async(args=[success_stock_ids], countdown=30)
 
         return {
             'status': 'completed',
@@ -417,6 +416,7 @@ def fetch_medium_priority_stocks(self):
 
         results = []
         success_count = 0
+        success_stock_ids = []  # IDs fetched OK → analyzed once after the batch (H1 fix)
         error_count = 0
 
         import time
@@ -455,15 +455,11 @@ def fetch_medium_priority_stocks(self):
                     cache_success = IndicatorCacheService.calculate_and_cache(db, stock.id, timeframe='1d')
                     logger.info(f"Cache {'✅ success' if cache_success else '❌ failed'} for {stock.symbol}")
 
-                    # CRITICAL FOR SWING TRADING: Trigger comprehensive analysis after successful fetch
-                    # This recalculates patterns, indicators, and recommendation based on fresh data
-                    from app.tasks.analysis_tasks import analyze_stock_comprehensive
-                    logger.info(f"🔬 Triggering comprehensive analysis for {stock.symbol}...")
-                    analyze_stock_comprehensive.apply_async(
-                        args=[stock.id, stock.symbol],
-                        countdown=2  # Small delay to ensure cache is fully written
-                    )
-                    logger.info(f"✅ Analysis queued for {stock.symbol}")
+                    # H1 fix: do NOT queue per-stock analysis here. The batch task
+                    # (analyze_<priority>_priority_stocks) is queued once after this whole
+                    # fetch loop completes and analyzes every successfully-fetched stock —
+                    # queuing here too caused each stock to be analyzed twice per cycle.
+                    success_stock_ids.append(stock.id)
 
                 elif result['status'] == 'error':
                     error_count += 1
@@ -483,11 +479,12 @@ def fetch_medium_priority_stocks(self):
 
         logger.info(f"✅ Fetch complete: {success_count} success, {error_count} errors")
 
-        # Trigger comprehensive analysis for medium-priority stocks after fetch completes
+        # Trigger analysis only after the full fetch batch completes, and only for freshly
+        # fetched stocks (H1 fix).
         if success_count > 0:
             from app.tasks.analysis_tasks import analyze_medium_priority_stocks
-            logger.info("🔬 Queuing comprehensive analysis for medium-priority stocks...")
-            analyze_medium_priority_stocks.apply_async(countdown=30)  # Run 30s after fetch
+            logger.info(f"🔬 Queuing analysis for {len(success_stock_ids)} freshly-fetched medium-priority stocks...")
+            analyze_medium_priority_stocks.apply_async(args=[success_stock_ids], countdown=30)
 
         return {
             'status': 'completed',
@@ -552,6 +549,7 @@ def fetch_low_priority_stocks(self):
 
         results = []
         success_count = 0
+        success_stock_ids = []  # IDs fetched OK → analyzed once after the batch (H1 fix)
         error_count = 0
 
         import time
@@ -564,6 +562,7 @@ def fetch_low_priority_stocks(self):
 
                 if result['status'] == 'success':
                     success_count += 1
+                    success_stock_ids.append(stock.id)  # analyzed once after the batch (H1 fix)
 
                     # Update fetch timing for countdown timer
                     try:
@@ -597,11 +596,12 @@ def fetch_low_priority_stocks(self):
 
         logger.info(f"✅ Fetch complete: {success_count} success, {error_count} errors")
 
-        # Trigger comprehensive analysis for low-priority stocks after fetch completes
+        # Trigger analysis only after the full fetch batch completes, and only for freshly
+        # fetched stocks.
         if success_count > 0:
             from app.tasks.analysis_tasks import analyze_low_priority_stocks
-            logger.info("🔬 Queuing comprehensive analysis for low-priority stocks...")
-            analyze_low_priority_stocks.apply_async(countdown=30)  # Run 30s after fetch
+            logger.info(f"🔬 Queuing analysis for {len(success_stock_ids)} freshly-fetched low-priority stocks...")
+            analyze_low_priority_stocks.apply_async(args=[success_stock_ids], countdown=30)
 
         return {
             'status': 'completed',
