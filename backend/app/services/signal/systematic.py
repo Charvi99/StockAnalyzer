@@ -311,12 +311,26 @@ def signal_systematic(
         final_recommendation = 'HOLD'
         overall_confidence = 0.5  # Moderate confidence in HOLD
 
+    # ── human-readable reasoning (per-component breakdown, mirrors signal_swing) ──
+    reasoning = [
+        f"📊 Chart patterns (w {WEIGHTS['chart_patterns']:.2f}): {scores['chart_patterns']:+.2f}",
+        f"🕯️ Candlestick (w {WEIGHTS['candlestick_patterns']:.2f}): {scores['candlestick_patterns']:+.2f}",
+        f"📈 Technical indicators (w {WEIGHTS['technical_indicators']:.2f}): {scores['technical_indicators']:+.2f}",
+        (f"💬 Sentiment (w {WEIGHTS['sentiment']:.2f}): {sentiment_score:+.2f}"
+         if sentiment_score is not None
+         else f"💬 Sentiment (w {WEIGHTS['sentiment']:.2f}): n/a"),
+        f"🌐 Market regime (w {WEIGHTS['market_regime']:.2f}): {regime} → {scores['market_regime']:+.2f}",
+        f"💰 Dividend/split (w {WEIGHTS['dividend_split_signals']:.2f}): {scores['dividend_split_signals']:+.2f}",
+        f"➡️ Weighted {weighted_score:+.3f} (BUY/SELL when |·|>{BUY_SELL_THRESHOLD}) → "
+        f"{final_recommendation} @ {overall_confidence:.0%} confidence",
+    ]
+
     return SignalResult(
         signal=final_recommendation,
         confidence=overall_confidence,
         weighted_score=weighted_score,
         component_scores=scores,
         config_version=_SYSTEMATIC_CONFIG_VERSION,
-        reasoning=[],
+        reasoning=reasoning,
         regime=regime,
     )
