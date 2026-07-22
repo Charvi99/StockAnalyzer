@@ -119,6 +119,27 @@ def test_h1_batch_analyzers_filter_by_stock_ids():
         )
 
 
+# ── H6: partial-failure timestamp ───────────────────────────────────────────
+# Verification (Phase 0.6): analyze_stock_comprehensive sets
+# last_comprehensive_analysis even on partial failure, but this does NOT hide
+# stale analysis in practice, because (a) the scheduled fetch→analyze pipeline
+# (H1) re-runs the full analysis every fetch cycle regardless of the timestamp,
+# and (b) the dashboard auto-trigger intentionally cools down via the
+# `recently_analyzed` guard in the completeness check — removing it would
+# reintroduce the infinite re-analysis loop (Phase 0.1 fix: sentiment/ML are
+# structurally absent, capping the score at ~0.6 < 0.8, so flagging-by-score
+# loops forever). So H6 is a NON-BUG given the current architecture. This test
+# locks that cooldown guard so it can't be removed.
+def test_h6_dashboard_refresh_keeps_cooldown_guard():
+    src = _src("app/api/routes/analysis.py")
+    assert "recently_analyzed" in src and "needs_refresh" in src, (
+        "H6: the dashboard completeness check must keep its `recently_analyzed` "
+        "cooldown guard — without it, structurally-incomplete stocks (ML/sentiment "
+        "absent) re-analyze in an infinite loop. H6's 'hidden partial failure' is "
+        "acceptable because the scheduled fetch→analyze pipeline retries every cycle."
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
