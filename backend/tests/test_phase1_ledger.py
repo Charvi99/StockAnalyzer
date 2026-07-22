@@ -316,6 +316,194 @@ def test_split_scaling():
     assert _scale_size_for_split(100, 0.0) == 100
 
 
+# ── Step 5: Celery task + beat wiring ─────────────────────────────────────────
+LEDGER_TASKS_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "tasks", "ledger_tasks.py")
+CELERY_APP_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "celery_app.py")
+
+
+def _fn(tree, name):
+    """Top-level FunctionDef `name` in an AST, or None."""
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def _func_calls(fn) -> set:
+    """All Name/attribute names CALLED anywhere within function `fn`."""
+    return _called_names(list(ast.walk(fn)))
+
+
+def test_ledger_task_registered_and_delegates_to_service():
+    """run_paper_trading_cycle is a @celery_app.task that owns the transaction and
+    delegates the cycle to LedgerService.run_cycle (H4: task is a thin wrapper)."""
+    tree = ast.parse(_src("app/tasks/ledger_tasks.py"))
+    fn = _fn(tree, "run_paper_trading_cycle")
+    assert fn is not None, "run_paper_trading_cycle not found"
+    # Decorated with celery_app.task.
+    dec_names = []
+    for d in fn.decorator_list:
+        if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute):
+            dec_names.append(d.func.attr)
+        elif isinstance(d, ast.Call) and isinstance(d.func, ast.Name):
+            dec_names.append(d.func.id)
+    assert "task" in dec_names, "run_paper_trading_cycle must be a @celery_app.task"
+    calls = _func_calls(fn)
+    # Delegates to the service and owns the DB transaction lifecycle.
+    assert "LedgerService" in calls, "task must construct LedgerService"
+    assert "run_cycle" in calls, "task must call LedgerService.run_cycle"
+    assert "commit" in calls, "task owns the commit (service only flushes)"
+    assert "rollback" in calls, "task rolls back on failure"
+    assert "close" in calls, "task closes the session (finally)"
+
+
+def test_ledger_task_retries_on_transient_failure():
+    """A generic except branch re-queues via self.retry (idempotent on cycle_id,
+    so a retry is a safe no-op for rows already written)."""
+    fn = _fn(ast.parse(_src("app/tasks/ledger_tasks.py")), "run_paper_trading_cycle")
+    # Find the generic `except Exception` handler (no specific type) and assert it retries.
+    retry_found = False
+    for node in ast.walk(fn):
+        if isinstance(node, ast.ExceptHandler):
+            is_generic = node.type is None or (
+                isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException"))
+            if is_generic and "retry" in _called_names(list(ast.walk(node))):
+                retry_found = True
+    assert retry_found, "generic except must call self.retry for transient failures"
+
+
+def test_ledger_task_does_not_retry_config_errors():
+    """A ValueError (e.g. account not seeded) is a config error — retrying can't fix
+    it, so the except ValueError branch must NOT call self.retry (it returns)."""
+    fn = _fn(ast.parse(_src("app/tasks/ledger_tasks.py")), "run_paper_trading_cycle")
+    for node in ast.walk(fn):
+        if isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Name) \
+                and node.type.id == "ValueError":
+            assert "retry" not in _called_names(list(ast.walk(node))), (
+                "ValueError (config error) must not be retried"
+            )
+            return
+    raise AssertionError("expected an `except ValueError` handler in the task")
+
+
+def test_ledger_task_skips_non_trading_days():
+    """The cycle must not run on weekends/holidays — no fresh bar, and a flat
+    snapshot under a non-trading date is pure noise on the audit trail."""
+    src = _src("app/tasks/ledger_tasks.py")
+    assert "is_weekend" in src and "is_market_holiday" in src, (
+        "task must guard against non-trading days (is_weekend/is_market_holiday)"
+    )
+
+
+def _kw_value(call, name):
+    """Constant value of keyword `name` in an ast.Call, else None."""
+    for kw in getattr(call, "keywords", []):
+        if kw.arg == name and isinstance(kw.value, ast.Constant):
+            return kw.value.value
+    return None
+
+
+def _routes_map(tree):
+    """task_routes as {pattern: {queue: ...}} — the Dict whose keys all end in .*."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            routes = {}
+            all_star = bool(node.keys)
+            for k, v in zip(node.keys, node.values):
+                if isinstance(k, ast.Constant) and isinstance(k.value, str) and k.value.endswith(".*"):
+                    q = {}
+                    if isinstance(v, ast.Dict):
+                        for kk, vv in zip(v.keys, v.values):
+                            if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant):
+                                q[kk.value] = vv.value
+                    routes[k.value] = q
+                else:
+                    all_star = False
+            if all_star:
+                return routes
+    return {}
+
+
+def _beat_entry(tree, task_substr):
+    """The beat_schedule entry dict whose 'task' contains task_substr."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            tgt_names = []
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    tgt_names.append(t.id)
+                elif isinstance(t, ast.Attribute):
+                    tgt_names.append(t.attr)  # celery_app.conf.beat_schedule
+            if "beat_schedule" not in tgt_names or not isinstance(node.value, ast.Dict):
+                continue
+            for v in node.value.values:
+                if not isinstance(v, ast.Dict):
+                    continue
+                for kk, vv in zip(v.keys, v.values):
+                    if isinstance(kk, ast.Constant) and kk.value == "task" \
+                            and isinstance(vv, ast.Constant) and task_substr in vv.value:
+                        return v
+    return None
+
+
+def _entry_field(entry, key):
+    """The ast node for entry[key] (a beat entry dict)."""
+    for kk, vv in zip(entry.keys, entry.values):
+        if isinstance(kk, ast.Constant) and kk.value == key:
+            return vv
+    return None
+
+
+def test_celery_app_wires_ledger_task():
+    """celery_app.py: include has ledger_tasks, routes it to maintenance, and the
+    beat schedules engine_1 daily at 19:00 ET (after analysis) on maintenance."""
+    tree = ast.parse(_src("app/celery_app.py"))
+
+    # include list contains the module (so the worker imports + registers the task).
+    include = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id == "Celery":
+            for kw in node.keywords:
+                if kw.arg == "include" and isinstance(kw.value, ast.List):
+                    include = [c.value for c in kw.value.elts if isinstance(c, ast.Constant)]
+    assert "app.tasks.ledger_tasks" in include, (
+        "ledger_tasks must be in the Celery include list (else the worker never imports it)"
+    )
+
+    # task_routes -> maintenance (else a manual .delay() lands in the unconsumed
+    # default queue, same trap that silently killed the analysis pipeline).
+    routes = _routes_map(tree)
+    assert routes.get("app.tasks.ledger_tasks.*") == {"queue": "maintenance"}, (
+        f"ledger task must route to maintenance; got {routes.get('app.tasks.ledger_tasks.*')}"
+    )
+
+    # beat entry: engine_1 daily at 19:00 ET.
+    entry = _beat_entry(tree, "ledger_tasks")
+    assert entry is not None, "no beat_schedule entry references ledger_tasks"
+    sched = _entry_field(entry, "schedule")
+    assert isinstance(sched, ast.Call), "beat schedule must be a crontab(...) call"
+    assert _kw_value(sched, "hour") == 19, "engine_1 beat must run at hour=19 (7pm ET)"
+    assert _kw_value(sched, "minute") == 0, "engine_1 beat must run at minute=0"
+    # options: maintenance queue + engine_1 kwarg.
+    opts = _entry_field(entry, "options")
+    assert isinstance(opts, ast.Dict), "beat entry needs an options dict"
+    opt_map = {}
+    for kk, vv in zip(opts.keys, opts.values):
+        if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant):
+            opt_map[kk.value] = vv.value
+    assert opt_map.get("queue") == "maintenance", "beat queue must be maintenance"
+    # kwargs.engine == engine_1.
+    kwargs_node = None
+    for kk, vv in zip(opts.keys, opts.values):
+        if isinstance(kk, ast.Constant) and kk.value == "kwargs":
+            kwargs_node = vv
+    assert isinstance(kwargs_node, ast.Dict), "beat entry must pass kwargs.engine"
+    kw = {kk.value: vv.value for kk, vv in zip(kwargs_node.keys, kwargs_node.values)
+          if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant)}
+    assert kw.get("engine") == "engine_1", f"beat must target engine_1; got {kw}"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

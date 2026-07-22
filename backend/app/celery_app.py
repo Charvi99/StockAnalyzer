@@ -21,6 +21,7 @@ celery_app = Celery(
         'app.tasks.processor_tasks',
         'app.tasks.maintenance_tasks',
         'app.tasks.analysis_tasks',
+        'app.tasks.ledger_tasks',
     ]
 )
 
@@ -47,6 +48,10 @@ celery_app.conf.update(
         # listens on fetcher/processor/maintenance), so scheduled + batch analysis
         # never executed — the whole analysis pipeline was silently dead via Celery.
         'app.tasks.analysis_tasks.*': {'queue': 'processor'},
+        # ledger_tasks -> maintenance (the paper-trading cycle; daily, non-API).
+        # Same default-queue trap as analysis: without this a manual .delay() lands
+        # in the unconsumed 'celery' queue and never runs.
+        'app.tasks.ledger_tasks.*': {'queue': 'maintenance'},
     },
 
     # Priority system (0-10, higher = more urgent)
@@ -213,6 +218,21 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks.maintenance_tasks.cleanup_old_task_logs',
         'schedule': crontab(minute=30, hour=2),  # 2:30 AM ET (after news cleanup)
         'options': {'queue': 'maintenance', 'priority': 1}
+    },
+
+    # ────────────────────────────────────────
+    # PAPER-TRADING LEDGER (Phase 1)
+    # ────────────────────────────────────────
+
+    # engine_1 paper-trading cycle: daily 7:00 PM ET — after the day's daily bars
+    # have settled and the analysis batches have run. engine_2's beat is added in
+    # step 8 once it is seeded + validated (D35: run both engines as separate
+    # portfolios before deciding which to keep).
+    'paper-trading-cycle-engine-1': {
+        'task': 'app.tasks.ledger_tasks.run_paper_trading_cycle',
+        'schedule': crontab(minute=0, hour=19),  # 7:00 PM ET (after analysis)
+        'options': {'queue': 'maintenance', 'priority': 5,
+                    'kwargs': {'engine': 'engine_1'}}
     },
 }
 
