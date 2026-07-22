@@ -504,6 +504,64 @@ def test_celery_app_wires_ledger_task():
     assert kw.get("engine") == "engine_1", f"beat must target engine_1; got {kw}"
 
 
+# ── Step 6: ledger routes + /health ───────────────────────────────────────────
+LEDGER_ROUTE_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "api", "routes", "ledger.py")
+LEDGER_HANDLERS = {"list_accounts", "list_trades", "equity_curve", "summary", "health"}
+
+
+def test_ledger_routes_define_five_endpoints():
+    """The route module exposes the five documented GET endpoints."""
+    tree = ast.parse(_src("app/api/routes/ledger.py"))
+    paths = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for d in node.decorator_list:
+                if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) \
+                        and d.func.attr == "get" and d.args and isinstance(d.args[0], ast.Constant):
+                    paths.add(d.args[0].value)
+    expected = {"/accounts", "/trades", "/equity", "/summary", "/health"}
+    assert expected <= paths, f"missing ledger endpoints: {expected - paths}"
+
+
+def test_ledger_routes_registered_in_main():
+    """main.py mounts the ledger router under /api/v1/paper-trading."""
+    tree = ast.parse(_src("app/main.py"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "include_router":
+            arg0 = node.args[0] if node.args else None
+            is_ledger = (isinstance(arg0, ast.Attribute) and isinstance(arg0.value, ast.Name)
+                         and arg0.value.id == "ledger" and arg0.attr == "router")
+            prefix = next((kw.value.value for kw in node.keywords
+                           if kw.arg == "prefix" and isinstance(kw.value, ast.Constant)), None)
+            if is_ledger and prefix == "/api/v1/paper-trading":
+                return
+    raise AssertionError("main.py must include_router(ledger.router, prefix='/api/v1/paper-trading')")
+
+
+def test_ledger_route_handlers_are_sync():
+    """DB-bound read handlers must be sync def, NOT async def (H7: an async def
+    handler doing ORM work blocks the event loop)."""
+    tree = ast.parse(_src("app/api/routes/ledger.py"))
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name in LEDGER_HANDLERS:
+            raise AssertionError(f"handler {node.name} must be sync def, not async (H7)")
+        if isinstance(node, ast.FunctionDef) and node.name in LEDGER_HANDLERS:
+            found.add(node.name)
+    assert LEDGER_HANDLERS <= found, f"missing handlers: {LEDGER_HANDLERS - found}"
+
+
+def test_ledger_routes_cast_decimals_to_float():
+    """DECIMAL columns must be cast via _f so they're JSON-serializable (FastAPI
+    500s on a raw Decimal). _trade_dict is the densest DECIMAL surface."""
+    src = _src("app/api/routes/ledger.py")
+    assert "def _f(" in src, "DECIMAL->float helper _f must be defined"
+    assert "_f(t.entry_price)" in src and "_f(t.realized_pnl)" in src, (
+        "_trade_dict must cast DECIMAL columns via _f (else FastAPI 500s on Decimal)"
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
