@@ -414,4 +414,9 @@ export const getLedgerHealth = async () => {
   return response.data;
 };
 
+export const getLedgerConfig = async () => {
+  const response = await api.get('/api/v1/paper-trading/config');
+  return response.data;
+};
+
 export default api;

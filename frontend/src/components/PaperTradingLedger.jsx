@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
-import {
   getLedgerAccounts,
   getLedgerTrades,
   getLedgerEquity,
   getLedgerSummary,
   getLedgerHealth,
 } from '../services/api';
+import EngineCard from './EngineCard';
+import EngineDetail from './EngineDetail';
 import './PaperTradingLedger.css';
 
 // ── number formatting helpers ────────────────────────────────────────────────
@@ -27,24 +26,23 @@ const fmtSigned = (n) => {
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
 const pnlClass = (n) => (n == null ? '' : Number(n) > 0 ? 'ptl-pos' : Number(n) < 0 ? 'ptl-neg' : '');
 
-const ENGINE_COLORS = { engine_1: '#3b82f6', engine_2: '#10b981' };
-
 /**
  * PaperTradingLedger — the dashboard for measuring recommendation quality and
  * A/B-scoring the two engines (audit decision D35).
  *
  * Two modes:
- *   - Dashboard (default, no stockId): account cards, equity curve, the A/B
- *     scorecard, and the /health heartbeat. Mounted at the app level.
- *   - Per-stock (stockId set): that stock's open/closed paper trades across
- *     engines. Mounted as a tab in StockDetailSideBySide.
+ *   - Dashboard (default, no stockId): a comparison strip + a card grid (one
+ *     EngineCard per account); clicking a card opens EngineDetail (equity-vs-SPY,
+ *     trades w/ reasoning, read-only config). Mounted at the app level.
+ *   - Per-stock (stockId set): that stock's open/closed paper trades. Mounted as
+ *     a tab in StockDetailSideBySide.
  *
- * Read-only; everything comes from the Phase-1 ledger endpoints. A refresh
- * button re-fetches (the data updates once per trading day via the Celery beat).
+ * Read-only; data from the Phase-1 ledger endpoints (updates once per trading day
+ * via the Celery beat). A refresh button re-fetches.
  */
 const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
   const [accounts, setAccounts] = useState([]);
-  const [equity, setEquity] = useState({ series: {} });
+  const [equity, setEquity] = useState({ series: {}, benchmark: [] });
   const [summary, setSummary] = useState({ engines: {} });
   const [health, setHealth] = useState({ engines: [] });
   const [trades, setTrades] = useState([]);
@@ -52,6 +50,7 @@ const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [selectedEngine, setSelectedEngine] = useState(null);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -63,7 +62,7 @@ const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
         getLedgerHealth(),
       ]);
       setAccounts(acct.accounts || []);
-      setEquity(eq || { series: {} });
+      setEquity(eq || { series: {}, benchmark: [] });
       setSummary(sum || { engines: {} });
       setHealth(hl || { engines: [] });
     } catch (err) {
@@ -133,6 +132,27 @@ const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
 
   // ── dashboard mode ────────────────────────────────────────────────────────
   const engineNames = Object.keys(summary.engines || {});
+  const healthFor = (eng) => (health.engines || []).find((h) => h.engine === eng) || null;
+
+  // Drill-in: render EngineDetail with the engine-specific slices already loaded.
+  if (selectedEngine) {
+    const acct = accounts.find((a) => a.engine === selectedEngine) || null;
+    return (
+      <div className="ptl ptl--dashboard">
+        {error && <div className="ptl-error">{error}</div>}
+        <EngineDetail
+          engine={selectedEngine}
+          account={acct}
+          summary={(summary.engines || {})[selectedEngine]}
+          healthEntry={healthFor(selectedEngine)}
+          equitySeries={(equity.series || {})[selectedEngine]}
+          benchmark={equity.benchmark}
+          onBack={() => setSelectedEngine(null)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="ptl ptl--dashboard">
       <div className="ptl-toolbar">
@@ -146,86 +166,10 @@ const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
       </div>
       {error && <div className="ptl-error">{error}</div>}
 
-      {/* Heartbeat */}
-      <section className="ptl-section">
-        <h4>Heartbeat</h4>
-        <div className="ptl-health-row">
-          {(health.engines || []).map((h) => (
-            <div key={h.engine} className={`ptl-health ptl-health--${h.status}`}>
-              <span className="ptl-health-engine">{h.engine.replace('_', ' #')}</span>
-              <span className="ptl-health-status">{h.status}</span>
-              <span className="ptl-health-detail">
-                last snapshot: {h.last_snapshot_date || 'none'}
-                {h.days_since_snapshot != null && ` · ${h.days_since_snapshot}d ago`}
-              </span>
-              <span className="ptl-health-detail">
-                {h.open_trades} open · {h.trades_opened_this_week} opened this week
-              </span>
-            </div>
-          ))}
-          {(health.engines || []).length === 0 && (
-            <div className="ptl-empty">No paper accounts found.</div>
-          )}
-        </div>
-      </section>
-
-      {/* Account cards */}
-      <section className="ptl-section">
-        <h4>Accounts</h4>
-        <div className="ptl-cards">
-          {accounts.map((a) => (
-            <div key={a.engine} className="ptl-card">
-              <div className="ptl-card-head">
-                <span style={{ color: ENGINE_COLORS[a.engine] || '#666' }}>●</span>
-                {a.engine.replace('_', ' #')}
-                {a.config_version && <span className="ptl-cv" title="signal config_version">cfg {a.config_version}</span>}
-              </div>
-              <div className="ptl-card-grid">
-                <Stat label="Equity" value={fmtMoney(a.equity)} strong />
-                <Stat label="Cash" value={fmtMoney(a.cash)} />
-                <Stat label="Unrealized" value={fmtSigned(a.unrealized_pnl)} />
-                <Stat label="Realized" value={fmtSigned(a.realized_pnl)} />
-                <Stat label="Open / Closed" value={`${a.open_trades} / ${a.closed_trades}`} />
-                <Stat label="Started" value={fmtMoney(a.starting_cash)} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Equity curve */}
-      <section className="ptl-section">
-        <h4>Equity Curve (90d)</h4>
-        <div className="ptl-equity-grid">
-          {engineNames.map((eng) => {
-            const series = (equity.series || {})[eng] || [];
-            return (
-              <div key={eng} className="ptl-equity-card">
-                <div className="ptl-equity-title">{eng.replace('_', ' #')}</div>
-                {series.length > 1 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <LineChart data={series}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e2e2" />
-                      <XAxis dataKey="date" tick={{ fill: '#666', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#666', fontSize: 11 }} domain={['auto', 'auto']} width={70} />
-                      <Tooltip contentStyle={{ background: '#fff', border: '1px solid #ccc', borderRadius: 4 }} />
-                      <Line type="monotone" dataKey="equity" stroke={ENGINE_COLORS[eng] || '#888'} dot={false} strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="ptl-empty">No snapshots yet — the first cycle will write the curve.</div>
-                )}
-              </div>
-            );
-          })}
-          {engineNames.length === 0 && <div className="ptl-empty">No accounts to chart.</div>}
-        </div>
-      </section>
-
-      {/* A/B scorecard */}
-      <section className="ptl-section">
-        <h4>A/B Scorecard</h4>
-        {engineNames.length > 0 ? (
+      {/* A/B comparison strip */}
+      {engineNames.length > 0 && (
+        <section className="ptl-section">
+          <h4>A/B Comparison</h4>
           <table className="ptl-scorecard">
             <thead>
               <tr>
@@ -234,35 +178,44 @@ const PaperTradingLedger = ({ stockId = null, symbol = null }) => {
               </tr>
             </thead>
             <tbody>
-              <ScoreRow label="Closed trades" engines={engineNames} get={(s) => s.closed_trades} />
-              <ScoreRow label="Open trades" engines={engineNames} get={(s) => s.open_trades} />
-              <ScoreRow label="Win rate" engines={engineNames} get={(s) => fmtPct(s.win_rate)} />
-              <ScoreRow label="Avg planned R:R" engines={engineNames} get={(s) => fmtNum(s.avg_rr_planned)} />
-              <ScoreRow label="Avg realized R" engines={engineNames} get={(s) => fmtNum(s.avg_realized_r)} />
-              <ScoreRow label="Avg hold (days)" engines={engineNames} get={(s) => fmtNum(s.avg_hold_days, 1)} />
-              <ScoreRow label="Total realized P&L" engines={engineNames} get={(s) => fmtSigned(s.total_realized_pnl)} strong />
+              <ScoreRow label="Equity" engines={engineNames} acct={accounts} get={(a) => fmtMoney(a?.equity)} strong />
+              <ScoreRow label="All-time return" engines={engineNames} acct={accounts} get={(a) => (a && a.starting_cash ? fmtPct((a.equity - a.starting_cash) / a.starting_cash, 2) : '—')} />
+              <ScoreRow label="Win rate" engines={engineNames} get={(eng) => fmtPct(summary.engines[eng]?.win_rate, 0)} />
+              <ScoreRow label="Avg realized R" engines={engineNames} get={(eng) => fmtNum(summary.engines[eng]?.avg_realized_r)} />
+              <ScoreRow label="Avg hold (days)" engines={engineNames} get={(eng) => fmtNum(summary.engines[eng]?.avg_hold_days, 1)} />
+              <ScoreRow label="Total realized P&L" engines={engineNames} get={(eng) => fmtSigned(summary.engines[eng]?.total_realized_pnl)} strong />
             </tbody>
           </table>
-        ) : (
-          <div className="ptl-empty">No engine data yet.</div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {/* Engine cards */}
+      <div className="ptl-cards">
+        {accounts.map((a) => (
+          <EngineCard
+            key={a.engine}
+            engine={a.engine}
+            account={a}
+            summary={(summary.engines || {})[a.engine]}
+            series={(equity.series || {})[a.engine]}
+            healthEntry={healthFor(a.engine)}
+            onClick={() => setSelectedEngine(a.engine)}
+          />
+        ))}
+        {accounts.length === 0 && <div className="ptl-empty">No paper accounts found.</div>}
+      </div>
     </div>
   );
 };
 
 // ── small presentational helpers ─────────────────────────────────────────────
-const Stat = ({ label, value, strong }) => (
-  <div className="ptl-stat">
-    <span className="ptl-stat-label">{label}</span>
-    <span className={`ptl-stat-value ${strong ? 'ptl-stat-value--strong' : ''}`}>{value}</span>
-  </div>
-);
-
-const ScoreRow = ({ label, engines, get, strong }) => (
+const ScoreRow = ({ label, engines, acct, get, strong }) => (
   <tr>
     <td className="ptl-score-label">{label}</td>
-    {engines.map((eng) => <td key={eng} className={strong ? 'ptl-strong' : ''}>{get(eng)}</td>)}
+    {engines.map((eng) => {
+      const val = acct ? get(acct.find((a) => a.engine === eng)) : get(eng);
+      return <td key={eng} className={strong ? 'ptl-strong' : ''}>{val}</td>;
+    })}
   </tr>
 );
 
