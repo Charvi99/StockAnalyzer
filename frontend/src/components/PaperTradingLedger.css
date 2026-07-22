@@ -1,0 +1,102 @@
+/* PaperTradingLedger — light-theme styles (matches app: white cards on #f5f5f5). */
+.ptl { font-size: 14px; color: #222; }
+
+.ptl--dashboard { padding: 8px 4px 24px; }
+.ptl--stock { padding: 4px; }
+
+/* toolbar */
+.ptl-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.ptl-toolbar h2, .ptl-toolbar h3 { margin: 0; font-size: 18px; }
+.ptl-toolbar-right { display: flex; align-items: center; gap: 10px; }
+.ptl-updated { color: #888; font-size: 12px; }
+.ptl-refresh {
+  background: #667eea; color: #fff; border: none; border-radius: 6px;
+  padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+.ptl-refresh:hover:not(:disabled) { background: #5468d4; }
+.ptl-refresh:disabled { opacity: 0.6; cursor: default; }
+
+.ptl-error {
+  background: #fff0f0; color: #c0392b; border: 1px solid #f5b7b1;
+  padding: 8px 12px; border-radius: 6px; margin-bottom: 12px;
+}
+
+.ptl-section {
+  background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.ptl-section h4 { margin: 0 0 10px; font-size: 14px; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.ptl-empty { color: #999; font-style: italic; padding: 10px 0; }
+
+/* heartbeat */
+.ptl-health-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.ptl-health {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 14px; border-radius: 6px; border-left: 4px solid #999;
+  background: #fafafa; min-width: 220px;
+}
+.ptl-health--ok { border-left-color: #2ed573; }
+.ptl-health--stale { border-left-color: #ffa502; background: #fff8ee; }
+.ptl-health--no_data { border-left-color: #999; background: #f4f4f4; }
+.ptl-health-engine { font-weight: 600; text-transform: capitalize; }
+.ptl-health-status {
+  display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  color: #fff; background: #999; padding: 1px 8px; border-radius: 10px; width: fit-content;
+}
+.ptl-health--ok .ptl-health-status { background: #2ed573; }
+.ptl-health--stale .ptl-health-status { background: #ffa502; }
+.ptl-health-detail { font-size: 12px; color: #666; }
+
+/* account cards */
+.ptl-cards { display: flex; gap: 14px; flex-wrap: wrap; }
+.ptl-card { flex: 1; min-width: 280px; border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px 14px; }
+.ptl-card-head {
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 600; text-transform: capitalize; margin-bottom: 10px; font-size: 15px;
+}
+.ptl-cv { margin-left: auto; font-size: 11px; color: #888; font-weight: 400; font-family: monospace; }
+.ptl-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.ptl-stat { display: flex; flex-direction: column; }
+.ptl-stat-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.03em; }
+.ptl-stat-value { font-size: 14px; font-weight: 500; }
+.ptl-stat-value--strong { font-size: 17px; font-weight: 700; }
+
+/* equity curve */
+.ptl-equity-grid { display: flex; gap: 14px; flex-wrap: wrap; }
+.ptl-equity-card { flex: 1; min-width: 320px; }
+.ptl-equity-title { font-weight: 600; text-transform: capitalize; margin-bottom: 6px; }
+
+/* scorecard */
+.ptl-scorecard { width: 100%; border-collapse: collapse; }
+.ptl-scorecard th, .ptl-scorecard td {
+  text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee;
+}
+.ptl-scorecard th { font-size: 12px; color: #888; text-transform: capitalize; }
+.ptl-score-label { color: #666; }
+.ptl-strong { font-weight: 700; }
+
+/* per-stock trades table */
+.ptl-filters { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.ptl-filters select { padding: 5px 8px; border: 1px solid #ccc; border-radius: 5px; font-size: 13px; }
+.ptl-count { color: #888; font-size: 12px; margin-left: auto; }
+
+.ptl-table-wrap { overflow-x: auto; }
+.ptl-trades { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ptl-trades th, .ptl-trades td { padding: 7px 10px; border-bottom: 1px solid #eee; text-align: left; white-space: nowrap; }
+.ptl-trades th { color: #888; font-weight: 600; font-size: 12px; }
+.ptl-trade--open td { background: #f6faff; }
+.ptl-date { display: block; font-size: 11px; color: #999; }
+
+.ptl-badge {
+  display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  padding: 1px 8px; border-radius: 10px; color: #fff;
+}
+.ptl-badge--open { background: #3b82f6; }
+.ptl-badge--closed { background: #6b7280; }
+
+.ptl-pos { color: #2ed573; font-weight: 600; }
+.ptl-neg { color: #ff4757; font-weight: 600; }

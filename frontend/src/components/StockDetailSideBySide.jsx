@@ -9,6 +9,7 @@ import OverviewTab from './OverviewTab';
 import TrailingStopCalculator from './TrailingStopCalculator';
 import PortfolioHeatMonitor from './PortfolioHeatMonitor';
 import MarketRegime from './MarketRegime';
+import PaperTradingLedger from './PaperTradingLedger';
 import { fetchStockData, getStockPrices, getRecommendation } from '../services/api';
 import './StockDetailSideBySide.css';
 
@@ -246,6 +247,12 @@ const StockDetailSideBySide = ({ stock, onClose, initialRecommendation = null })
                 >
                   🔥 Risk Tools
                 </button>
+                <button
+                  className={`tab-btn-sbs ${activeTab === 'paper-trading' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('paper-trading')}
+                >
+                  📒 Paper Trading
+                </button>
               </div>
 
               <div className="tab-content-sbs">
@@ -313,6 +320,10 @@ const StockDetailSideBySide = ({ stock, onClose, initialRecommendation = null })
                       <PortfolioHeatMonitor />
                     </div>
                   </div>
+                )}
+
+                {activeTab === 'paper-trading' && (
+                  <PaperTradingLedger stockId={stock.stock_id} symbol={stock.symbol} />
                 )}
               </div>
 

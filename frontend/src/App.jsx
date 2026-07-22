@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import StockList from './components/StockList';
+import PaperTradingLedger from './components/PaperTradingLedger';
 import MarketStatus from './components/MarketStatus';
 import { checkHealth } from './services/api';
 import './App.css';
 
 function App() {
   const [healthStatus, setHealthStatus] = useState(null);
+  const [view, setView] = useState('stocks'); // 'stocks' | 'ledger'
 
   useEffect(() => {
     // Check API health on load
@@ -26,6 +28,20 @@ function App() {
       <header className="App-header">
         <div className="header-top">
           <h1>Stock Analyzer</h1>
+          <div className="view-toggle">
+            <button
+              className={`view-btn ${view === 'stocks' ? 'active' : ''}`}
+              onClick={() => setView('stocks')}
+            >
+              📈 Stocks
+            </button>
+            <button
+              className={`view-btn ${view === 'ledger' ? 'active' : ''}`}
+              onClick={() => setView('ledger')}
+            >
+              📒 Paper Trading
+            </button>
+          </div>
           <div className="health-status">
             {healthStatus && (
               <span className={`status ${healthStatus.status}`}>
@@ -44,9 +60,15 @@ function App() {
 
       <main className="App-main">
         <div className="container">
-          <section className="stocks-section">
-            <StockList />
-          </section>
+          {view === 'ledger' ? (
+            <section className="stocks-section">
+              <PaperTradingLedger />
+            </section>
+          ) : (
+            <section className="stocks-section">
+              <StockList />
+            </section>
+          )}
 
           <section className="info">
               <h3>Project Team</h3>

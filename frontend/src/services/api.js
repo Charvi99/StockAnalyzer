@@ -379,4 +379,39 @@ export const getAnalysisByIds = async (stockIds) => {
   return response.data;
 };
 
+// ============================================================================
+// Phase 1: Paper-Trading Ledger
+// (read-only dashboard: accounts, trades, equity curve, A/B summary, heartbeat)
+// ============================================================================
+export const getLedgerAccounts = async () => {
+  const response = await api.get('/api/v1/paper-trading/accounts');
+  return response.data;
+};
+
+export const getLedgerTrades = async ({ engine, status, stockId, limit = 100, offset = 0 } = {}) => {
+  const params = { limit, offset };
+  if (engine) params.engine = engine;
+  if (status) params.status = status;
+  if (stockId) params.stock_id = stockId;
+  const response = await api.get('/api/v1/paper-trading/trades', { params });
+  return response.data;
+};
+
+export const getLedgerEquity = async (engine, days = 90) => {
+  const params = { days };
+  if (engine) params.engine = engine;
+  const response = await api.get('/api/v1/paper-trading/equity', { params });
+  return response.data;
+};
+
+export const getLedgerSummary = async () => {
+  const response = await api.get('/api/v1/paper-trading/summary');
+  return response.data;
+};
+
+export const getLedgerHealth = async () => {
+  const response = await api.get('/api/v1/paper-trading/health');
+  return response.data;
+};
+
 export default api;
