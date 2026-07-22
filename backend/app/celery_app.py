@@ -245,18 +245,24 @@ celery_app.conf.beat_schedule = {
     },
 
     # ────────────────────────────────────────
-    # LEDGER HEALTH (Phase 1.11 hardening)
+    # LEDGER DIGEST (Phase 1.11b)
     # ────────────────────────────────────────
 
-    # Daily staleness + reconciliation check: fires 1h after the 19:00 cycles so the
-    # day's snapshot exists. Alerts (log/webhook/email) if an engine stalled or its
-    # books drifted. CAVEAT: scheduled by the beat, so it catches a stalled worker /
-    # erroring cycle but NOT the beat itself dying — pair with an external uptime
-    # monitor on /health for full dead-beat coverage.
-    'check-ledger-health-daily': {
-        'task': 'app.tasks.ledger_tasks.check_ledger_health',
-        'schedule': crontab(minute=0, hour=20),  # 8:00 PM ET (1h after the cycles)
-        'options': {'queue': 'maintenance', 'priority': 6}
+    # Twice-daily status digest — the "no need to open the frontend" email (system
+    # status, both engines A/B, high-conviction BUY watchlist, vs S&P, top movers,
+    # portfolio heat/cash). ALWAYS sends: the digest arriving daily IS the system-up
+    # heartbeat (if it stops, the beat/worker is down — an in-stack task can't detect
+    # its own scheduler dying). AM = pre-market (yesterday's close); PM = after the
+    # 19:00 cycle (today's results).
+    'paper-trading-digest-am': {
+        'task': 'app.tasks.ledger_tasks.send_daily_digest',
+        'schedule': crontab(minute=30, hour=8),   # 08:30 ET pre-market
+        'options': {'queue': 'maintenance', 'priority': 6, 'kwargs': {'window': 'AM'}}
+    },
+    'paper-trading-digest-pm': {
+        'task': 'app.tasks.ledger_tasks.send_daily_digest',
+        'schedule': crontab(minute=30, hour=20),  # 20:30 ET (after the 19:00 cycle)
+        'options': {'queue': 'maintenance', 'priority': 6, 'kwargs': {'window': 'PM'}}
     },
 }
 

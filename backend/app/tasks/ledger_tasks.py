@@ -22,7 +22,6 @@ from datetime import date
 
 from app.celery_app import celery_app
 from app.db.database import SessionLocal
-from app.models.ledger import PaperAccount
 from app.utils.market_hours import get_current_et_time, is_market_holiday, is_weekend
 
 logger = logging.getLogger(__name__)
@@ -112,88 +111,40 @@ def run_paper_trading_cycle(self, engine: str = "engine_1"):
 
 
 @celery_app.task
-def check_ledger_health():
-    """Daily ledger health verification (Phase 1.11 hardening).
+def send_daily_digest(window: str = "PM"):
+    """Twice-daily status digest (Phase 1.11b) — the "no need to open the frontend" email.
 
-    Scheduled ~1h after the 19:00 paper-trading cycles so the day's snapshot
-    already exists. For each engine it checks two things and alerts if either fails:
+    Morning (AM, 08:30 ET) + evening (PM, 20:30 ET). ALWAYS sends a full digest:
+    system status, both engines' A/B standing, high-conviction BUY watchlist
+    (≥70%), vs S&P, top open movers, portfolio heat/cash, and warnings on top.
+    Subject is ``[StockAnalyzer] Alert — …`` when something's wrong, else
+    ``[StockAnalyzer] Digest — <date> <window>`` (so Gmail can filter on the tag).
 
-      - **staleness** — no fresh snapshot ⇒ the beat / worker / cycle stalled.
-      - **reconciliation** — the latest snapshot's cash/equity/realized P&L must
-        match a fresh recomputation from the live tables (catches a crash-mid-cycle
-        that debited cash without recording the trade, a mark-to-market bug, etc.).
-
-    Pushes via ``alert_service.notify_alert`` (always logs; webhook/email if
-    configured). **Never raises**: a health checker that crashes on its own error
-    masks the very problem it's meant to surface, so even a meta-failure best-effort
-    fires an alert and swallows.
-
-    Limitation: this task is itself scheduled by the beat, so it catches a stalled
-    worker / erroring cycle but NOT the beat container dying (a dead beat schedules
-    nothing). Full dead-beat coverage needs an external monitor pinging /health.
+    The digest arriving every day IS the system-up heartbeat: if it ever stops,
+    the beat/worker is down (an in-stack task can't detect its own scheduler
+    dying). **Never raises** — a failing digest best-effort fires an alert + swallows.
     """
     from app.services.alert_service import notify_alert
-    from app.services.ledger_health_service import compute_engine_health, reconcile_account
+    from app.services.digest_service import compose_daily_digest
 
-    logger.info("[ledger-health] starting daily check")
+    logger.info("[ledger-digest] composing %s digest", window)
     db = SessionLocal()
     try:
-        health = compute_engine_health(db)
-        stalled = [h for h in health if h["status"] in ("stale", "no_data")]
-
-        recon_problems = []
-        for h in health:
-            acct = db.query(PaperAccount).filter(PaperAccount.engine == h["engine"]).first()
-            if acct is None:
-                continue
-            r = reconcile_account(db, acct.id)
-            if r.get("has_snapshot") and not r.get("ok"):
-                recon_problems.append(r)
-
-        if not stalled and not recon_problems:
-            logger.info("[ledger-health] all engines healthy + reconciled")
-            return {"status": "ok", "engines": len(health)}
-
-        lines = []
-        for h in stalled:
-            lines.append(
-                f"- {h['engine']}: {h['status']} — last snapshot "
-                f"{h['last_snapshot_date']} ({h['days_since_snapshot']}d ago); "
-                f"equity ${h['equity']:.0f}, {h['open_trades']} open positions"
-            )
-        for r in recon_problems:
-            d = r["deltas"]
-            lines.append(
-                f"- {r['engine']}: books don't reconcile (snapshot @ {r['snapshot_date']}) — "
-                f"cash Δ${d['cash']:.2f}, equity Δ${d['equity']:.2f}, realized Δ${d['realized']:.2f}"
-            )
-        notify_alert(
-            subject=(
-                f"Paper-trading ledger needs attention "
-                f"({len(stalled)} stalled, {len(recon_problems)} not reconciling)"
-            ),
-            body="\n".join(lines),
-            severity="error" if stalled else "warning",
-        )
-        return {
-            "status": "alerted",
-            "stalled": len(stalled),
-            "recon_problems": len(recon_problems),
-        }
+        msg = compose_daily_digest(db, window)
+        notify_alert(subject=msg["subject"], body=msg["body"], severity=msg["severity"])
+        return {"status": "sent", "window": window, "had_issues": msg["has_issues"]}
 
     except Exception as e:
-        # The checker itself failed (e.g. DB unreachable) — exactly when an alert is
-        # most valuable. Best-effort fire one, then swallow. Never raise (see docstring).
-        logger.exception("[ledger-health] check itself failed: %s", e)
+        logger.exception("[ledger-digest] %s digest failed: %s", window, e)
         try:
             notify_alert(
-                subject="Ledger health check ITSELF failed",
-                body=f"The daily check_ledger_health task errored:\n\n{e}",
+                subject="[StockAnalyzer] Alert — digest itself failed",
+                body=f"The {window} send_daily_digest task errored:\n\n{e}",
                 severity="error",
             )
         except Exception:
-            logger.exception("[ledger-health] failed to send the meta-alert too")
-        return {"status": "error", "error": str(e)}
+            logger.exception("[ledger-digest] meta-alert also failed")
+        return {"status": "error", "window": window, "error": str(e)}
 
     finally:
         db.close()

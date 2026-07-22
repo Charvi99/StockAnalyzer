@@ -733,11 +733,11 @@ def test_health_route_delegates_and_reconciliation_exists():
     assert "compute_engine_health(db)" in src, "/health must delegate to compute_engine_health"
 
 
-def test_check_ledger_health_task_registered():
-    """check_ledger_health is a @celery_app.task that runs both checks + alerts."""
+def test_send_daily_digest_task_registered():
+    """send_daily_digest is a @celery_app.task that composes + always sends the digest."""
     tree = ast.parse(_src("app/tasks/ledger_tasks.py"))
-    fn = _fn(tree, "check_ledger_health")
-    assert fn is not None, "check_ledger_health task not found"
+    fn = _fn(tree, "send_daily_digest")
+    assert fn is not None, "send_daily_digest task not found"
     dec_names = []
     for d in fn.decorator_list:
         f = d.func if isinstance(d, ast.Call) else d   # @celery_app.task() vs bare @celery_app.task
@@ -745,17 +745,16 @@ def test_check_ledger_health_task_registered():
             dec_names.append(f.attr)
         elif isinstance(f, ast.Name):
             dec_names.append(f.id)
-    assert "task" in dec_names, "check_ledger_health must be a @celery_app.task"
+    assert "task" in dec_names, "send_daily_digest must be a @celery_app.task"
     calls = _func_calls(fn)
-    assert "compute_engine_health" in calls, "task must compute engine health"
-    assert "reconcile_account" in calls, "task must reconcile each engine"
-    assert "notify_alert" in calls, "task must dispatch alerts via notify_alert"
+    assert "compose_daily_digest" in calls, "task must compose the digest"
+    assert "notify_alert" in calls, "task must dispatch via notify_alert"
 
 
-def test_check_ledger_health_never_raises():
-    """The health checker must catch its own failures (a crashing checker masks the
-    problem) — there's a generic `except Exception` that does not re-raise."""
-    fn = _fn(ast.parse(_src("app/tasks/ledger_tasks.py")), "check_ledger_health")
+def test_send_daily_digest_never_raises():
+    """The digest must catch its own failures — a generic `except Exception` that
+    does not re-raise (a failing digest best-effort alerts + swallows)."""
+    fn = _fn(ast.parse(_src("app/tasks/ledger_tasks.py")), "send_daily_digest")
     found_catchall = False
     for node in ast.walk(fn):
         if isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Name) \
@@ -765,25 +764,56 @@ def test_check_ledger_health_never_raises():
             )
             if not raises_propagate:
                 found_catchall = True
-    assert found_catchall, "check_ledger_health needs a non-re-raising except Exception"
+    assert found_catchall, "send_daily_digest needs a non-re-raising except Exception"
 
 
-def test_beat_schedules_health_check_daily():
-    """beat_schedule has a daily check_ledger_health entry at 20:00 ET (1h after the
-    19:00 cycles) on the maintenance queue."""
+def test_beat_schedules_digest_twice_daily():
+    """beat_schedule has AM (08:30) + PM (20:30) send_daily_digest entries on
+    maintenance, each passing kwargs.window."""
     tree = ast.parse(_src("app/celery_app.py"))
-    entry = _beat_entry(tree, "check_ledger_health")
-    assert entry is not None, "no beat_schedule entry for check_ledger_health"
-    sched = _entry_field(entry, "schedule")
-    assert isinstance(sched, ast.Call), "schedule must be a crontab(...) call"
-    assert _kw_value(sched, "hour") == 20, "health check must run at hour=20 (8pm ET)"
-    assert _kw_value(sched, "minute") == 0
-    opts = _entry_field(entry, "options")
-    opt_map = {}
-    for kk, vv in zip(opts.keys, opts.values):
-        if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant):
-            opt_map[kk.value] = vv.value
-    assert opt_map.get("queue") == "maintenance", "health check must run on maintenance queue"
+    # Collect {window: (hour, queue)} for every send_daily_digest beat entry.
+    found = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if "beat_schedule" not in [t.attr for t in node.targets if isinstance(t, ast.Attribute)]:
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        for v in node.value.values:
+            if not isinstance(v, ast.Dict):
+                continue
+            task = sched = opts = None
+            for kk, vv in zip(v.keys, v.values):
+                if isinstance(kk, ast.Constant) and kk.value == "task" and isinstance(vv, ast.Constant):
+                    task = vv.value
+                elif isinstance(kk, ast.Constant) and kk.value == "schedule":
+                    sched = vv
+                elif isinstance(kk, ast.Constant) and kk.value == "options":
+                    opts = vv
+            if task != "app.tasks.ledger_tasks.send_daily_digest" or not isinstance(opts, ast.Dict):
+                continue
+            hour = _kw_value(sched, "hour") if isinstance(sched, ast.Call) else None
+            queue = win = None
+            for kk, vv in zip(opts.keys, opts.values):
+                if isinstance(kk, ast.Constant) and kk.value == "queue" and isinstance(vv, ast.Constant):
+                    queue = vv.value
+                if isinstance(kk, ast.Constant) and kk.value == "kwargs" and isinstance(vv, ast.Dict):
+                    for k2, v2 in zip(vv.keys, vv.values):
+                        if isinstance(k2, ast.Constant) and k2.value == "window" and isinstance(v2, ast.Constant):
+                            win = v2.value
+            if win:
+                found[win] = (hour, queue)
+    assert found.get("AM") == (8, "maintenance"), f"AM digest wrong; got {found.get('AM')}"
+    assert found.get("PM") == (20, "maintenance"), f"PM digest wrong; got {found.get('PM')}"
+
+
+def test_digest_service_composes_daily_digest():
+    """digest_service exposes compose_daily_digest + the 70% watchlist threshold."""
+    src = _src("app/services/digest_service.py")
+    assert "def compose_daily_digest(" in src, "missing compose_daily_digest"
+    assert "def build_digest(" in src, "missing build_digest"
+    assert "DIGEST_BUY_CONFIDENCE = 0.70" in src, "watchlist threshold must be 70%"
 
 
 if __name__ == "__main__":

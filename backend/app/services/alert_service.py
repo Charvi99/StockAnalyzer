@@ -86,7 +86,10 @@ def _push_email(subject: str, body: str, severity: str) -> None:
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = recipient
-    msg["Subject"] = f"[{severity.upper()}] {subject}"
+    # Subject passed verbatim — the digest already encodes severity in its
+    # '[StockAnalyzer] Digest/Alert …' subject, and a clean subject is what Gmail
+    # filters on. Severity still shows in the log + webhook payload.
+    msg["Subject"] = subject
     msg.set_content(body)
 
     with smtplib.SMTP(host, port, timeout=WEBHOOK_TIMEOUT_SECONDS) as server:
