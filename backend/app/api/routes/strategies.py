@@ -95,7 +95,7 @@ async def execute_strategy(
         # Unknown/misnamed parameter keys (audit S3) → 422, distinct from 404 below.
         raise HTTPException(status_code=422, detail=str(e))
     try:
-        result = await strategy_manager.execute_strategy(
+        result = strategy_manager.execute_strategy(
             strategy_name=request.strategy_name,
             stock_id=stock_id,
             db=db,
@@ -171,7 +171,7 @@ async def execute_all_strategies(
 
         for strategy_info in strategies:
             try:
-                result = await strategy_manager.execute_strategy(
+                result = strategy_manager.execute_strategy(
                     strategy_name=strategy_info['name'],
                     stock_id=stock_id,
                     db=db
