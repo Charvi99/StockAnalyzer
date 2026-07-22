@@ -64,7 +64,7 @@ def _account_summary_rows(db: Session):
     open_agg = {
         r.account_id: r
         for r in db.query(
-            PaperTrade.account_id.label("aid"),
+            PaperTrade.account_id,
             func.sum(
                 func.coalesce(PaperTrade.mark_price, PaperTrade.entry_price)
                 * PaperTrade.position_size
@@ -81,7 +81,7 @@ def _account_summary_rows(db: Session):
     realized_agg = {
         r.account_id: r
         for r in db.query(
-            PaperTrade.account_id.label("aid"),
+            PaperTrade.account_id,
             func.sum(func.coalesce(PaperTrade.realized_pnl, 0)).label("realized"),
             func.count(PaperTrade.id).label("closed_count"),
         )
@@ -94,7 +94,7 @@ def _account_summary_rows(db: Session):
     last_snap = {
         r.account_id: r.last_date
         for r in db.query(
-            PaperEquitySnapshot.account_id.label("aid"),
+            PaperEquitySnapshot.account_id,
             func.max(PaperEquitySnapshot.date).label("last_date"),
         )
         .group_by(PaperEquitySnapshot.account_id)
