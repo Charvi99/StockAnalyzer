@@ -285,6 +285,47 @@ def summary(db: Session = Depends(get_db)):
     return {"engines": {eng: _engine_stats(db, aid) for eng, aid in _account_ids(db, None).items()}}
 
 
+def _engine_config(engine: str) -> Optional[dict]:
+    """Read-only snapshot of an engine's live signal config (weights + thresholds
+    + active tools), locked to its ``config_version``. This is the signal
+    *definition* (module constants), not account state — returned for both engines
+    regardless of seeding. None for an unknown engine."""
+    if engine == "engine_1":
+        from app.services.signal import systematic as eng
+        return {
+            "schema": eng.SCHEMA,
+            "config_version": eng._SYSTEMATIC_CONFIG_VERSION,
+            "weights": dict(eng.WEIGHTS),
+            "thresholds": {"buy_sell_threshold": eng.BUY_SELL_THRESHOLD},
+            "regime_scores": dict(eng.REGIME_SCORES),
+            "active_components": list(eng.WEIGHTS.keys()),
+        }
+    if engine == "engine_2":
+        from app.services.signal import swing as eng
+        return {
+            "schema": eng.SCHEMA,
+            "config_version": eng._SWING_CONFIG_VERSION,
+            "weights": dict(eng.COMPONENT_WEIGHTS),
+            "thresholds": {
+                "ml_confidence_gate": eng.ML_CONFIDENCE_GATE,
+                "all_agree_boost": eng.ALL_AGREE_BOOST,
+                "weekly_bullish_boost": eng.WEEKLY_BULLISH_BOOST,
+                "bearish_override_conf_cut": eng.BEARISH_OVERRIDE_CONF_CUT,
+                "final_conf_floor": eng.FINAL_CONF_FLOOR,
+            },
+            "active_components": list(eng.COMPONENT_WEIGHTS.keys()),
+        }
+    return None
+
+
+@router.get("/config")
+def engine_config(db: Session = Depends(get_db)):
+    """Read-only live config per engine: weights, thresholds, active tools,
+    schema, and config_version. Read-only (editing is deferred to Phase 3)."""
+    configs = {eng: _engine_config(eng) for eng in ("engine_1", "engine_2")}
+    return {"engines": {k: v for k, v in configs.items() if v is not None}}
+
+
 @router.get("/health")
 def health(db: Session = Depends(get_db)):
     """The heartbeat. A stale/missing last snapshot ⇒ the daily beat stalled."""

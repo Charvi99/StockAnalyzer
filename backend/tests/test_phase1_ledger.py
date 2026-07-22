@@ -509,8 +509,8 @@ LEDGER_ROUTE_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "api", 
 LEDGER_HANDLERS = {"list_accounts", "list_trades", "equity_curve", "summary", "health"}
 
 
-def test_ledger_routes_define_five_endpoints():
-    """The route module exposes the five documented GET endpoints."""
+def test_ledger_routes_define_endpoints():
+    """The route module exposes the documented GET endpoints (incl. /config)."""
     tree = ast.parse(_src("app/api/routes/ledger.py"))
     paths = set()
     for node in ast.walk(tree):
@@ -519,8 +519,19 @@ def test_ledger_routes_define_five_endpoints():
                 if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) \
                         and d.func.attr == "get" and d.args and isinstance(d.args[0], ast.Constant):
                     paths.add(d.args[0].value)
-    expected = {"/accounts", "/trades", "/equity", "/summary", "/health"}
+    expected = {"/accounts", "/trades", "/equity", "/summary", "/health", "/config"}
     assert expected <= paths, f"missing ledger endpoints: {expected - paths}"
+
+
+def test_config_endpoint_exposes_engine_config():
+    """GET /config + _engine_config exist, reading each engine's live weights +
+    thresholds read-only (locked to config_version)."""
+    src = _src("app/api/routes/ledger.py")
+    assert '@router.get("/config")' in src, "missing GET /config route"
+    assert "def _engine_config(" in src, "missing _engine_config helper"
+    assert "_SYSTEMATIC_CONFIG_VERSION" in src and "_SWING_CONFIG_VERSION" in src, (
+        "_engine_config must read each engine's config_version"
+    )
 
 
 def test_ledger_routes_registered_in_main():
