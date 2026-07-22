@@ -234,6 +234,15 @@ celery_app.conf.beat_schedule = {
         'options': {'queue': 'maintenance', 'priority': 5,
                     'kwargs': {'engine': 'engine_1'}}
     },
+    # engine_2 paper-trading cycle (Phase 1.10): same slot as engine_1, its own
+    # account + task invocation (H4: isolated, replayable). D35: run both engines
+    # as separate portfolios to A/B-score them before deciding which to keep.
+    'paper-trading-cycle-engine-2': {
+        'task': 'app.tasks.ledger_tasks.run_paper_trading_cycle',
+        'schedule': crontab(minute=0, hour=19),  # 7:00 PM ET
+        'options': {'queue': 'maintenance', 'priority': 5,
+                    'kwargs': {'engine': 'engine_2'}}
+    },
 }
 
 # ============================================

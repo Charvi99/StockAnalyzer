@@ -212,15 +212,174 @@ def _fetch_engine1_dividend_split(db: Session, stock_id: int):
         return None
 
 
-# ── Engine #2 (swing) — enabled in Phase 1 step 8 ─────────────────────────────
+# ── Engine #2 (swing) ─────────────────────────────────────────────────────────
 def _engine2_signal(db: Session, stock) -> SignalResult:
     """
-    Engine #2 fresh signal (C2 fix: computes the indicator frame FRESH via
-    ``TechnicalIndicators.calculate_all_indicators`` instead of the live adapter's
-    ``IndicatorCacheService`` branch). Implemented in Phase 1 step 8 when engine_2
-    is seeded and its beat enabled.
+    Engine #2 fresh signal — the **C2 fix**. Mirrors the live adapter
+    (``realtime_recommendation._get_recommendation_for_stock``) but computes the
+    indicator frame **FRESH** via ``TechnicalIndicators.calculate_all_indicators``
+    instead of the live adapter's ``IndicatorCacheService`` branch. A cached signal
+    is not reproducible (``config_version`` hashes weights, not inputs), so the
+    ledger must trade the fresh signal. Delegates to the pure ``signal_swing`` and
+    returns its config-bearing :class:`SignalResult`.
+
+    Per-component fetches are fault-tolerant (a failure leaves that component at
+    its default, matching the live engine). With < 50 daily bars there isn't enough
+    history for indicators → a neutral HOLD (no NaN propagation) carrying the swing
+    config_version, so the stock is logged but never traded.
     """
-    raise NotImplementedError(
-        "engine_2 ledger signal is enabled in Phase 1 step 8 "
-        "(fresh-indicator path, no cache). It is intentionally not live yet."
+    from app.services.signal.swing import signal_swing, _SWING_CONFIG_VERSION
+
+    df = _fetch_engine2_prices(db, stock.id)
+    if len(df) < 50:
+        return SignalResult(
+            signal="HOLD", confidence=0.5, weighted_score=0.0,
+            component_scores={}, config_version=_SWING_CONFIG_VERSION,
+            reasoning=[f"insufficient daily bars ({len(df)} < 50)"],
+        )
+
+    from app.services.technical_indicators import TechnicalIndicators
+    df = TechnicalIndicators.calculate_all_indicators(df)        # FRESH (no cache)
+    tech_recommendation = TechnicalIndicators.generate_recommendation(df)
+
+    return signal_swing(
+        df=df,
+        tech_recommendation=tech_recommendation,
+        chart_patterns_raw=_fetch_engine2_chart_patterns(db, stock.id),
+        candlestick_patterns_raw=_fetch_engine2_candlestick(db, stock.id),
+        sentiment_scores=_fetch_engine2_sentiment(db, stock.id),
+        ml=_fetch_engine2_ml(db, stock.id),
+        dividend_split_signal=_fetch_engine2_dividend_split(db, stock.id),
+        strategy_consensus=_fetch_engine2_strategy_consensus(db, stock.id, stock.symbol),
     )
+
+
+def _fetch_engine2_prices(db: Session, stock_id: int) -> pd.DataFrame:
+    """Last ~250 daily bars -> OHLCV DataFrame with a DatetimeIndex (what
+    ``calculate_all_indicators`` + ``signal_swing`` expect), chronological."""
+    try:
+        from app.models.stock import StockPrice
+
+        prices = db.query(StockPrice).filter(
+            StockPrice.stock_id == stock_id,
+            StockPrice.timeframe == "1d",
+        ).order_by(StockPrice.timestamp.desc()).limit(250).all()
+
+        if not prices:
+            return pd.DataFrame()
+
+        df = pd.DataFrame([
+            {"timestamp": p.timestamp, "open": float(p.open), "high": float(p.high),
+             "low": float(p.low), "close": float(p.close), "volume": int(p.volume)}
+            for p in reversed(prices)  # chronological
+        ])
+        df.set_index("timestamp", inplace=True)
+        return df
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] price fetch failed (stock {stock_id}): {e}")
+        return pd.DataFrame()
+
+
+def _fetch_engine2_ml(db: Session, stock_id: int):
+    """Latest ML prediction -> (recommendation, confidence, predicted_price), or
+    all-None when there is no scored prediction."""
+    try:
+        from app.models.stock import Prediction
+
+        pred = db.query(Prediction).filter(
+            Prediction.stock_id == stock_id,
+            Prediction.confidence_score.isnot(None),
+        ).order_by(Prediction.created_at.desc()).first()
+        if pred:
+            return (
+                pred.recommendation,
+                float(pred.confidence_score),
+                float(pred.predicted_price) if pred.predicted_price is not None else None,
+            )
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] ML fetch failed (stock {stock_id}): {e}")
+    return (None, None, None)
+
+
+def _fetch_engine2_sentiment(db: Session, stock_id: int):
+    """Last-30d news sentiment scores (newest-first, cap 20) -> list[float]."""
+    try:
+        from app.models.news import News
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        news = db.query(News).filter(
+            News.stock_id == stock_id,
+            News.sentiment_score.isnot(None),
+            News.published_utc >= cutoff,
+        ).order_by(News.published_utc.desc()).limit(20).all()
+        return [float(n.sentiment_score) for n in news]
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] sentiment fetch failed (stock {stock_id}): {e}")
+        return []
+
+
+def _fetch_engine2_candlestick(db: Session, stock_id: int):
+    """Last-30d candlestick patterns -> [{pattern_name, pattern_type, timestamp, confidence_score}]."""
+    try:
+        from app.models.stock import CandlestickPattern
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        recent = db.query(CandlestickPattern).filter(
+            CandlestickPattern.stock_id == stock_id,
+            CandlestickPattern.timestamp >= cutoff,
+        ).all()
+        return [
+            {"pattern_name": p.pattern_name, "pattern_type": p.pattern_type,
+             "timestamp": p.timestamp, "confidence_score": p.confidence_score}
+            for p in recent
+        ]
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] candlestick fetch failed (stock {stock_id}): {e}")
+        return []
+
+
+def _fetch_engine2_chart_patterns(db: Session, stock_id: int):
+    """Last-90d chart patterns -> [{signal, confidence_score, start_date, end_date}]."""
+    try:
+        from app.models.stock import ChartPattern
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        recent = db.query(ChartPattern).filter(
+            ChartPattern.stock_id == stock_id,
+            ChartPattern.end_date >= cutoff,
+        ).all()
+        return [
+            {"signal": p.signal, "confidence_score": p.confidence_score,
+             "start_date": p.start_date, "end_date": p.end_date}
+            for p in recent
+        ]
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] chart pattern fetch failed (stock {stock_id}): {e}")
+        return []
+
+
+def _fetch_engine2_dividend_split(db: Session, stock_id: int):
+    """DividendSplitDetector signal dict (has_signal block), or None."""
+    try:
+        from app.services.dividend_split_detector import DividendSplitDetector
+
+        signal = DividendSplitDetector().get_signals_for_recommendation(
+            stock_id, db, days_ahead=30
+        )
+        return signal if signal.get("has_signal") else None
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] dividend/split detection failed (stock {stock_id}): {e}")
+        return None
+
+
+def _fetch_engine2_strategy_consensus(db: Session, stock_id: int, symbol: str):
+    """Phase-0.5 strategy consensus (the ONE fresh-indicator path, same as
+    /snapshot) -> (signal, confidence), or None on failure / no consensus."""
+    try:
+        from app.services.strategies import strategy_manager as _strategy_manager
+
+        rec, conf, _breakdown = _strategy_manager.compute_consensus_for_stock(stock_id, db)
+        return (rec, conf) if rec is not None else None
+    except Exception as e:
+        logger.warning(f"[ledger engine_2] strategy consensus failed (stock {stock_id} {symbol}): {e}")
+        return None

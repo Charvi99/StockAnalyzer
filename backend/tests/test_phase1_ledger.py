@@ -107,14 +107,21 @@ def test_unknown_engine_raises_value_error():
     raise AssertionError("expected ValueError for an unknown engine")
 
 
-def test_engine2_not_yet_enabled_before_step8():
-    """engine_2 ledger signal is enabled in Phase 1 step 8; until then it must
-    raise NotImplementedError (not silently return a wrong signal)."""
-    try:
-        signal_for_ledger(_BrokenDB(), _FakeStock(), "engine_2")
-    except NotImplementedError:
-        return
-    raise AssertionError("expected NotImplementedError for engine_2 before step 8")
+def test_engine2_returns_signalresult_on_empty_inputs():
+    """engine_2 (now enabled, Phase 1.10) returns a SignalResult. With no DB the
+    price fetch fails -> <50 bars -> a neutral HOLD carrying the swing
+    config_version (never raises, never trades on insufficient data)."""
+    sr = signal_for_ledger(_BrokenDB(), _FakeStock(), "engine_2")
+    assert isinstance(sr, SignalResult), f"expected SignalResult, got {type(sr)!r}"
+    assert sr.signal == "HOLD"
+    assert sr.config_version and len(sr.config_version) == 12
+
+
+def test_engine2_uses_fresh_indicators_not_cache():
+    """C2 rule: engine_2 computes indicators FRESH (calculate_all_indicators), not
+    via the IndicatorCacheService branch the live adapter uses."""
+    src = _src("app/services/ledger_signal_adapter.py")
+    assert "calculate_all_indicators" in src, "engine_2 must compute indicators fresh"
 
 
 def _code_references_indicator_cache(tree) -> bool:
