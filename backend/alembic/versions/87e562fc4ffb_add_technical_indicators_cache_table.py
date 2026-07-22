@@ -20,6 +20,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema - Add technical_indicators cache table."""
+    # The initial migration (c45f1698d64d) created technical_indicators in a
+    # "tall" one-row-per-indicator shape; this revision REPLACES it with the
+    # "wide" JSONB-cache shape. Drop the tall table first so a from-empty
+    # `alembic upgrade head` doesn't die with "relation already exists".
+    # Safe: no real DB is mid-chain (production is stamped at head and never
+    # re-runs this), so this only affects fresh deployments.
+    op.execute("DROP TABLE IF EXISTS technical_indicators CASCADE")
     # Create technical_indicators table for caching pre-computed indicators
     op.create_table(
         'technical_indicators',

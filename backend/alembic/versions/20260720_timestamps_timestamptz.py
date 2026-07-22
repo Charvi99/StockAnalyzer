@@ -87,6 +87,11 @@ _COLUMNS = [
 
 
 def upgrade():
+    # The `latest_stock_prices` view (created in c45f1698d64d) depends on
+    # stock_prices.timestamp, which we're about to ALTER — Postgres refuses to
+    # alter a column a view depends on. Drop the view, alter, then recreate it.
+    op.execute("DROP VIEW IF EXISTS latest_stock_prices")
+
     # `col AT TIME ZONE 'UTC'` interprets the existing naive value as UTC and
     # returns a timestamptz, so wall-times do not shift regardless of session tz.
     for table, col in _COLUMNS:
@@ -97,8 +102,20 @@ def upgrade():
             postgresql_using=f"{col} AT TIME ZONE 'UTC'",
         )
 
+    op.execute("""
+        CREATE OR REPLACE VIEW latest_stock_prices AS
+        SELECT DISTINCT ON (s.id)
+            s.id, s.symbol, s.name, sp.timestamp, sp.close, sp.volume
+        FROM stocks s
+        LEFT JOIN stock_prices sp ON s.id = sp.stock_id
+        ORDER BY s.id, sp.timestamp DESC
+    """)
+
 
 def downgrade():
+    # Same view dependency in reverse: drop, alter, recreate.
+    op.execute("DROP VIEW IF EXISTS latest_stock_prices")
+
     # Strip tz back to naive (UTC wall-time); timestamptz::timestamp yields naive.
     for table, col in reversed(_COLUMNS):
         op.alter_column(
@@ -107,3 +124,12 @@ def downgrade():
             type_=sa.TIMESTAMP(timezone=False),
             postgresql_using=f"{col}::timestamp",
         )
+
+    op.execute("""
+        CREATE OR REPLACE VIEW latest_stock_prices AS
+        SELECT DISTINCT ON (s.id)
+            s.id, s.symbol, s.name, sp.timestamp, sp.close, sp.volume
+        FROM stocks s
+        LEFT JOIN stock_prices sp ON s.id = sp.stock_id
+        ORDER BY s.id, sp.timestamp DESC
+    """)
