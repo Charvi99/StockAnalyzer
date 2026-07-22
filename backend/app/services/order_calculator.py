@@ -35,7 +35,8 @@ class OrderCalculatorService:
         self,
         stock_id: int,
         account_size: float = 10000.0,
-        risk_percentage: float = 2.0
+        risk_percentage: float = 2.0,
+        recommendation: Optional[str] = None
     ) -> Dict:
         """
         Calculate recommended order parameters
@@ -44,6 +45,13 @@ class OrderCalculatorService:
             stock_id: Stock ID
             account_size: Total account size in currency
             risk_percentage: Maximum risk per trade as percentage (default 2%)
+            recommendation: optional BUY/SELL/HOLD override (Phase 1 C3/C4). When
+                provided, the caller already knows the signal — so the internal
+                Engine #2 re-call (``_get_recommendation_for_stock``) is SKIPPED,
+                avoiding double work, cross-engine contamination, and the cached-
+                indicator path the live Engine #2 uses. Used by the paper-trading
+                ledger; existing callers pass nothing (default None) and behave
+                exactly as before.
 
         Returns:
             Dictionary with order parameters
@@ -97,36 +105,46 @@ class OrderCalculatorService:
         # PHASE 2A: Get overall recommendation (includes weekly trend filter)
         # Engine #2 now lives in the service layer (Stage 4A) — this fixes the prior
         # service->route import inversion (service importing from a route module).
-        from app.services.realtime_recommendation import _get_recommendation_for_stock
-
-        try:
-            overall_rec = _get_recommendation_for_stock(stock, self.db)
-
-            # Count patterns from actual data
-            bullish_chart = sum(1 for p in recent_patterns if p.signal == 'bullish')
-            bearish_chart = sum(1 for p in recent_patterns if p.signal == 'bearish')
-            bullish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bullish')
-            bearish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bearish')
-
-            pattern_bias = {
-                'recommendation': overall_rec.final_recommendation,
-                'confidence': overall_rec.overall_confidence,
-                'bullish_chart_count': bullish_chart,
-                'bearish_chart_count': bearish_chart,
-                'bullish_candle_count': bullish_candle,
-                'bearish_candle_count': bearish_candle,
-                'weekly_conflict': False  # Already handled in overall recommendation
-            }
-        except Exception as e:
-            # Fallback to pattern-only bias if overall recommendation fails
-            logger.warning(f"Could not get overall recommendation for stock {stock_id}, falling back to pattern bias: {e}")
+        #
+        # C3/C4 (Phase 1): a caller that already knows the signal (e.g. the
+        # paper-trading ledger, which computed it fresh via signal_for_ledger) passes
+        # `recommendation` in and we skip the Engine #2 re-call — avoiding double
+        # work, cross-engine contamination, and the cached-indicator path the live
+        # Engine #2 uses. Existing callers pass nothing and take the else branch.
+        if recommendation is not None:
             pattern_bias = self._determine_pattern_bias(recent_patterns, recent_candles)
+            pattern_bias['recommendation'] = recommendation
+        else:
+            from app.services.realtime_recommendation import _get_recommendation_for_stock
 
-            # Override recommendation if weekly trend conflicts (fallback logic)
-            if pattern_bias['recommendation'] == 'BUY' and weekly_trend['trend'] == 'bearish':
-                pattern_bias['recommendation'] = 'HOLD'
-                pattern_bias['confidence'] = pattern_bias['confidence'] * 0.5
-                pattern_bias['weekly_conflict'] = True
+            try:
+                overall_rec = _get_recommendation_for_stock(stock, self.db)
+
+                # Count patterns from actual data
+                bullish_chart = sum(1 for p in recent_patterns if p.signal == 'bullish')
+                bearish_chart = sum(1 for p in recent_patterns if p.signal == 'bearish')
+                bullish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bullish')
+                bearish_candle = sum(1 for p in recent_candles if p.pattern_type == 'bearish')
+
+                pattern_bias = {
+                    'recommendation': overall_rec.final_recommendation,
+                    'confidence': overall_rec.overall_confidence,
+                    'bullish_chart_count': bullish_chart,
+                    'bearish_chart_count': bearish_chart,
+                    'bullish_candle_count': bullish_candle,
+                    'bearish_candle_count': bearish_candle,
+                    'weekly_conflict': False  # Already handled in overall recommendation
+                }
+            except Exception as e:
+                # Fallback to pattern-only bias if overall recommendation fails
+                logger.warning(f"Could not get overall recommendation for stock {stock_id}, falling back to pattern bias: {e}")
+                pattern_bias = self._determine_pattern_bias(recent_patterns, recent_candles)
+
+                # Override recommendation if weekly trend conflicts (fallback logic)
+                if pattern_bias['recommendation'] == 'BUY' and weekly_trend['trend'] == 'bearish':
+                    pattern_bias['recommendation'] = 'HOLD'
+                    pattern_bias['confidence'] = pattern_bias['confidence'] * 0.5
+                    pattern_bias['weekly_conflict'] = True
 
         # Calculate entry, stop loss, and take profit with swing trading context
         order_params = self._calculate_levels_v2(

@@ -30,6 +30,12 @@ from app.services.signal.systematic import signal_systematic
 from app.services.ledger_signal_adapter import signal_for_ledger
 
 ADAPTER_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "services", "ledger_signal_adapter.py")
+ORDER_CALC_PATH = os.path.join(os.path.dirname(__file__), "..", "app", "services", "order_calculator.py")
+
+
+def _src(rel):
+    with open(os.path.join(os.path.dirname(__file__), "..", rel), encoding="utf-8") as fh:
+        return fh.read()
 
 
 # ── fakes ─────────────────────────────────────────────────────────────────────
@@ -127,6 +133,78 @@ def test_c2_ledger_adapter_never_uses_indicator_cache():
     assert not _code_references_indicator_cache(tree), (
         "C2 regression: the ledger adapter must never reference IndicatorCacheService "
         "in code. Trade the fresh signal (config_version hashes weights, not inputs)."
+    )
+
+
+# ── Step 3: order-calc recommendation override (C3/C4) ────────────────────────
+def _order_calc_method(tree):
+    """Locate OrderCalculatorService.calculate_order_parameters in the AST."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "OrderCalculatorService":
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "calculate_order_parameters":
+                    return item
+    return None
+
+
+def _called_names(stmts):
+    """Names/attrs called within a list of statements (does not cross if/else)."""
+    names = set()
+    for s in stmts:
+        for node in ast.walk(s):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    names.add(node.func.id)
+                elif isinstance(node.func, ast.Attribute):
+                    names.add(node.func.attr)
+    return names
+
+
+def test_c3_order_calc_accepts_recommendation_override():
+    """calculate_order_parameters has an optional `recommendation` kwarg (default
+    None) so the ledger can pass its known signal in and skip the Engine #2
+    re-call. Existing callers (None) are unaffected."""
+    fn = _order_calc_method(ast.parse(_src("app/services/order_calculator.py")))
+    assert fn is not None, "OrderCalculatorService.calculate_order_parameters not found"
+    params = [a.arg for a in fn.args.args]
+    assert "recommendation" in params, (
+        "C3: calculate_order_parameters must accept a `recommendation` override kwarg"
+    )
+    # The last default must be None (the override defaults to off).
+    assert fn.args.defaults and isinstance(fn.args.defaults[-1], ast.Constant) \
+        and fn.args.defaults[-1].value is None, (
+        "C3: the `recommendation` override must default to None (existing callers)"
+    )
+
+
+def test_c3_override_skips_engine2_recall():
+    """When `recommendation` is provided, the Engine #2 re-call
+    (_get_recommendation_for_stock) must NOT happen — it's only in the else branch.
+    This is the C3 guarantee: no double work, no cross-engine contamination, and no
+    cached-indicator path for the ledger."""
+    fn = _order_calc_method(ast.parse(_src("app/services/order_calculator.py")))
+    assert fn is not None
+    # Find the override If: test is `recommendation is not None`.
+    override_if = None
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+                and isinstance(node.test.left, ast.Name)
+                and node.test.left.id == "recommendation"):
+            override_if = node
+            break
+    assert override_if is not None, (
+        "C3: missing `if recommendation is not None:` override branch in "
+        "calculate_order_parameters"
+    )
+    body_calls = _called_names(override_if.body)
+    orelse_calls = _called_names(override_if.orelse)
+    assert "_get_recommendation_for_stock" not in body_calls, (
+        "C3 regression: the override (recommendation-provided) path still calls "
+        "_get_recommendation_for_stock — it must skip the Engine #2 re-call"
+    )
+    assert "_get_recommendation_for_stock" in orelse_calls, (
+        "C3: the existing callers' else branch must still call "
+        "_get_recommendation_for_stock"
     )
 
 
