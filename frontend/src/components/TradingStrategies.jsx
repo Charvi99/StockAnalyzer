@@ -2,19 +2,34 @@ import React, { useState, useEffect } from 'react';
 import { executeStrategy, backtestStrategy, executeAllStrategies, listStrategies } from '../services/api';
 import './TradingStrategies.css';
 
+// Phase 0.5: this component unmounts when the user leaves the Strategies tab,
+// which would discard any results. Cache them per-stock so they survive.
+const _resultsCache = new Map(); // stockId -> { strategyResult, consensusResult }
+
 const TradingStrategies = ({ stockId }) => {
+  const cached = _resultsCache.get(stockId);
   const [isExpanded, setIsExpanded] = useState(true);
   const [strategies, setStrategies] = useState([]);
   const [selectedStrategy, setSelectedStrategy] = useState(null);
-  const [strategyResult, setStrategyResult] = useState(null);
+  const [strategyResult, setStrategyResult] = useState(cached?.strategyResult ?? null);
   const [backtestResult, setBacktestResult] = useState(null);
-  const [consensusResult, setConsensusResult] = useState(null);
+  const [consensusResult, setConsensusResult] = useState(cached?.consensusResult ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('execute'); // 'execute', 'backtest', 'consensus'
+  const [activeTab, setActiveTab] = useState('consensus'); // 'execute', 'consensus'
+
+  // Persist results so they survive tab switches (the component remounts).
+  useEffect(() => {
+    _resultsCache.set(stockId, { strategyResult, consensusResult });
+  }, [stockId, strategyResult, consensusResult]);
 
   useEffect(() => {
     loadStrategies();
+    // Auto-load the consensus on first open so the tab is never empty.
+    if (!cached?.consensusResult) {
+      handleExecuteAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadStrategies = async () => {
