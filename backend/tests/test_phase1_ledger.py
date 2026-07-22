@@ -616,6 +616,42 @@ def test_open_close_trade_persist_reasoning():
     )
 
 
+# ── Step 1.8c: SPY benchmark ──────────────────────────────────────────────────
+def test_benchmark_return_pct_math():
+    """_with_returns adds cumulative return_pct measured from the first close."""
+    from app.services.benchmark_service import _with_returns
+
+    window = [
+        {"date": "2026-01-01", "close": 100.0},
+        {"date": "2026-01-02", "close": 110.0},
+        {"date": "2026-01-03", "close": 90.0},
+    ]
+    out = _with_returns(window)
+    assert out[0]["return_pct"] == 0.0
+    assert abs(out[1]["return_pct"] - 0.10) < 1e-9
+    assert abs(out[2]["return_pct"] - (-0.10)) < 1e-9
+    assert _with_returns([]) == []
+
+
+def test_benchmark_service_degrades_to_empty():
+    """get_spy_series exists (SPY) and degrades to [] on failure — the equity view
+    must never depend on Polygon being reachable."""
+    src = _src("app/services/benchmark_service.py")
+    assert 'def get_spy_series(' in src
+    assert 'BENCHMARK_SYMBOL = "SPY"' in src
+    assert "except Exception" in src and "return []" in src, (
+        "get_spy_series must catch failures and return []"
+    )
+
+
+def test_equity_endpoint_includes_benchmark():
+    """/equity folds the SPY benchmark into its response (one fetch, both curves)."""
+    src = _src("app/api/routes/ledger.py")
+    assert "get_spy_series" in src and '"benchmark": get_spy_series' in src, (
+        "/equity must return a benchmark key from get_spy_series"
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

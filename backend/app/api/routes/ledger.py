@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.ledger import PaperAccount, PaperEquitySnapshot, PaperTrade
 from app.models.stock import Stock
+from app.services.benchmark_service import get_spy_series
 from app.utils.market_hours import get_current_et_time
 
 router = APIRouter()
@@ -275,7 +276,7 @@ def equity_curve(
                 "open_trades_count": s.open_trades_count,
             }
         )
-    return {"days": days, "series": series}
+    return {"days": days, "series": series, "benchmark": get_spy_series(days)}
 
 
 @router.get("/summary")
