@@ -59,6 +59,8 @@ class PaperTrade(Base):
     signal_at_entry = Column(String(10), nullable=False)  # 'BUY'
     config_version = Column(String(12), nullable=True)
     entry_confidence = Column(DECIMAL(5, 4), nullable=True)
+    # Per-component scores + reasoning lines + regime at entry (the "why").
+    entry_reasoning = Column(JSONB, nullable=True)
 
     # ── entry ──
     entry_price = Column(DECIMAL(12, 4), nullable=False)
@@ -79,6 +81,7 @@ class PaperTrade(Base):
     exit_signal = Column(String(10), nullable=True)
     exit_config_version = Column(String(12), nullable=True)
     exit_confidence = Column(DECIMAL(5, 4), nullable=True)
+    exit_reasoning = Column(JSONB, nullable=True)   # the "why" at exit (if a signal was evaluated)
     realized_pnl = Column(DECIMAL(14, 2), nullable=True)
     realized_pnl_pct = Column(DECIMAL(8, 4), nullable=True)
 

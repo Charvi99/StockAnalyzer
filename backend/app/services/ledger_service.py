@@ -57,6 +57,23 @@ LEDGER_MAX_HOLD_DAYS = 60        # trading-day cap before a stale position is cl
 # ──────────────────────────────────────────────────────────────────────────────
 # PURE decision math (unit-tested in test_phase1_ledger.py — no DB)
 # ──────────────────────────────────────────────────────────────────────────────
+def _reasoning_payload(signal_result: Optional[SignalResult]) -> Optional[dict]:
+    """Compact 'why' snapshot from a SignalResult, persisted on the trade so the
+    detail UI can explain each open/close.
+
+    Returns None when there is no signal result. The scalar signal/confidence stay
+    in their dedicated columns; this holds the per-component scores, the
+    human-readable reasoning lines, and the market regime — the explainability
+    payload the pure signal functions already compute."""
+    if signal_result is None:
+        return None
+    return {
+        "component_scores": dict(getattr(signal_result, "component_scores", {}) or {}),
+        "reasoning": list(getattr(signal_result, "reasoning", []) or []),
+        "regime": getattr(signal_result, "regime", None),
+    }
+
+
 def _is_fresh_buy(last_logged_signal: Optional[str], current_signal: str) -> bool:
     """A fresh BUY = the signal just turned BUY (it was NOT BUY last cycle).
 
@@ -385,6 +402,7 @@ class LedgerService:
             signal_at_entry=signal_result.signal,
             config_version=signal_result.config_version,
             entry_confidence=signal_result.confidence,
+            entry_reasoning=_reasoning_payload(signal_result),
             entry_price=entry_price,
             entry_date=cycle_dt,
             stop_loss=stop_loss,
@@ -445,10 +463,14 @@ class LedgerService:
         trade.unrealized_pnl = 0.0
         trade.status = "closed"
         trade.closed_at = cycle_dt
-        if signal_result is not None and reason == "signal_flip":
-            trade.exit_signal = signal_result.signal
-            trade.exit_config_version = signal_result.config_version
-            trade.exit_confidence = signal_result.confidence
+        if signal_result is not None:
+            if reason == "signal_flip":
+                trade.exit_signal = signal_result.signal
+                trade.exit_config_version = signal_result.config_version
+                trade.exit_confidence = signal_result.confidence
+            # Persist the exit signal's "why" for any evaluated close (for a barrier
+            # exit this is the still-current signal — honest: "was BUY when SL hit").
+            trade.exit_reasoning = _reasoning_payload(signal_result)
         self.db.flush()
         logger.info(
             f"[ledger {self.engine}] CLOSE reason={reason} pnl={pnl:.2f} ({pct*100:.2f}%)"

@@ -562,6 +562,49 @@ def test_ledger_routes_cast_decimals_to_float():
     )
 
 
+# ── Step 1.8a: persist per-trade reasoning ────────────────────────────────────
+def test_reasoning_payload_extracts_the_why():
+    """_reasoning_payload pulls component_scores + reasoning + regime off a
+    SignalResult (the explainability data the pure functions already compute)."""
+    from app.services.ledger_service import _reasoning_payload
+
+    sr = SignalResult(
+        signal="BUY", confidence=0.7, weighted_score=0.5,
+        component_scores={"tech": 0.6, "sentiment": 0.2},
+        config_version="abc123def456",
+        reasoning=["tech strong", "sentiment neutral"],
+        regime="trending_up",
+    )
+    assert _reasoning_payload(sr) == {
+        "component_scores": {"tech": 0.6, "sentiment": 0.2},
+        "reasoning": ["tech strong", "sentiment neutral"],
+        "regime": "trending_up",
+    }
+    # None signal → None payload (no reasoning to record).
+    assert _reasoning_payload(None) is None
+
+
+def test_paper_trade_model_has_reasoning_columns():
+    """PaperTrade declares entry_reasoning + exit_reasoning (the 'why' JSONB)."""
+    import app.models.ledger as ledger
+    cols = {c.name for c in ledger.PaperTrade.__table__.columns}
+    assert "entry_reasoning" in cols and "exit_reasoning" in cols, (
+        f"missing reasoning columns; have {sorted(cols)}"
+    )
+
+
+def test_open_close_trade_persist_reasoning():
+    """open_trade sets entry_reasoning and close_trade sets exit_reasoning via
+    _reasoning_payload (so day-1 trades carry their 'why'). Source guard."""
+    src = _src("app/services/ledger_service.py")
+    assert "entry_reasoning=_reasoning_payload(signal_result)" in src, (
+        "open_trade must persist entry_reasoning"
+    )
+    assert "trade.exit_reasoning = _reasoning_payload(signal_result)" in src, (
+        "close_trade must persist exit_reasoning"
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
