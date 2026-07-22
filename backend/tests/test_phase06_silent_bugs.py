@@ -140,6 +140,35 @@ def test_h6_dashboard_refresh_keeps_cooldown_guard():
     )
 
 
+# ── H3: ChartPattern must declare the uniqueness constraint ────────────────
+# Without it the check-then-insert upsert (H4) could write duplicate
+# (stock_id, pattern_name, end_date) rows under acks_late redelivery.
+def test_h3_chart_pattern_has_unique_constraint():
+    from app.models.stock import ChartPattern
+    constraint_cols = set()
+    for con in ChartPattern.__table__.constraints:
+        # UniqueConstraint exposes its column names via .columns
+        if type(con).__name__ == "UniqueConstraint":
+            constraint_cols.add(tuple(c.name for c in con.columns))
+    assert ("stock_id", "pattern_name", "end_date") in constraint_cols, (
+        "H3: ChartPattern must declare UniqueConstraint(stock_id, pattern_name, "
+        f"end_date); found unique constraints: {constraint_cols}"
+    )
+
+
+# ── H4: the pattern save must be an idempotent ON CONFLICT upsert ───────────
+# Replaces the racy check-then-insert; relies on the H3 constraint.
+def test_h4_pattern_upsert_is_idempotent():
+    src = _src("app/tasks/analysis_tasks.py")
+    assert "on_conflict_do_nothing" in src and "pg_insert" in src, (
+        "H4: pattern save must use postgresql.insert(...).on_conflict_do_nothing "
+        "(idempotent under acks_late), not check-then-insert"
+    )
+    assert "index_elements=['stock_id', 'pattern_name', 'end_date']" in src, (
+        "H4: the ON CONFLICT target must be (stock_id, pattern_name, end_date)"
+    )
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

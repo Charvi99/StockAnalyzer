@@ -84,39 +84,36 @@ def analyze_stock_comprehensive(self, stock_id: int, symbol: str):
 
             detected_patterns = result['patterns']
 
-            # Save new patterns
+            # Save patterns (H4: idempotent upsert). The check-then-insert that was
+            # here could write duplicate (stock_id, pattern_name, end_date) rows
+            # under Celery acks_late redelivery; the H3 unique constraint now lets
+            # us rely on ON CONFLICT DO NOTHING. saved_count = genuinely new rows.
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
             saved_count = 0
             for pattern in detected_patterns:
-                existing = db.query(ChartPattern).filter(
-                    and_(
-                        ChartPattern.stock_id == stock_id,
-                        ChartPattern.pattern_name == pattern['pattern_name'],
-                        ChartPattern.end_date == pattern['end_date']
-                    )
-                ).first()
-
-                if not existing:
-                    db_pattern = ChartPattern(
-                        stock_id=stock_id,
-                        pattern_name=pattern['pattern_name'],
-                        pattern_type=pattern['pattern_type'],
-                        signal=pattern['signal'],
-                        start_date=pattern['start_date'],
-                        end_date=pattern['end_date'],
-                        breakout_price=pattern.get('breakout_price'),
-                        target_price=pattern.get('target_price'),
-                        stop_loss=pattern.get('stop_loss'),
-                        confidence_score=pattern['confidence_score'],
-                        key_points=pattern['key_points'],
-                        trendlines=pattern['trendlines'],
-                        primary_timeframe=pattern.get('primary_timeframe', '1d'),
-                        detected_on_timeframes=pattern.get('detected_on_timeframes', ['1d']),
-                        confirmation_level=pattern.get('confirmation_level', 1),
-                        base_confidence=pattern.get('base_confidence'),
-                        alignment_score=pattern.get('alignment_score')
-                    )
-                    db.add(db_pattern)
-                    saved_count += 1
+                stmt = pg_insert(ChartPattern).values(
+                    stock_id=stock_id,
+                    pattern_name=pattern['pattern_name'],
+                    pattern_type=pattern['pattern_type'],
+                    signal=pattern['signal'],
+                    start_date=pattern['start_date'],
+                    end_date=pattern['end_date'],
+                    breakout_price=pattern.get('breakout_price'),
+                    target_price=pattern.get('target_price'),
+                    stop_loss=pattern.get('stop_loss'),
+                    confidence_score=pattern['confidence_score'],
+                    key_points=pattern['key_points'],
+                    trendlines=pattern['trendlines'],
+                    primary_timeframe=pattern.get('primary_timeframe', '1d'),
+                    detected_on_timeframes=pattern.get('detected_on_timeframes', ['1d']),
+                    confirmation_level=pattern.get('confirmation_level', 1),
+                    base_confidence=pattern.get('base_confidence'),
+                    alignment_score=pattern.get('alignment_score'),
+                ).on_conflict_do_nothing(
+                    index_elements=['stock_id', 'pattern_name', 'end_date']
+                )
+                result_insert = db.execute(stmt)
+                saved_count += result_insert.rowcount or 0
 
             db.commit()
 

@@ -246,6 +246,9 @@ class ChartPattern(Base):
     __table_args__ = (
         CheckConstraint("pattern_type IN ('reversal', 'continuation')", name="check_chart_pattern_type"),
         CheckConstraint("signal IN ('bullish', 'bearish', 'neutral')", name="check_chart_signal"),
+        # H3 (audit): one pattern of a given name per stock per end-date. Makes the
+        # detection upsert (H4) idempotent under Celery acks_late redelivery.
+        UniqueConstraint('stock_id', 'pattern_name', 'end_date', name='uq_chart_patterns_stock_name_end'),
     )
 
     # Relationship
