@@ -234,8 +234,12 @@ celery_app.conf.beat_schedule = {
     'paper-trading-cycle-engine-1': {
         'task': 'app.tasks.ledger_tasks.run_paper_trading_cycle',
         'schedule': crontab(minute=0, hour=19),  # 7:00 PM ET (after analysis)
-        'options': {'queue': 'maintenance', 'priority': 5,
-                    'kwargs': {'engine': 'engine_1'}}
+        # NOTE: `kwargs` is a TOP-LEVEL beat key, NOT inside `options`. Nesting it in
+        # options makes apply_async() receive kwargs twice -> SchedulingError (the task
+        # never fires). This was the Phase-1.11b bug that silently killed the daily
+        # trading + digest schedules.
+        'kwargs': {'engine': 'engine_1'},
+        'options': {'queue': 'maintenance', 'priority': 5}
     },
     # engine_2 paper-trading cycle (Phase 1.10): same slot as engine_1, its own
     # account + task invocation (H4: isolated, replayable). D35: run both engines
@@ -243,8 +247,8 @@ celery_app.conf.beat_schedule = {
     'paper-trading-cycle-engine-2': {
         'task': 'app.tasks.ledger_tasks.run_paper_trading_cycle',
         'schedule': crontab(minute=0, hour=19),  # 7:00 PM ET
-        'options': {'queue': 'maintenance', 'priority': 5,
-                    'kwargs': {'engine': 'engine_2'}}
+        'kwargs': {'engine': 'engine_2'},
+        'options': {'queue': 'maintenance', 'priority': 5}
     },
 
     # ────────────────────────────────────────
@@ -257,15 +261,23 @@ celery_app.conf.beat_schedule = {
     # heartbeat (if it stops, the beat/worker is down — an in-stack task can't detect
     # its own scheduler dying). AM = pre-market (yesterday's close); PM = after the
     # 19:00 cycle (today's results).
+    # Twice-daily digest. Fire hours are in the beat timezone (America/New_York).
+    # Defaults 2 & 14 => 08:30 & 20:30 in UTC+2 (Prague/CEST) — Central Europe is a
+    # constant 6h ahead of ET year-round (both observe DST together), so a fixed
+    # ET-hour maps to a fixed local hour. Override DIGEST_AM_HOUR / DIGEST_PM_HOUR
+    # (ET-clock hours) if your timezone changes; e.g. UTC+0 => 8 & 20, UTC-5 (ET)
+    # => 8 & 20. Minute stays 30.
     'paper-trading-digest-am': {
         'task': 'app.tasks.ledger_tasks.send_daily_digest',
-        'schedule': crontab(minute=30, hour=8),   # 08:30 ET pre-market
-        'options': {'queue': 'maintenance', 'priority': 6, 'kwargs': {'window': 'AM'}}
+        'schedule': crontab(minute=30, hour=int(os.getenv('DIGEST_AM_HOUR', '2'))),
+        'kwargs': {'window': 'AM'},
+        'options': {'queue': 'maintenance', 'priority': 6}
     },
     'paper-trading-digest-pm': {
         'task': 'app.tasks.ledger_tasks.send_daily_digest',
-        'schedule': crontab(minute=30, hour=20),  # 20:30 ET (after the 19:00 cycle)
-        'options': {'queue': 'maintenance', 'priority': 6, 'kwargs': {'window': 'PM'}}
+        'schedule': crontab(minute=30, hour=int(os.getenv('DIGEST_PM_HOUR', '14'))),
+        'kwargs': {'window': 'PM'},
+        'options': {'queue': 'maintenance', 'priority': 6}
     },
 }
 

@@ -500,15 +500,19 @@ def test_celery_app_wires_ledger_task():
         if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant):
             opt_map[kk.value] = vv.value
     assert opt_map.get("queue") == "maintenance", "beat queue must be maintenance"
-    # kwargs.engine == engine_1.
-    kwargs_node = None
-    for kk, vv in zip(opts.keys, opts.values):
-        if isinstance(kk, ast.Constant) and kk.value == "kwargs":
-            kwargs_node = vv
-    assert isinstance(kwargs_node, ast.Dict), "beat entry must pass kwargs.engine"
+    # kwargs must be a TOP-LEVEL beat key (sibling of 'options'), NOT nested inside
+    # options — nesting makes apply_async() receive kwargs twice so the task never
+    # fires (SchedulingError). Regression guard for the Phase-1.11b bug that silently
+    # killed the daily trading + digest schedules.
+    entry_keys = {kk.value for kk in entry.keys if isinstance(kk, ast.Constant)}
+    assert "kwargs" in entry_keys, "beat entry must have a TOP-LEVEL 'kwargs' key"
+    kwargs_node = _entry_field(entry, "kwargs")
+    assert isinstance(kwargs_node, ast.Dict), "top-level kwargs must be a dict"
     kw = {kk.value: vv.value for kk, vv in zip(kwargs_node.keys, kwargs_node.values)
           if isinstance(kk, ast.Constant) and isinstance(vv, ast.Constant)}
     assert kw.get("engine") == "engine_1", f"beat must target engine_1; got {kw}"
+    opt_keys = {kk.value for kk in opts.keys if isinstance(kk, ast.Constant)}
+    assert "kwargs" not in opt_keys, "kwargs must NOT be nested in options (SchedulingError)"
 
 
 # ── Step 6: ledger routes + /health ───────────────────────────────────────────
@@ -768,10 +772,12 @@ def test_send_daily_digest_never_raises():
 
 
 def test_beat_schedules_digest_twice_daily():
-    """beat_schedule has AM (08:30) + PM (20:30) send_daily_digest entries on
-    maintenance, each passing kwargs.window."""
+    """beat_schedule has AM + PM send_daily_digest entries on maintenance, each
+    passing a TOP-LEVEL kwargs.window. kwargs must NOT be nested in options (that
+    made apply_async() receive kwargs twice -> SchedulingError, silently killing
+    the digest). Fire hours are env-driven (DIGEST_AM_HOUR/DIGEST_PM_HOUR), so the
+    literal hour is not asserted here."""
     tree = ast.parse(_src("app/celery_app.py"))
-    # Collect {window: (hour, queue)} for every send_daily_digest beat entry.
     found = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -783,29 +789,36 @@ def test_beat_schedules_digest_twice_daily():
         for v in node.value.values:
             if not isinstance(v, ast.Dict):
                 continue
-            task = sched = opts = None
+            task = opts = entry_kwargs = None
             for kk, vv in zip(v.keys, v.values):
                 if isinstance(kk, ast.Constant) and kk.value == "task" and isinstance(vv, ast.Constant):
                     task = vv.value
-                elif isinstance(kk, ast.Constant) and kk.value == "schedule":
-                    sched = vv
                 elif isinstance(kk, ast.Constant) and kk.value == "options":
                     opts = vv
-            if task != "app.tasks.ledger_tasks.send_daily_digest" or not isinstance(opts, ast.Dict):
+                elif isinstance(kk, ast.Constant) and kk.value == "kwargs":
+                    entry_kwargs = vv
+            if task != "app.tasks.ledger_tasks.send_daily_digest":
                 continue
-            hour = _kw_value(sched, "hour") if isinstance(sched, ast.Call) else None
-            queue = win = None
-            for kk, vv in zip(opts.keys, opts.values):
-                if isinstance(kk, ast.Constant) and kk.value == "queue" and isinstance(vv, ast.Constant):
-                    queue = vv.value
-                if isinstance(kk, ast.Constant) and kk.value == "kwargs" and isinstance(vv, ast.Dict):
-                    for k2, v2 in zip(vv.keys, vv.values):
-                        if isinstance(k2, ast.Constant) and k2.value == "window" and isinstance(v2, ast.Constant):
-                            win = v2.value
+            win = None
+            if isinstance(entry_kwargs, ast.Dict):
+                for k2, v2 in zip(entry_kwargs.keys, entry_kwargs.values):
+                    if isinstance(k2, ast.Constant) and k2.value == "window" and isinstance(v2, ast.Constant):
+                        win = v2.value
+            queue = None
+            opt_keys = set()
+            if isinstance(opts, ast.Dict):
+                for kk, vv in zip(opts.keys, opts.values):
+                    if isinstance(kk, ast.Constant):
+                        opt_keys.add(kk.value)
+                        if kk.value == "queue" and isinstance(vv, ast.Constant):
+                            queue = vv.value
             if win:
-                found[win] = (hour, queue)
-    assert found.get("AM") == (8, "maintenance"), f"AM digest wrong; got {found.get('AM')}"
-    assert found.get("PM") == (20, "maintenance"), f"PM digest wrong; got {found.get('PM')}"
+                found[win] = (queue, "kwargs" in opt_keys)
+    assert found.get("AM", (None, True))[0] == "maintenance", f"AM queue wrong; got {found.get('AM')}"
+    assert found.get("PM", (None, True))[0] == "maintenance", f"PM queue wrong; got {found.get('PM')}"
+    assert "AM" in found and "PM" in found, f"need AM+PM digest entries; got {sorted(found)}"
+    assert not found["AM"][1], "AM: kwargs must be TOP-LEVEL, not nested in options (SchedulingError)"
+    assert not found["PM"][1], "PM: kwargs must be TOP-LEVEL, not nested in options (SchedulingError)"
 
 
 def test_digest_service_composes_daily_digest():
