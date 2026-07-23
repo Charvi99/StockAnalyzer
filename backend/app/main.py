@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions, risk_management, dividend_split_signals, news, ledger
+from app.api.routes import health, stocks, prices, analysis, ml, sentiment, patterns, chart_patterns, strategies, ml_predictions, risk_management, dividend_split_signals, news, ledger, backtest
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ app.include_router(risk_management.router, tags=["risk-management"])  # PHASE 1.
 app.include_router(dividend_split_signals.router, prefix="/api/v1")  # Dividend & split trading signals
 app.include_router(news.router, prefix="/api/v1", tags=["news"])  # News article management
 app.include_router(ledger.router, prefix="/api/v1/paper-trading", tags=["paper-trading"])  # Phase 1 ledger: read-only dashboard + heartbeat
+app.include_router(backtest.router, prefix="/api/v1/backtests", tags=["backtest"])  # Phase 2 historical backtester
 
 
 @app.get("/")

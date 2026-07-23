@@ -22,6 +22,7 @@ celery_app = Celery(
         'app.tasks.maintenance_tasks',
         'app.tasks.analysis_tasks',
         'app.tasks.ledger_tasks',
+        'app.tasks.backtest_tasks',
     ]
 )
 
@@ -52,6 +53,8 @@ celery_app.conf.update(
         # Same default-queue trap as analysis: without this a manual .delay() lands
         # in the unconsumed 'celery' queue and never runs.
         'app.tasks.ledger_tasks.*': {'queue': 'maintenance'},
+        # backtest_tasks -> maintenance (backtests are non-API, may run minutes).
+        'app.tasks.backtest_tasks.*': {'queue': 'maintenance'},
     },
 
     # Priority system (0-10, higher = more urgent)

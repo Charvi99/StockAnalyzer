@@ -9,6 +9,7 @@ from app.models.short_interest import ShortInterest
 from app.models.ledger import (
     PaperAccount, PaperTrade, PaperSignalLog, PaperEquitySnapshot,
 )
+from app.models.backtest import BacktestRun, BacktestEquityPoint
 
 __all__ = [
     "Stock",
@@ -23,4 +24,6 @@ __all__ = [
     "PaperTrade",
     "PaperSignalLog",
     "PaperEquitySnapshot",
+    "BacktestRun",
+    "BacktestEquityPoint",
 ]
