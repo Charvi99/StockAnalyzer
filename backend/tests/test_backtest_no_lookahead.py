@@ -31,6 +31,13 @@ sys.path.insert(0, str(BACKEND))
 
 ADAPTER = BACKEND / "app" / "services" / "backtest" / "backtest_signal_adapter.py"
 
+# Every module that assembles an as-of-T input must be AST-guarded: a now()/DB/cache
+# read in ANY of them would break no-look-ahead, not just the signal adapter.
+GUARDED_MODULES = [
+    BACKEND / "app" / "services" / "backtest" / n
+    for n in ("backtest_signal_adapter.py", "backtest_regime.py", "backtest_order_calc.py")
+]
+
 FAILURES = []
 
 
@@ -41,10 +48,8 @@ def check(name, cond, detail=""):
 
 
 # ── 1. AST source guard ──────────────────────────────────────────────────────
-def source_guard():
-    print("[1] AST source guard on backtest_signal_adapter.py")
-    src = ADAPTER.read_text()
-    tree = ast.parse(src)
+def _ast_violations(path: Path) -> list:
+    tree = ast.parse(path.read_text())
     violations = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -62,7 +67,14 @@ def source_guard():
             violations.append(f"wall-clock read: .{node.attr}")
         if isinstance(node, ast.Attribute) and node.attr == "time" and isinstance(node.value, ast.Name) and node.value.id == "time":
             violations.append("wall-clock read: time.time")
-    check("no forbidden imports / wall-clock reads", not violations, "; ".join(violations))
+    return violations
+
+
+def source_guard():
+    print("[1] AST source guard on as-of-T input modules (adapter + regime + order_calc)")
+    for path in GUARDED_MODULES:
+        v = _ast_violations(path)
+        check(f"{path.name}: no forbidden imports / wall-clock reads", not v, "; ".join(v))
 
 
 # ── synthetic OHLCV (seeded, deterministic) ──────────────────────────────────
