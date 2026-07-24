@@ -10,7 +10,7 @@ from scipy.signal import find_peaks
 # from sklearn.linear_model import LinearRegression
 
 
-class ChartPatternDetector:
+class ChartPatternDetectorRef:
     """Detects chart patterns in OHLC data"""
 
     def __init__(self, df: pd.DataFrame, min_pattern_length: int = 20,
@@ -92,25 +92,6 @@ class ChartPatternDetector:
             self.peaks = self.zigzag_peaks
             self.troughs = self.zigzag_troughs
         # ----------------------
-
-        # Cache numpy column views + positional pivot arrays for the detect_* hot
-        # loops (built once). Same values as self.df[...], just O(1) array access
-        # instead of per-iteration DataFrame slicing (the precompute bottleneck).
-        self._prepare_arrays()
-
-    def _prepare_arrays(self) -> None:
-        """Cache numpy column views + positional pivot arrays for the detect_* hot
-        loops. Output-identical to reading ``self.df``; just faster access."""
-        df = self.df
-        self._high = df["high"].to_numpy()
-        self._low = df["low"].to_numpy()
-        self._close = df["close"].to_numpy()
-        self._atr = df["atr"].to_numpy()
-        self._volume = df["volume"].to_numpy() if "volume" in df.columns else None
-        self._idx = df.index.to_numpy()
-        # Positional indices of the (possibly zigzag-filtered) peaks/troughs.
-        self._peak_pos = df.index.get_indexer(self.peaks.index).astype(np.intp)
-        self._trough_pos = df.index.get_indexer(self.troughs.index).astype(np.intp)
 
     # EXPERIMENTAL: Multi-scale peak detection (currently unused)
     # def _multi_scale_peaks(self, factors=[1.0, 1.5, 2.0]):
@@ -632,55 +613,64 @@ class ChartPatternDetector:
     def detect_head_and_shoulders(self) -> List[Dict]:
         """Head and Shoulders: Three peaks with middle highest (bearish reversal)"""
         patterns = []
-        ppos = self._peak_pos
-        if len(ppos) < 3:
+        peaks_list = self.peaks.index.tolist()
+
+        if len(peaks_list) < 3:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        tpos = self._trough_pos
-        for i in range(len(ppos) - 2):
-            p0 = ppos[i]; p1 = ppos[i + 1]; p2 = ppos[i + 2]
+        for i in range(len(peaks_list) - 2):
+            left_shoulder_idx = peaks_list[i]
+            head_idx = peaks_list[i + 1]
+            right_shoulder_idx = peaks_list[i + 2]
+            start_idx = left_shoulder_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-triple row fetches).
-            if hi[p1] <= hi[p0] or hi[p1] <= hi[p2]:  # Head must be highest
+            left_shoulder = self.df.loc[left_shoulder_idx]
+            head = self.df.loc[head_idx]
+            right_shoulder = self.df.loc[right_shoulder_idx]
+
+            # Head must be highest
+            if head['high'] <= left_shoulder['high'] or head['high'] <= right_shoulder['high']:
                 continue
 
             # --- DYNAMIC ATR RULE ---
             # Shoulders should be roughly equal (within ATR proximity factor)
-            ls_atr = atr[p0]
-            shoulder_diff_abs = abs(hi[p0] - hi[p2])
+            ls_atr = left_shoulder['atr']
+            shoulder_diff_abs = abs(
+                left_shoulder['high'] - right_shoulder['high'])
+
+            # REPLACED: if shoulder_diff > 0.05:
             if shoulder_diff_abs > (ls_atr * self.atr_proximity_factor):
                 continue
             # --- END DYNAMIC RULE ---
 
-            # Troughs between the outer peaks (inclusive label range) for the neckline.
-            tb = tpos[(tpos >= p0) & (tpos <= p2)]
-            if len(tb) < 2:
+            # Find troughs between peaks for neckline. Slice first, then filter with
+            # the SLICE's own is_trough column (avoids full-df boolean misalignment).
+            troughs_between = self.df.loc[left_shoulder_idx:right_shoulder_idx]
+            troughs_between = troughs_between[troughs_between['is_trough']]
+            if len(troughs_between) < 2:
                 continue
+
+            trough1 = troughs_between.iloc[0]
+            trough2 = troughs_between.iloc[-1]
 
             # Calculate neckline
-            neckline_indices = np.array([idx[p0], idx[p2]])
-            neckline_prices = np.array([lo[tb[0]], lo[tb[-1]]])
+            neckline_indices = np.array(
+                [left_shoulder_idx, right_shoulder_idx])
+            neckline_prices = np.array([trough1['low'], trough2['low']])
             neckline = self._calculate_trendline(
-                neckline_indices, neckline_prices, idx[p0])
+                neckline_indices, neckline_prices, start_idx)
 
-            if not neckline or neckline['r_squared'] < 0.7:
+            if not neckline:
                 continue
 
-            # Pattern qualifies — fetch the rows for the (unchanged) dict assembly.
-            left_shoulder_idx = idx[p0]
-            head_idx = idx[p1]
-            right_shoulder_idx = idx[p2]
-            left_shoulder = self.df.loc[left_shoulder_idx]
-            head = self.df.loc[head_idx]
-            right_shoulder = self.df.loc[right_shoulder_idx]
-            trough1_low = lo[tb[0]]
-            trough2_low = lo[tb[-1]]
+            # Filter low-quality trendlines (R² < 0.7)
+            if neckline['r_squared'] < 0.7:
+                continue
 
             # Pattern height (head to neckline)
             pattern_height = head['high'] - \
-                ((trough1_low + trough2_low) / 2)
-            neckline_price = (trough1_low + trough2_low) / 2
+                ((trough1['low'] + trough2['low']) / 2)
+            neckline_price = (trough1['low'] + trough2['low']) / 2
 
             # Get pattern window for analysis
             pattern_window = self.df.loc[left_shoulder_idx:right_shoulder_idx]
@@ -731,51 +721,59 @@ class ChartPatternDetector:
     def detect_inverse_head_and_shoulders(self) -> List[Dict]:
         """Inverse Head and Shoulders: Three troughs with middle lowest (bullish reversal)"""
         patterns = []
-        tpos = self._trough_pos
-        if len(tpos) < 3:
+        troughs_list = self.troughs.index.tolist()
+
+        if len(troughs_list) < 3:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos = self._peak_pos
-        for i in range(len(tpos) - 2):
-            p0 = tpos[i]; p1 = tpos[i + 1]; p2 = tpos[i + 2]
+        for i in range(len(troughs_list) - 2):
+            left_shoulder_idx = troughs_list[i]
+            head_idx = troughs_list[i + 1]
+            right_shoulder_idx = troughs_list[i + 2]
+            start_idx = left_shoulder_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-triple row fetches).
-            if lo[p1] >= lo[p0] or lo[p1] >= lo[p2]:  # Head must be lowest
-                continue
-
-            # Shoulders should be roughly equal (within ATR proximity factor)
-            ls_atr = atr[p0]
-            shoulder_diff_abs = abs(lo[p0] - lo[p2])
-            if shoulder_diff_abs > (ls_atr * self.atr_proximity_factor):
-                continue
-
-            # Peaks between the outer troughs (inclusive label range) for the neckline.
-            pb = ppos[(ppos >= p0) & (ppos <= p2)]
-            if len(pb) < 2:
-                continue
-
-            # Calculate neckline using linear regression
-            neckline_indices = np.array([idx[p0], idx[p2]])
-            neckline_prices = np.array([hi[pb[0]], hi[pb[-1]]])
-            neckline = self._calculate_trendline(
-                neckline_indices, neckline_prices, idx[p0])
-
-            if not neckline or neckline['r_squared'] < 0.7:
-                continue
-
-            # Pattern qualifies — fetch the rows for the (unchanged) dict assembly.
-            left_shoulder_idx = idx[p0]
-            head_idx = idx[p1]
-            right_shoulder_idx = idx[p2]
             left_shoulder = self.df.loc[left_shoulder_idx]
             head = self.df.loc[head_idx]
             right_shoulder = self.df.loc[right_shoulder_idx]
-            peak1_high = hi[pb[0]]
-            peak2_high = hi[pb[-1]]
+
+            # Head must be lowest
+            if head['low'] >= left_shoulder['low'] or head['low'] >= right_shoulder['low']:
+                continue
+
+            # Shoulders should be roughly equal (within ATR proximity factor)
+            ls_atr = left_shoulder['atr']
+            shoulder_diff_abs = abs(
+                left_shoulder['low'] - right_shoulder['low'])
+
+            if shoulder_diff_abs > (ls_atr * self.atr_proximity_factor):
+                continue
+
+            # Find peaks between troughs for neckline. Slice first, then filter with
+            # the SLICE's own is_peak column (avoids full-df boolean misalignment).
+            peaks_between = self.df.loc[left_shoulder_idx:right_shoulder_idx]
+            peaks_between = peaks_between[peaks_between['is_peak']]
+            if len(peaks_between) < 2:
+                continue
+
+            peak1 = peaks_between.iloc[0]
+            peak2 = peaks_between.iloc[-1]
+
+            # Calculate neckline using linear regression
+            neckline_indices = np.array(
+                [left_shoulder_idx, right_shoulder_idx])
+            neckline_prices = np.array([peak1['high'], peak2['high']])
+            neckline = self._calculate_trendline(
+                neckline_indices, neckline_prices, start_idx)
+
+            if not neckline:
+                continue
+
+            # Filter low-quality trendlines (R² < 0.7)
+            if neckline['r_squared'] < 0.7:
+                continue
 
             # Pattern height (neckline to head)
-            neckline_price = (peak1_high + peak2_high) / 2
+            neckline_price = (peak1['high'] + peak2['high']) / 2
             pattern_height = neckline_price - head['low']
 
             # Get pattern window for analysis
@@ -827,43 +825,51 @@ class ChartPatternDetector:
     def detect_double_top(self) -> List[Dict]:
         """Double Top: Two peaks at similar price (bearish reversal)"""
         patterns = []
-        ppos = self._peak_pos
-        if len(ppos) < 2:
+        peaks_list = self.peaks.index.tolist()
+
+        if len(peaks_list) < 2:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        tpos = self._trough_pos
-        for i in range(len(ppos) - 1):
-            p0 = ppos[i]; p1 = ppos[i + 1]
+        for i in range(len(peaks_list) - 1):
+            peak1_idx = peaks_list[i]
+            peak2_idx = peaks_list[i + 1]
+            start_idx = peak1_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-pair row fetches).
-            peak1_atr = atr[p0]
-            price_diff_abs = abs(hi[p0] - hi[p1])
+            peak1 = self.df.loc[peak1_idx]
+            peak2 = self.df.loc[peak2_idx]
+
+            # Peaks should be at similar price (within ATR proximity factor)
+            peak1_atr = peak1['atr']
+            price_diff_abs = abs(peak1['high'] - peak2['high'])
+
             if price_diff_abs > (peak1_atr * self.atr_proximity_factor):
                 continue
 
-            # Trough between the peaks (inclusive label range) for support.
-            tb = tpos[(tpos >= p0) & (tpos <= p1)]
-            if len(tb) == 0:
+            # Find trough between peaks. Slice first, then filter with the SLICE's
+            # own is_trough column (index-aligned by construction). Indexing the
+            # slice with the FULL-df boolean Series misaligns -> pandas warning.
+            troughs_between = self.df.loc[peak1_idx:peak2_idx]
+            troughs_between = troughs_between[troughs_between['is_trough']]
+            if len(troughs_between) == 0:
                 continue
 
-            support_level = lo[tb[0]]
-            pattern_height = ((hi[p0] + hi[p1]) / 2) - support_level
+            trough = troughs_between.iloc[0]
+            support_level = trough['low']
+            pattern_height = (
+                (peak1['high'] + peak2['high']) / 2) - support_level
 
             # Calculate resistance line (peaks)
-            peak_indices = np.array([idx[p0], idx[p1]])
-            peak_prices = np.array([hi[p0], hi[p1]])
+            peak_indices = np.array([peak1_idx, peak2_idx])
+            peak_prices = np.array([peak1['high'], peak2['high']])
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[p0])
+                peak_indices, peak_prices, start_idx)
 
-            if not resistance_line or resistance_line['r_squared'] < 0.7:
+            if not resistance_line:
                 continue
 
-            # Pattern qualifies — fetch the rows for the (unchanged) dict assembly.
-            peak1_idx = idx[p0]
-            peak2_idx = idx[p1]
-            peak1 = self.df.loc[peak1_idx]
-            peak2 = self.df.loc[peak2_idx]
+            # Filter low-quality patterns (R² < 0.7)
+            if resistance_line['r_squared'] < 0.7:
+                continue
 
             # Get pattern window for analysis
             pattern_window = self.df.loc[peak1_idx:peak2_idx]
@@ -912,30 +918,43 @@ class ChartPatternDetector:
     def detect_double_bottom(self) -> List[Dict]:
         """Double Bottom: Two troughs at similar price (bullish reversal)"""
         patterns = []
-        tpos = self._trough_pos
-        if len(tpos) < 2:
+        troughs_list = self.troughs.index.tolist()
+
+        if len(troughs_list) < 2:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos = self._peak_pos
-        for i in range(len(tpos) - 1):
-            p0 = tpos[i]; p1 = tpos[i + 1]
+        for i in range(len(troughs_list) - 1):
+            trough1_idx = troughs_list[i]
+            trough2_idx = troughs_list[i + 1]
+            start_idx = trough1_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-pair row fetches).
-            # Troughs should be at similar price (within ATR proximity factor);
-            # use the ATR at the first trough as the reference.
-            trough1_atr = atr[p0]
-            price_diff_abs = abs(lo[p0] - lo[p1])
+            trough1 = self.df.loc[trough1_idx]
+            trough2 = self.df.loc[trough2_idx]
+
+            # --- DYNAMIC ATR RULE ---
+            # Troughs should be at similar price (within ATR proximity factor)
+            # Use the ATR at the first trough as the reference
+            trough1_atr = trough1['atr']
+            price_diff_abs = abs(trough1['low'] - trough2['low'])
+
+            # Troughs should be at similar price (within ATR proximity factor)
+            trough1_atr = trough1['atr']
+            price_diff_abs = abs(trough1['low'] - trough2['low'])
+
             if price_diff_abs > (trough1_atr * self.atr_proximity_factor):
                 continue
 
-            # Peak between the troughs (inclusive label range) for resistance.
-            pb = ppos[(ppos >= p0) & (ppos <= p1)]
-            if len(pb) == 0:
+            # Find peak between troughs. Slice first, then filter with the SLICE's
+            # own is_peak column (avoids the full-df boolean-Series misalignment).
+            peaks_between = self.df.loc[trough1_idx:trough2_idx]
+            peaks_between = peaks_between[peaks_between['is_peak']]
+            if len(peaks_between) == 0:
                 continue
 
-            resistance_level = hi[pb[0]]
-            pattern_height = resistance_level - ((lo[p0] + lo[p1]) / 2)
+            peak = peaks_between.iloc[0]
+            resistance_level = peak['high']
+            pattern_height = resistance_level - \
+                ((trough1['low'] + trough2['low']) / 2)
             # --- DYNAMIC ATR RULE for Pattern Height ---
             # (Optional but recommended) Ensure pattern height is significant
             # e.g., pattern must be at least 2 ATRs tall
@@ -944,19 +963,17 @@ class ChartPatternDetector:
             # --- END DYNAMIC RULE ---
 
             # Calculate support line (troughs)
-            trough_indices = np.array([idx[p0], idx[p1]])
-            trough_prices = np.array([lo[p0], lo[p1]])
+            trough_indices = np.array([trough1_idx, trough2_idx])
+            trough_prices = np.array([trough1['low'], trough2['low']])
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[p0])
+                trough_indices, trough_prices, start_idx)
 
-            if not support_line or support_line['r_squared'] < 0.7:
+            if not support_line:
                 continue
 
-            # Pattern qualifies — fetch the rows for the (unchanged) dict assembly.
-            trough1_idx = idx[p0]
-            trough2_idx = idx[p1]
-            trough1 = self.df.loc[trough1_idx]
-            trough2 = self.df.loc[trough2_idx]
+            # Filter low-quality patterns (R² < 0.7)
+            if support_line['r_squared'] < 0.7:
+                continue
 
             # Get pattern window for analysis
             pattern_window = self.df.loc[trough1_idx:trough2_idx]
@@ -1012,45 +1029,48 @@ class ChartPatternDetector:
             return patterns
 
         # Look for patterns in sliding windows
-        N = self.min_pattern_length
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first — avoid a per-iteration DataFrame slice
-            # (the pandas overhead that dominated precompute). Same values as the
-            # frame-based path below; the frame is built only when a pattern qualifies.
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Get the actual starting index
+
+            # Get peaks and troughs in window
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Check if resistance is flat (peaks are within ATR proximity)
-            peak_prices = hi[wp]
+            peak_prices = window_peaks['high'].values
             peak_mean = np.mean(peak_prices)
-            window_atr = atr[wp[0]]
+
+            # Use ATR from the first peak in the window
+            window_atr = window_peaks.iloc[0]['atr']
             proximity_threshold = window_atr * self.atr_proximity_factor
+
+            # Check if all peaks are within the threshold range
             if (np.max(peak_prices) - np.min(peak_prices)) > proximity_threshold:
                 continue
 
-            resistance_level = peak_mean
+            resistance_level = peak_mean  # Keep using the mean for the level
 
             # Check if support is rising
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
-            start_idx = idx[i]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
                 trough_indices, trough_prices, start_idx)
+
             if not support_line or support_line['slope'] <= 0:
                 continue
+
+            # Filter low-quality trendlines (R² < 0.7)
             if support_line['r_squared'] < 0.7:
                 continue
 
+            resistance_level = peak_mean
             pattern_height = resistance_level - trough_prices[-1]
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
+            # Analyze volume profile
             volume_profile = self._analyze_volume_profile(window)
 
             # Collect all peaks and troughs with their timestamps and prices
@@ -1109,43 +1129,47 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(lo) - N):
-            # Cheap array-based checks first; build the frame only on qualification.
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Check if support is flat (troughs are within ATR proximity)
-            trough_prices = lo[wt]
+            trough_prices = window_troughs['low'].values
             trough_mean = np.mean(trough_prices)
-            window_atr = atr[wt[0]]
+
+            # Use ATR from the first trough in the window
+            window_atr = window_troughs.iloc[0]['atr']
             proximity_threshold = window_atr * self.atr_proximity_factor
+
+            # Check if all troughs are within the threshold range
             if (np.max(trough_prices) - np.min(trough_prices)) > proximity_threshold:
                 continue
 
-            support_level = trough_mean
+            support_level = trough_mean  # Keep using the mean for the level
 
             # Check if resistance is falling
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
-            start_idx = idx[i]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
                 peak_indices, peak_prices, start_idx)
+
             if not resistance_line or resistance_line['slope'] >= 0:
                 continue
+
+            # Filter low-quality trendlines (R² < 0.7)
             if resistance_line['r_squared'] < 0.7:
                 continue
 
+            support_level = trough_mean
             pattern_height = peak_prices[-1] - support_level
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
+            # Analyze volume profile
             volume_profile = self._analyze_volume_profile(window)
 
             # Collect peaks and troughs
@@ -1204,43 +1228,43 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, idx = self._high, self._low, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first; build the frame only on qualification.
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Calculate resistance line (should be descending)
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
-            start_idx = idx[i]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
                 peak_indices, peak_prices, start_idx)
 
             # Calculate support line (should be ascending)
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
                 trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
+
+            # Lines should be converging
             if resistance_line['slope'] >= 0 or support_line['slope'] <= 0:
                 continue
+
+            # Filter low-quality trendlines (R² < 0.7)
             if resistance_line['r_squared'] < 0.7 or support_line['r_squared'] < 0.7:
                 continue
 
             mid_price = (peak_prices[-1] + trough_prices[-1]) / 2
             pattern_height = peak_prices[0] - trough_prices[0]
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
+            # Analyze volume profile
             volume_profile = self._analyze_volume_profile(window)
 
             # Collect all peaks and troughs with their timestamps and prices
@@ -1300,23 +1324,22 @@ class ChartPatternDetector:
         if len(self.df) < 30:  # Minimum 30 candles
             return patterns
 
-        # Cheap array-based checks first (skip the per-iteration frame slice — the
-        # pandas overhead that dominated precompute). Same values; frame built only
-        # when a pattern qualifies (for the unchanged timestamp access).
-        hi, lo, atr = self._high, self._low, self._atr
-        for i in range(len(hi) - 30):
+        for i in range(len(self.df) - 30):
+            window = self.df.iloc[i:i + 30]
+            start_idx = self.df.index[i]  # Pattern starting index
+
             # Find the U-shape (cup)
-            window_lows = lo[i:i + 30]
+            window_lows = window['low'].values
             min_idx = np.argmin(window_lows)
 
             if min_idx < 5 or min_idx > 20:  # Bottom should be in middle region
                 continue
 
-            left_rim = hi[i]
-            right_rim = hi[i + 29]
+            left_rim = window.iloc[0]['high']
+            right_rim = window.iloc[-1]['high']
             bottom = window_lows[min_idx]
 
-            window_atr = atr[i]
+            window_atr = window.iloc[0]['atr']
             if abs(left_rim - right_rim) > (window_atr * self.atr_proximity_factor):
                 continue
 
@@ -1327,16 +1350,14 @@ class ChartPatternDetector:
                 continue
 
             # Look for handle (small consolidation near right rim)
-            handle_high = np.nanmax(hi[i + 20:i + 30])
-            handle_low = np.nanmin(lo[i + 20:i + 30])
-            handle_depth = handle_high - handle_low
+            handle_window = window.iloc[-10:]
+            handle_depth = handle_window['high'].max(
+            ) - handle_window['low'].min()
 
-            handle_atr = atr[i + 20]
+            handle_atr = handle_window.iloc[0]['atr']
             if handle_depth > (handle_atr * 1.5):
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) timestamp access.
-            window = self.df.iloc[i:i + 30]
             patterns.append({
                 'pattern_name': 'Cup and Handle',
                 'pattern_type': 'continuation',
@@ -1345,7 +1366,7 @@ class ChartPatternDetector:
                 'end_date': window.iloc[-1]['timestamp'],
                 'breakout_price': float(right_rim),
                 'target_price': float(right_rim + cup_depth),
-                'stop_loss': float(handle_low),
+                'stop_loss': float(handle_window['low'].min()),
                 'confidence_score': 0.75,
                 'key_points': {
                     'cup_bottom': {'timestamp': str(window.iloc[min_idx]['timestamp']), 'price': float(bottom)},
@@ -1364,44 +1385,40 @@ class ChartPatternDetector:
         if len(self.df) < 15:
             return patterns
 
-        # Cheap array-based checks first (frame built only on qualification, for the
-        # unchanged timestamp access).
-        hi, lo, cl, atr = self._high, self._low, self._close, self._atr
-        for i in range(10, len(cl) - 5):
+        for i in range(10, len(self.df) - 5):
             # Look for sharp move (pole)
-            pole_move = cl[i - 1] - cl[i - 10]
-            pole_pct = pole_move / cl[i - 10]
+            pole_window = self.df.iloc[i-10:i]
+            pole_move = pole_window.iloc[-1]['close'] - \
+                pole_window.iloc[0]['close']
+            pole_pct = pole_move / pole_window.iloc[0]['close']
 
             # Pole must be at least 4x ATR
-            pole_atr = atr[i - 10]
+            pole_atr = pole_window.iloc[0]['atr']
             if abs(pole_move) < (pole_atr * 4.0):
                 continue
 
             # Flag consolidation
-            flag_high = np.nanmax(hi[i:i + 5])
-            flag_low = np.nanmin(lo[i:i + 5])
-            flag_range = flag_high - flag_low
+            flag_window = self.df.iloc[i:i+5]
+            flag_range = flag_window['high'].max() - flag_window['low'].min()
+            flag_pct = flag_range / flag_window.iloc[0]['close']
 
             # Flag range should be less than 1.5x ATR
-            flag_atr = atr[i]
+            flag_atr = flag_window.iloc[0]['atr']
             if flag_range > (flag_atr * 1.5):
                 continue
 
             is_bullish = pole_pct > 0
             signal = 'bullish' if is_bullish else 'bearish'
-            pole_close_last = cl[i - 1]
 
-            # Pattern qualifies — build the frame for the (unchanged) timestamp access.
-            window = self.df.iloc[i - 10:i + 5]
             patterns.append({
                 'pattern_name': f'{signal.capitalize()} Flag',
                 'pattern_type': 'continuation',
                 'signal': signal,
-                'start_date': window.iloc[0]['timestamp'],
-                'end_date': window.iloc[-1]['timestamp'],
-                'breakout_price': float(flag_high if is_bullish else flag_low),
-                'target_price': float(pole_close_last + pole_move if is_bullish else pole_close_last + pole_move),
-                'stop_loss': float(flag_low if is_bullish else flag_high),
+                'start_date': pole_window.iloc[0]['timestamp'],
+                'end_date': flag_window.iloc[-1]['timestamp'],
+                'breakout_price': float(flag_window['high'].max() if is_bullish else flag_window['low'].min()),
+                'target_price': float(pole_window.iloc[-1]['close'] + pole_move if is_bullish else pole_window.iloc[-1]['close'] + pole_move),
+                'stop_loss': float(flag_window['low'].min() if is_bullish else flag_window['high'].max()),
                 'confidence_score': 0.70,
                 'key_points': {
                     'pole_height': float(abs(pole_move)),
@@ -1419,48 +1436,46 @@ class ChartPatternDetector:
         if len(self.df) < 20:
             return patterns
 
-        # Cheap array-based checks first (frame built only on qualification).
-        hi, lo, cl, atr = self._high, self._low, self._close, self._atr
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(10, len(cl) - 10):
+        for i in range(10, len(self.df) - 10):
             # Sharp move (pole)
-            pole_move = cl[i - 1] - cl[i - 10]
-            pole_pct = pole_move / cl[i - 10]
+            pole_window = self.df.iloc[i-10:i]
+            pole_move = pole_window.iloc[-1]['close'] - \
+                pole_window.iloc[0]['close']
+            pole_pct = pole_move / pole_window.iloc[0]['close']
 
-            pole_atr = atr[i - 10]
+            pole_atr = pole_window.iloc[0]['atr']
             if abs(pole_move) < (pole_atr * 4.0):
                 continue
 
-            # Pennant (converging triangle) — count pivots in the window via the
-            # positional pivot arrays (zigzag is off in all live/backtest paths, so
-            # self.peaks.index == the is_peak column the frame path used).
-            if np.count_nonzero((ppos >= i) & (ppos < i + 10)) < 2:
-                continue
-            if np.count_nonzero((tpos >= i) & (tpos < i + 10)) < 2:
+            # Pennant (converging triangle)
+            pennant_window = self.df.iloc[i:i+10]
+            pennant_peaks = pennant_window[pennant_window['is_peak']]
+            pennant_troughs = pennant_window[pennant_window['is_trough']]
+
+            if len(pennant_peaks) < 2 or len(pennant_troughs) < 2:
                 continue
 
             # Check if range is converging
-            early_range = np.nanmax(hi[i:i + 5]) - np.nanmin(lo[i:i + 5])
-            late_range = np.nanmax(hi[i + 5:i + 10]) - np.nanmin(lo[i + 5:i + 10])
+            early_range = pennant_window.iloc[:5]['high'].max(
+            ) - pennant_window.iloc[:5]['low'].min()
+            late_range = pennant_window.iloc[5:]['high'].max(
+            ) - pennant_window.iloc[5:]['low'].min()
 
             if late_range >= early_range:  # Should be converging
                 continue
 
             is_bullish = pole_pct > 0
             signal = 'bullish' if is_bullish else 'bearish'
-            pennant_close_last = cl[i + 9]
 
-            # Pattern qualifies — build the frame for the (unchanged) timestamp access.
-            window = self.df.iloc[i - 10:i + 10]
             patterns.append({
                 'pattern_name': f'{signal.capitalize()} Pennant',
                 'pattern_type': 'continuation',
                 'signal': signal,
-                'start_date': window.iloc[0]['timestamp'],
-                'end_date': window.iloc[-1]['timestamp'],
-                'breakout_price': float(pennant_close_last),
-                'target_price': float(pennant_close_last + pole_move),
-                'stop_loss': float(np.nanmin(lo[i:i + 10]) if is_bullish else np.nanmax(hi[i:i + 10])),
+                'start_date': pole_window.iloc[0]['timestamp'],
+                'end_date': pennant_window.iloc[-1]['timestamp'],
+                'breakout_price': float(pennant_window.iloc[-1]['close']),
+                'target_price': float(pennant_window.iloc[-1]['close'] + pole_move),
+                'stop_loss': float(pennant_window['low'].min() if is_bullish else pennant_window['high'].max()),
                 'confidence_score': 0.70,
                 'key_points': {
                     'pole_height': float(abs(pole_move))
@@ -1477,26 +1492,26 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first (skip the per-iteration frame slice).
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Both lines should be rising
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[i])
+                peak_indices, peak_prices, start_idx)
 
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[i])
+                trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -1512,15 +1527,12 @@ class ChartPatternDetector:
             if resistance_line['r_squared'] < 0.7 or support_line['r_squared'] < 0.7:
                 continue
 
-            window_atr = atr[i]
+            window_atr = window.iloc[0]['atr']
             height = peak_prices[0] - trough_prices[0]
             if height < (window_atr * 2.0):
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
+            # Analyze volume profile
             volume_profile = self._analyze_volume_profile(window)
 
             # Check prior trend (should be uptrend for bearish rising wedge reversal)
@@ -1582,26 +1594,26 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first (skip the per-iteration frame slice).
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Both lines should be falling
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[i])
+                peak_indices, peak_prices, start_idx)
 
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[i])
+                trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -1617,15 +1629,12 @@ class ChartPatternDetector:
             if resistance_line['r_squared'] < 0.7 or support_line['r_squared'] < 0.7:
                 continue
 
-            window_atr = atr[i]
+            window_atr = window.iloc[0]['atr']
             height = peak_prices[0] - trough_prices[0]
             if height < (window_atr * 2.0):
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
+            # Analyze volume profile
             volume_profile = self._analyze_volume_profile(window)
 
             # Check prior trend (should be downtrend for bullish falling wedge reversal)
@@ -1687,50 +1696,61 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        ppos = self._peak_pos
+        peaks_list = self.peaks.index.tolist()
+
         # Need at least 3 peaks
-        if len(ppos) < 3:
+        if len(peaks_list) < 3:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        tpos = self._trough_pos
-        for i in range(len(ppos) - 2):
-            p0 = ppos[i]; p1 = ppos[i + 1]; p2 = ppos[i + 2]
+        for i in range(len(peaks_list) - 2):
+            peak1_idx = peaks_list[i]
+            peak2_idx = peaks_list[i + 1]
+            peak3_idx = peaks_list[i + 2]
+            start_idx = peak1_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-triple row fetches).
-            peak1_price = hi[p0]; peak2_price = hi[p1]; peak3_price = hi[p2]
+            peak1_price = self.df.loc[peak1_idx, 'high']
+            peak2_price = self.df.loc[peak2_idx, 'high']
+            peak3_price = self.df.loc[peak3_idx, 'high']
+
+            # All three peaks should be at similar levels (within 3%)
             avg_peak = (peak1_price + peak2_price + peak3_price) / 3
-            ref_atr = atr[p0]
+            ref_atr = self.df.loc[peak1_idx, 'atr']
             tolerance = ref_atr * self.atr_proximity_factor
+
             if (abs(peak1_price - avg_peak) > tolerance or
                     abs(peak2_price - avg_peak) > tolerance or
                     abs(peak3_price - avg_peak) > tolerance):
                 continue
 
-            # Troughs STRICTLY between the outer peaks for the neckline.
-            tb = tpos[(tpos > p0) & (tpos < p2)]
-            if len(tb) < 2:
+            # Find troughs between peaks
+            troughs_between = self.troughs[(self.troughs.index > peak1_idx) &
+                                           (self.troughs.index < peak3_idx)]
+
+            if len(troughs_between) < 2:
                 continue
 
-            peak1_idx = idx[p0]; peak2_idx = idx[p1]; peak3_idx = idx[p2]
+            # Check pattern length
             pattern_start = peak1_idx
             pattern_end = peak3_idx
+
             if pattern_end - pattern_start < self.min_pattern_length:
                 continue
 
+            window = self.df.loc[pattern_start:pattern_end]
+
             # Neckline (support formed by troughs)
-            trough_indices = idx[tb]
-            trough_prices = lo[tb]
+            trough_indices = troughs_between.index.values
+            trough_prices = troughs_between['low'].values
             neckline = self._calculate_trendline(
-                trough_indices, trough_prices, peak1_idx)
+                trough_indices, trough_prices, start_idx)
+
             if not neckline or neckline['r_squared'] < 0.5:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.loc[pattern_start:pattern_end]
-            troughs_between = self.troughs[(self.troughs.index > peak1_idx) &
-                                           (self.troughs.index < peak3_idx)]
+            # Analyze volume (should decline through pattern formation)
             volume_profile = self._analyze_volume_profile(window)
+
+            # Check prior trend (should be uptrend for reversal)
             prior_trend = self._detect_prior_trend(pattern_start, pattern_end)
 
             # Build pattern data
@@ -1783,48 +1803,55 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        tpos = self._trough_pos
-        if len(tpos) < 3:
+        troughs_list = self.troughs.index.tolist()
+
+        if len(troughs_list) < 3:
             return patterns
 
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos = self._peak_pos
-        for i in range(len(tpos) - 2):
-            p0 = tpos[i]; p1 = tpos[i + 1]; p2 = tpos[i + 2]
+        for i in range(len(troughs_list) - 2):
+            trough1_idx = troughs_list[i]
+            trough2_idx = troughs_list[i + 1]
+            trough3_idx = troughs_list[i + 2]
+            start_idx = trough1_idx  # Pattern starting index
 
-            # Cheap array-based checks first (skip per-triple row fetches).
-            trough1_price = lo[p0]; trough2_price = lo[p1]; trough3_price = lo[p2]
+            trough1_price = self.df.loc[trough1_idx, 'low']
+            trough2_price = self.df.loc[trough2_idx, 'low']
+            trough3_price = self.df.loc[trough3_idx, 'low']
+
+            # All three troughs should be at similar levels (within 3%)
             avg_trough = (trough1_price + trough2_price + trough3_price) / 3
-            ref_atr = atr[p0]
+            ref_atr = self.df.loc[trough1_idx, 'atr']
             tolerance = ref_atr * self.atr_proximity_factor
+
             if (abs(trough1_price - avg_trough) > tolerance or
                     abs(trough2_price - avg_trough) > tolerance or
                     abs(trough3_price - avg_trough) > tolerance):
                 continue
 
-            # Peaks STRICTLY between the outer troughs for the neckline.
-            pb = ppos[(ppos > p0) & (ppos < p2)]
-            if len(pb) < 2:
+            # Find peaks between troughs
+            peaks_between = self.peaks[(self.peaks.index > trough1_idx) &
+                                       (self.peaks.index < trough3_idx)]
+
+            if len(peaks_between) < 2:
                 continue
 
-            trough1_idx = idx[p0]; trough2_idx = idx[p1]; trough3_idx = idx[p2]
             pattern_start = trough1_idx
             pattern_end = trough3_idx
+
             if pattern_end - pattern_start < self.min_pattern_length:
                 continue
 
+            window = self.df.loc[pattern_start:pattern_end]
+
             # Neckline (resistance formed by peaks)
-            peak_indices = idx[pb]
-            peak_prices = hi[pb]
+            peak_indices = peaks_between.index.values
+            peak_prices = peaks_between['high'].values
             neckline = self._calculate_trendline(
-                peak_indices, peak_prices, trough1_idx)
+                peak_indices, peak_prices, start_idx)
+
             if not neckline or neckline['r_squared'] < 0.5:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.loc[pattern_start:pattern_end]
-            peaks_between = self.peaks[(self.peaks.index > trough1_idx) &
-                                       (self.peaks.index < trough3_idx)]
             volume_profile = self._analyze_volume_profile(window)
             prior_trend = self._detect_prior_trend(pattern_start, pattern_end)
 
@@ -1876,16 +1903,17 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length * 2:  # Needs longer window
             return patterns
 
-        M = self.min_pattern_length * 2
-        hi = self._high
-        from numpy.polynomial import polynomial as P
-        for i in range(len(hi) - M):
-            # Cheap array-based polyfit gate (skip the per-iteration frame slice).
-            highs = hi[i:i + M]
+        for i in range(len(self.df) - self.min_pattern_length * 2):
+            window = self.df.iloc[i:i + self.min_pattern_length * 2]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            # Get highs in the window
+            highs = window['high'].values
             indices = np.arange(len(highs))
 
             # Fit a polynomial (quadratic) to detect rounded shape
             try:
+                from numpy.polynomial import polynomial as P
                 coefs = P.polyfit(indices, highs, 2)
 
                 # For rounding top, second-degree coefficient should be negative
@@ -1904,8 +1932,6 @@ class ChartPatternDetector:
             except:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + M]
             # Find the peak (highest point)
             peak_idx = window['high'].idxmax()
             peak_price = window.loc[peak_idx, 'high']
@@ -1959,15 +1985,15 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length * 2:
             return patterns
 
-        M = self.min_pattern_length * 2
-        lo = self._low
-        from numpy.polynomial import polynomial as P
-        for i in range(len(lo) - M):
-            # Cheap array-based polyfit gate (skip the per-iteration frame slice).
-            lows = lo[i:i + M]
+        for i in range(len(self.df) - self.min_pattern_length * 2):
+            window = self.df.iloc[i:i + self.min_pattern_length * 2]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            lows = window['low'].values
             indices = np.arange(len(lows))
 
             try:
+                from numpy.polynomial import polynomial as P
                 coefs = P.polyfit(indices, lows, 2)
 
                 # For rounding bottom, second-degree coefficient should be positive
@@ -1985,8 +2011,6 @@ class ChartPatternDetector:
             except:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + M]
             trough_idx = window['low'].idxmin()
             trough_price = window.loc[trough_idx, 'low']
 
@@ -2038,47 +2062,43 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, atr, idx = self._high, self._low, self._atr, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first (skip the per-iteration frame slice).
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Check if peaks are at similar levels (horizontal resistance)
-            peak_prices = hi[wp]
+            peak_prices = window_peaks['high'].values
             peak_avg = np.mean(peak_prices)
             peak_std = np.std(peak_prices)
 
             # Check if troughs are at similar levels (horizontal support)
-            trough_prices = lo[wt]
+            trough_prices = window_troughs['low'].values
             trough_avg = np.mean(trough_prices)
             trough_std = np.std(trough_prices)
 
-            window_atr = atr[i]
+            window_atr = window.iloc[0]['atr']
             flatness_threshold = window_atr * self.atr_proximity_factor
             if (peak_std > flatness_threshold) or (trough_std > flatness_threshold):
                 continue
 
             # Calculate trendlines
-            peak_indices = idx[wp]
-            trough_indices = idx[wt]
+            peak_indices = window_peaks.index.values
+            trough_indices = window_troughs.index.values
 
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[i])
+                peak_indices, peak_prices, start_idx)
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[i])
+                trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
             volume_profile = self._analyze_volume_profile(window)
             prior_trend = self._detect_prior_trend(
                 window.index[0], window.index[-1])
@@ -2136,26 +2156,26 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, idx = self._high, self._low, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first (skip the per-iteration frame slice).
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
             # Calculate trendlines
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[i])
+                peak_indices, peak_prices, start_idx)
 
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[i])
+                trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -2175,10 +2195,6 @@ class ChartPatternDetector:
             if resistance_line['r_squared'] < 0.7 or support_line['r_squared'] < 0.7:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
             volume_profile = self._analyze_volume_profile(window)
             prior_trend = self._detect_prior_trend(
                 window.index[0], window.index[-1])
@@ -2230,25 +2246,25 @@ class ChartPatternDetector:
         if len(self.df) < self.min_pattern_length:
             return patterns
 
-        N = self.min_pattern_length
-        hi, lo, idx = self._high, self._low, self._idx
-        ppos, tpos = self._peak_pos, self._trough_pos
-        for i in range(len(hi) - N):
-            # Cheap array-based checks first (skip the per-iteration frame slice).
-            wp = ppos[(ppos >= i) & (ppos < i + N)]
-            wt = tpos[(tpos >= i) & (tpos < i + N)]
-            if len(wp) < 2 or len(wt) < 2:
+        for i in range(len(self.df) - self.min_pattern_length):
+            window = self.df.iloc[i:i + self.min_pattern_length]
+            start_idx = self.df.index[i]  # Pattern starting index
+
+            window_peaks = window[window['is_peak']]
+            window_troughs = window[window['is_trough']]
+
+            if len(window_peaks) < 2 or len(window_troughs) < 2:
                 continue
 
-            peak_indices = idx[wp]
-            peak_prices = hi[wp]
+            peak_indices = window_peaks.index.values
+            peak_prices = window_peaks['high'].values
             resistance_line = self._calculate_trendline(
-                peak_indices, peak_prices, idx[i])
+                peak_indices, peak_prices, start_idx)
 
-            trough_indices = idx[wt]
-            trough_prices = lo[wt]
+            trough_indices = window_troughs.index.values
+            trough_prices = window_troughs['low'].values
             support_line = self._calculate_trendline(
-                trough_indices, trough_prices, idx[i])
+                trough_indices, trough_prices, start_idx)
 
             if not resistance_line or not support_line:
                 continue
@@ -2268,10 +2284,6 @@ class ChartPatternDetector:
             if resistance_line['r_squared'] < 0.7 or support_line['r_squared'] < 0.7:
                 continue
 
-            # Pattern qualifies — build the frame for the (unchanged) dict assembly.
-            window = self.df.iloc[i:i + N]
-            window_peaks = window[window['is_peak']]
-            window_troughs = window[window['is_trough']]
             volume_profile = self._analyze_volume_profile(window)
             prior_trend = self._detect_prior_trend(
                 window.index[0], window.index[-1])
