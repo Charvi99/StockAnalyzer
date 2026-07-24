@@ -111,13 +111,22 @@ def fitness(
     dd_penalty: float = 0.5,
     trade_count_floor: int = 5,
     no_trade_penalty: float = 10.0,
+    return_weight: float = 5.0,
+    sharpe_weight: float = 0.5,
 ) -> float:
-    """Composite GA objective: risk-adjusted return minus drawdown cost, with a
-    steep penalty for under-traded runs (a flat curve scores Sharpe 0 / 0 DD but
-    isn't a real strategy)."""
+    """Composite GA objective (Phase 3): a return-aware, risk-guarded hybrid —
+
+        return_weight·total_return + sharpe_weight·Sharpe − dd_penalty·|max_drawdown|
+
+    minus a steep under-trade penalty (a flat curve isn't a real strategy). The
+    return term is scaled up (default 5.0) so a ~20% return (~1.0) actually competes
+    with the Sharpe term (~1.25); otherwise raw total_return (~0.10) is drowned by
+    Sharpe (~2.5) and the GA optimizes smoothness alone (cf. GA #5: high Sharpe, but
+    negative alpha vs SPY). All knobs are pass-through so the objective is tunable."""
     sharpe = metrics.get("sharpe") or 0.0
     mdd = metrics.get("max_drawdown") or 0.0
-    base = sharpe - dd_penalty * abs(mdd)
+    total_return = metrics.get("total_return") or 0.0
+    base = return_weight * total_return + sharpe_weight * sharpe - dd_penalty * abs(mdd)
     if (metrics.get("trade_count") or 0) < trade_count_floor:
         base -= no_trade_penalty
     return base

@@ -54,6 +54,18 @@ _SYSTEMATIC_CONFIG_VERSION = config_version(
 )
 
 
+def config_version_for(weights: Optional[Dict[str, float]] = None) -> str:
+    """Deterministic config_version for a weight set (``None`` => live defaults).
+
+    Single source of truth shared by :func:`signal_systematic` and the backtester
+    (replay engine), so a run's recorded ``config_version`` always matches its
+    EFFECTIVE weights. Passing the exact defaults reproduces
+    ``_SYSTEMATIC_CONFIG_VERSION``.
+    """
+    eff = weights if weights is not None else WEIGHTS
+    return config_version(eff, {"buy_sell_threshold": BUY_SELL_THRESHOLD}, REGIME_SCORES, SCHEMA)
+
+
 def signal_systematic(
     df_prices: pd.DataFrame,
     chart_patterns: List[Dict[str, Any]],
@@ -61,6 +73,8 @@ def signal_systematic(
     sentiment_score: Optional[float],
     regime: str,
     dividend_split_signal: Optional[Dict[str, Any]],
+    weights: Optional[Dict[str, float]] = None,
+    indicators: Optional[pd.DataFrame] = None,
 ) -> SignalResult:
     """
     Pure Engine #1 signal: 6-factor weighted score -> BUY/SELL/HOLD.
@@ -75,11 +89,41 @@ def signal_systematic(
         sentiment_score: average news sentiment in [-1, 1], or None.
         regime: MarketRegimeService regime label (e.g. ``'trending_up'``).
         dividend_split_signal: DividendSplitDetector signal dict, or None.
+        weights: optional override for the 6 component WEIGHTS (Phase 3 GA /
+            backtest candidates). ``None`` (default) uses the module WEIGHTS —
+            behaviour-identical to every existing caller. Passing the exact
+            defaults yields the same ``config_version`` + signal.
 
     Returns:
         SignalResult. ``component_scores`` are RAW (unrounded); the adapter rounds
         for the legacy dict shape. ``weighted_score``/``confidence`` are also raw.
     """
+    # Phase 3 #3: behaviour-preserving factor. The per-component ``scores`` are
+    # weight-independent (cached per (stock,T) by the GA); only the weighted sum +
+    # threshold depend on weights. signal_systematic = compose(compute, decide) so
+    # the live path and the backtest share ONE implementation (no divergence).
+    return _decide_systematic(
+        _systematic_scores(
+            df_prices, chart_patterns, candlestick_patterns, sentiment_score,
+            regime, dividend_split_signal, indicators,
+        ),
+        weights,
+    )
+
+
+def _systematic_scores(
+    df_prices: pd.DataFrame,
+    chart_patterns: List[Dict[str, Any]],
+    candlestick_patterns: List[Dict[str, Any]],
+    sentiment_score: Optional[float],
+    regime: str,
+    dividend_split_signal: Optional[Dict[str, Any]],
+    indicators: Optional[pd.DataFrame] = None,
+) -> Dict[str, Any]:
+    """Weight-independent Engine #1 per-component scores as-of T — the cacheable
+    half of :func:`signal_systematic`. Returns ``{scores, regime, sentiment_score}``;
+    ``scores`` is the 6-component dict in [-1,1]. The per-component ``try/except``
+    (0.0 on failure) is preserved verbatim. No weights are read here."""
     scores: Dict[str, float] = {k: 0.0 for k in WEIGHTS}
 
     # ============================================
@@ -127,10 +171,11 @@ def signal_systematic(
     # 3. TECHNICAL INDICATORS (weight 0.23)
     # ============================================
     try:
-        if df_prices is None or df_prices.empty:
-            indicators = None
-        else:
-            # Calculate all indicators (static method)
+        # `indicators` may be supplied precomputed (Phase 3 backtest precompute);
+        # otherwise compute from df_prices. The rest of this block reads the local
+        # `indicators`, so either source is transparent (and byte-identical: the
+        # precompute is a causal slice — see backtest/precompute.py).
+        if indicators is None and not (df_prices is None or df_prices.empty):
             indicators = TechnicalIndicators.calculate_all_indicators(df_prices)
 
         if indicators is not None and not indicators.empty:
@@ -296,10 +341,21 @@ def signal_systematic(
     except Exception as e:
         logger.warning(f"Dividend/split signal detection failed: {e}")
 
+    return {"scores": scores, "regime": regime, "sentiment_score": sentiment_score}
+
+
+def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+    """Weight-dependent half of :func:`signal_systematic`: apply ``weights`` to the
+    cached component scores -> BUY/SELL/HOLD. Pure; called once per GA candidate
+    (and by :func:`signal_systematic` itself, so live + backtest stay identical)."""
+    eff_weights: Dict[str, float] = weights if weights is not None else WEIGHTS
+    scores: Dict[str, float] = comp["scores"]
+    regime: str = comp["regime"]
+    sentiment_score: Optional[float] = comp["sentiment_score"]
     # ============================================
     # CALCULATE FINAL RECOMMENDATION
     # ============================================
-    weighted_score = sum(scores[key] * WEIGHTS[key] for key in scores.keys())
+    weighted_score = sum(scores[key] * eff_weights[key] for key in scores.keys())
 
     if weighted_score > BUY_SELL_THRESHOLD:
         final_recommendation = 'BUY'
@@ -311,16 +367,21 @@ def signal_systematic(
         final_recommendation = 'HOLD'
         overall_confidence = 0.5  # Moderate confidence in HOLD
 
+    # config_version reflects the EFFECTIVE weights (None => the live defaults);
+    # each GA candidate is thereby attributable. Exact-default weights hash
+    # identically to _SYSTEMATIC_CONFIG_VERSION.
+    cv = config_version_for(weights)
+
     # ── human-readable reasoning (per-component breakdown, mirrors signal_swing) ──
     reasoning = [
-        f"📊 Chart patterns (w {WEIGHTS['chart_patterns']:.2f}): {scores['chart_patterns']:+.2f}",
-        f"🕯️ Candlestick (w {WEIGHTS['candlestick_patterns']:.2f}): {scores['candlestick_patterns']:+.2f}",
-        f"📈 Technical indicators (w {WEIGHTS['technical_indicators']:.2f}): {scores['technical_indicators']:+.2f}",
-        (f"💬 Sentiment (w {WEIGHTS['sentiment']:.2f}): {sentiment_score:+.2f}"
+        f"📊 Chart patterns (w {eff_weights['chart_patterns']:.2f}): {scores['chart_patterns']:+.2f}",
+        f"🕯️ Candlestick (w {eff_weights['candlestick_patterns']:.2f}): {scores['candlestick_patterns']:+.2f}",
+        f"📈 Technical indicators (w {eff_weights['technical_indicators']:.2f}): {scores['technical_indicators']:+.2f}",
+        (f"💬 Sentiment (w {eff_weights['sentiment']:.2f}): {sentiment_score:+.2f}"
          if sentiment_score is not None
-         else f"💬 Sentiment (w {WEIGHTS['sentiment']:.2f}): n/a"),
-        f"🌐 Market regime (w {WEIGHTS['market_regime']:.2f}): {regime} → {scores['market_regime']:+.2f}",
-        f"💰 Dividend/split (w {WEIGHTS['dividend_split_signals']:.2f}): {scores['dividend_split_signals']:+.2f}",
+         else f"💬 Sentiment (w {eff_weights['sentiment']:.2f}): n/a"),
+        f"🌐 Market regime (w {eff_weights['market_regime']:.2f}): {regime} → {scores['market_regime']:+.2f}",
+        f"💰 Dividend/split (w {eff_weights['dividend_split_signals']:.2f}): {scores['dividend_split_signals']:+.2f}",
         f"➡️ Weighted {weighted_score:+.3f} (BUY/SELL when |·|>{BUY_SELL_THRESHOLD}) → "
         f"{final_recommendation} @ {overall_confidence:.0%} confidence",
     ]
@@ -330,7 +391,7 @@ def signal_systematic(
         confidence=overall_confidence,
         weighted_score=weighted_score,
         component_scores=scores,
-        config_version=_SYSTEMATIC_CONFIG_VERSION,
+        config_version=cv,
         reasoning=reasoning,
         regime=regime,
     )

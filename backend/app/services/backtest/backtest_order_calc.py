@@ -90,15 +90,23 @@ def _sma200_distance_pct(df_T: pd.DataFrame, entry_price: float) -> Optional[flo
         return None
 
 
-def calculate_levels(df_T: pd.DataFrame, entry_price: float) -> Dict[str, float]:
+def calculate_levels(df_T: pd.DataFrame, entry_price: float, pattern_levels: Optional[Tuple[Optional[float], Optional[float]]] = None) -> Dict[str, float]:
     """entry / stop_loss / take_profit as-of the last bar of ``df_T`` (pure).
 
     ``entry_price`` is supplied by the replay engine (the bar's close, with
     slippage applied). Returns ``{entry_price, stop_loss, take_profit}``.
+
+    ``pattern_levels``: optional pre-detected ``(stop_loss, target_price)`` from
+    the bundle's chart detection (Phase 3). When given, the ~1s
+    ``_pattern_levels`` re-detection is skipped — the GA's many eval candidates
+    reuse ONE detection per (stock, T). ``None`` => detect fresh (Phase-2 path).
     """
     atr = _atr(df_T)
     vol = _vol_status(df_T, atr)
-    pattern_sl, pattern_tp = _pattern_levels(df_T)
+    if pattern_levels is not None:
+        pattern_sl, pattern_tp = pattern_levels
+    else:
+        pattern_sl, pattern_tp = _pattern_levels(df_T)
     swing_low = _swing_low(df_T)
 
     # ── stop loss (priority: swing-low > pattern > ATR > 4% default) ──

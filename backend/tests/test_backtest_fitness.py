@@ -79,14 +79,19 @@ def main():
     check("alpha_vs_spy == total_return - 0.10",
           abs((m["alpha_vs_spy"] or 0) - (m["total_return"] - 0.10)) < 1e-9, m["alpha_vs_spy"])
 
-    print("[6] under-trade-floor penalty")
-    m_few = {"sharpe": 1.5, "max_drawdown": -0.1, "trade_count": 2}
-    m_many = {"sharpe": 1.5, "max_drawdown": -0.1, "trade_count": 20}
+    print("[6] under-trade-floor penalty + hybrid objective (return + sharpe - dd)")
+    m_few = {"sharpe": 1.5, "max_drawdown": -0.1, "trade_count": 2, "total_return": 0.20}
+    m_many = {"sharpe": 1.5, "max_drawdown": -0.1, "trade_count": 20, "total_return": 0.20}
     f_few = fitness(m_few)
     f_many = fitness(m_many)
     check("under-traded penalized below well-traded", f_few < f_many, f"{f_few} vs {f_many}")
-    check("well-traded fitness == sharpe - dd_penalty*|mdd|",
-          abs(f_many - (1.5 - 0.5 * 0.1)) < 1e-9, f_many)
+    # hybrid: 5.0*0.20 + 0.5*1.5 - 0.5*0.1 = 1.0 + 0.75 - 0.05 = 1.70
+    check("well-traded fitness == ret_w*ret + sh_w*sharpe - dd*|mdd|",
+          abs(f_many - (5.0 * 0.20 + 0.5 * 1.5 - 0.5 * 0.1)) < 1e-9, f_many)
+    # return term actually matters: zero return must score lower than the 20% return
+    m_noret = {"sharpe": 1.5, "max_drawdown": -0.1, "trade_count": 20, "total_return": 0.0}
+    check("return term drives fitness (0% < 20%)", fitness(m_noret) < f_many,
+          f"{fitness(m_noret)} vs {f_many}")
 
     print("[7] empty curve -> empty metrics (no crash)")
     m = compute_metrics([], [], START)

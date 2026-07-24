@@ -419,4 +419,46 @@ export const getLedgerConfig = async () => {
   return response.data;
 };
 
+// ============================================================================
+// Phase 2: Backtests (no-look-ahead historical backtester)
+// POST/GET /api/v1/backtests — async runs (status pending→running→completed|failed)
+// ============================================================================
+export const listBacktests = async ({ engine, limit = 50 } = {}) => {
+  const params = { limit };
+  if (engine) params.engine = engine;
+  const response = await api.get('/api/v1/backtests', { params });
+  return response.data;
+};
+
+export const getBacktest = async (id) => {
+  const response = await api.get(`/api/v1/backtests/${id}`);
+  return response.data;
+};
+
+export const createBacktest = async (payload) => {
+  const response = await api.post('/api/v1/backtests', payload);
+  return response.data;
+};
+
+// ============================================================================
+// Phase 3: Genetic Algorithm weight search (over the Phase-2 fitness)
+// POST/GET /api/v1/ga-runs — async runs; the single GET adds equity_curve
+// ============================================================================
+export const listGARuns = async ({ engine, limit = 50 } = {}) => {
+  const params = { limit };
+  if (engine) params.engine = engine;
+  const response = await api.get('/api/v1/ga-runs', { params });
+  return response.data;
+};
+
+export const getGARun = async (id) => {
+  const response = await api.get(`/api/v1/ga-runs/${id}`);
+  return response.data;
+};
+
+export const createGARun = async (payload) => {
+  const response = await api.post('/api/v1/ga-runs', payload);
+  return response.data;
+};
+
 export default api;

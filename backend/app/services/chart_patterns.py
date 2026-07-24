@@ -283,10 +283,23 @@ class ChartPatternDetector:
 
     def _detect_prior_trend(self, start_idx: int, end_idx: int) -> Dict:
         """Detect trend strength before a pattern for reversal validation"""
-        if start_idx < 20:
+        # ``start_idx`` is an index LABEL (from ``self.peaks``/``self.troughs``
+        # .index), NOT a row position. When the detector runs on a tail-slice whose
+        # index is not 0-based (e.g. ``df.tail(300)`` keeps the original labels
+        # 900..1199), label != position, so ``.iloc[label-20:label]`` sliced out of
+        # range -> an EMPTY window -> ``iloc[0]`` IndexError (which the adapter's
+        # try/except turned into a silent "detection failed" -> neutral signal).
+        # Convert the label to its row position first.
+        try:
+            pos = self.df.index.get_loc(start_idx)
+        except KeyError:
+            return {'trend': 'neutral', 'strength': 0.0}
+        if pos < 20:
             return {'trend': 'neutral', 'strength': 0.0}
 
-        window = self.df.iloc[start_idx-20:start_idx]
+        window = self.df.iloc[pos - 20:pos]
+        if window.empty:
+            return {'trend': 'neutral', 'strength': 0.0}
 
         # Calculate price change
         price_change = (
@@ -630,9 +643,10 @@ class ChartPatternDetector:
                 continue
             # --- END DYNAMIC RULE ---
 
-            # Find troughs between peaks for neckline
-            troughs_between = self.df.loc[left_shoulder_idx:
-                                          right_shoulder_idx][self.df['is_trough']]
+            # Find troughs between peaks for neckline. Slice first, then filter with
+            # the SLICE's own is_trough column (avoids full-df boolean misalignment).
+            troughs_between = self.df.loc[left_shoulder_idx:right_shoulder_idx]
+            troughs_between = troughs_between[troughs_between['is_trough']]
             if len(troughs_between) < 2:
                 continue
 
@@ -734,9 +748,10 @@ class ChartPatternDetector:
             if shoulder_diff_abs > (ls_atr * self.atr_proximity_factor):
                 continue
 
-            # Find peaks between troughs for neckline
-            peaks_between = self.df.loc[left_shoulder_idx:
-                                        right_shoulder_idx][self.df['is_peak']]
+            # Find peaks between troughs for neckline. Slice first, then filter with
+            # the SLICE's own is_peak column (avoids full-df boolean misalignment).
+            peaks_between = self.df.loc[left_shoulder_idx:right_shoulder_idx]
+            peaks_between = peaks_between[peaks_between['is_peak']]
             if len(peaks_between) < 2:
                 continue
 
@@ -830,9 +845,11 @@ class ChartPatternDetector:
             if price_diff_abs > (peak1_atr * self.atr_proximity_factor):
                 continue
 
-            # Find trough between peaks
-            troughs_between = self.df.loc[peak1_idx:
-                                          peak2_idx][self.df['is_trough']]
+            # Find trough between peaks. Slice first, then filter with the SLICE's
+            # own is_trough column (index-aligned by construction). Indexing the
+            # slice with the FULL-df boolean Series misaligns -> pandas warning.
+            troughs_between = self.df.loc[peak1_idx:peak2_idx]
+            troughs_between = troughs_between[troughs_between['is_trough']]
             if len(troughs_between) == 0:
                 continue
 
@@ -927,9 +944,10 @@ class ChartPatternDetector:
             if price_diff_abs > (trough1_atr * self.atr_proximity_factor):
                 continue
 
-            # Find peak between troughs
-            peaks_between = self.df.loc[trough1_idx:
-                                        trough2_idx][self.df['is_peak']]
+            # Find peak between troughs. Slice first, then filter with the SLICE's
+            # own is_peak column (avoids the full-df boolean-Series misalignment).
+            peaks_between = self.df.loc[trough1_idx:trough2_idx]
+            peaks_between = peaks_between[peaks_between['is_peak']]
             if len(peaks_between) == 0:
                 continue
 

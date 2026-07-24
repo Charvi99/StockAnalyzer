@@ -10,10 +10,9 @@ Ties the pieces together for a real run against the DB:
   3. compute SPY alpha (approximate — see note) + metrics + composite fitness;
   4. persist a ``BacktestRun`` + its ``BacktestEquityPoint`` curve.
 
-SPY alpha note: ``benchmark_service.get_spy_series`` fetches the most-recent SPY
-window, so for a historical [start,end] window the alpha is approximate (it is
-exact only when the window is recent). Acceptable for a POC; a date-aligned SPY
-fetch is a later refinement.
+SPY alpha: ``benchmark_service.get_spy_series_for_window`` fetches SPY for the
+exact ``[start, end]`` window (date-aligned), so ``alpha_vs_spy`` reflects the
+real market return over the backtest period.
 """
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ import pandas as pd
 
 from app.services.backtest.replay_engine import ReplayEngine, STARTING_CASH
 from app.services.backtest.fitness import compute_metrics, fitness
-from app.services.benchmark_service import get_spy_series
+from app.services.benchmark_service import get_spy_series_for_window
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +56,19 @@ def execute_backtest(db, run) -> Dict:
 
     prices_by_stock, trading_dates, symbols = _load_prices(db, start, end, max_stocks)
 
-    account = ReplayEngine(engine=engine, starting_cash=starting_cash).run(prices_by_stock, trading_dates)
+    # Phase 3: single backtests assemble per bar (input_cache=None) — the Phase-2
+    # path. The GA instead builds a per-(stock,T) input cache (see ga.py) so its
+    # many candidates reuse ONE assembly; that cache is too memory-heavy to hold
+    # for a one-shot full-universe backtest. Optional weight override (GA candidates).
+    weights = cfg.get("weights")
+    account = ReplayEngine(
+        engine=engine, starting_cash=starting_cash, weights=weights,
+    ).run(prices_by_stock, trading_dates)
 
-    # SPY total return over ~the window (approximate for historical windows).
+    # SPY total return over the SAME historical window (date-aligned fetch).
     spy_return = None
     try:
-        n_days = max(1, int((end - start).days))
-        s = get_spy_series(n_days)
+        s = get_spy_series_for_window(start, end)
         if s:
             spy_return = float(s[-1]["return_pct"])
     except Exception as e:  # benchmark is best-effort
@@ -100,6 +105,14 @@ def execute_backtest(db, run) -> Dict:
     db.commit()
     return {"run_id": run.id, "engine": engine, "metrics": metrics, "fitness": fit,
             "trading_days": len(trading_dates), "universe_size": len(prices_by_stock)}
+
+
+def prepare_backtest(db, start, end, max_stocks: Optional[int] = None):
+    """Public price-loading entry for the GA (Phase 3): load per-stock daily OHLCV
+    (with warmup) + the cycle-date set, WITHOUT running the replay. The GA calls
+    this once, precomputes indicators once, then replays each weight candidate
+    in-memory (no DB per eval)."""
+    return _load_prices(db, start, end, max_stocks)
 
 
 def _load_prices(db, start, end, max_stocks: Optional[int]):

@@ -102,6 +102,8 @@ class ReplayEngine:
         max_hold_days: int = LEDGER_MAX_HOLD_DAYS,
         slippage_bps: int = LEDGER_SLIPPAGE_BPS,
         commission: float = LEDGER_COMMISSION_PER_SHARE,
+        weights: Optional[Dict[str, float]] = None,
+        input_cache: Optional[Dict] = None,
     ):
         self.engine = engine
         self.starting_cash = starting_cash
@@ -110,6 +112,14 @@ class ReplayEngine:
         self.max_hold_days = max_hold_days
         self.slippage_bps = slippage_bps
         self.commission = commission
+        # Phase 3: optional signal-weight override (GA candidates). ``None`` replays
+        # the engine's live default weights. Threaded into signal_as_of per bar.
+        self.weights = weights
+        # Phase 3: optional per-(stock, T) input cache (GA). Maps (stock_id, T) ->
+        # a pre-assembled weight-independent bundle, reused across every candidate
+        # so only weights are re-applied. None => assemble per bar (Phase-2 path,
+        # used by single backtests to avoid holding every bundle in memory).
+        self.input_cache = input_cache
 
     def run(self, prices_by_stock: Dict[int, pd.DataFrame], trading_dates: List) -> BTAccount:
         """Run the exits-first replay. ``prices_by_stock`` maps stock_id -> a
@@ -130,10 +140,10 @@ class ReplayEngine:
     def _config_version(self) -> str:
         try:
             if self.engine == "engine_1":
-                from app.services.signal.systematic import _SYSTEMATIC_CONFIG_VERSION
-                return _SYSTEMATIC_CONFIG_VERSION
-            from app.services.signal.swing import _SWING_CONFIG_VERSION
-            return _SWING_CONFIG_VERSION
+                from app.services.signal.systematic import config_version_for as cv_for
+                return cv_for(self.weights)
+            from app.services.signal.swing import config_version_for as cv_for
+            return cv_for(self.weights)
         except Exception:
             return "unknown"
 
@@ -146,7 +156,8 @@ class ReplayEngine:
             if len(df_T) < 2:
                 continue
             try:
-                sr = signal_as_of(self.engine, df_T)
+                bundle = self.input_cache.get((sid, T)) if self.input_cache else None
+                sr = signal_as_of(self.engine, df_T, self.weights, bundle)
             except Exception as e:  # C4: per-stock fault tolerance
                 logger.warning("[backtest %s] signal failed for stock %s at %s: %s", self.engine, sid, T, e)
                 current_signals[sid] = None
@@ -194,7 +205,13 @@ class ReplayEngine:
                 continue
             bar = df_T.iloc[-1]
             entry = _apply_slippage(float(bar["close"]), self.slippage_bps)
-            levels = calculate_levels(df_T, entry)
+            # Reuse the bundle's pre-detected pattern levels (Phase 3) so a fresh
+            # BUY skips the ~1.2s chart re-detection inside calculate_levels.
+            bundle = self.input_cache.get((sid, T)) if self.input_cache else None
+            levels = calculate_levels(
+                df_T, entry,
+                pattern_levels=(bundle.get("pattern_levels") if bundle else None),
+            )
             size_info = calculate_position_size(
                 account_capital=account.cash,
                 risk_per_trade_percent=self.risk_pct,

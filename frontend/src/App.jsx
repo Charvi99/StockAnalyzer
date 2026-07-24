@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import StockList from './components/StockList';
 import PaperTradingLedger from './components/PaperTradingLedger';
+import GADashboard from './components/GADashboard';
 import MarketStatus from './components/MarketStatus';
 import { checkHealth } from './services/api';
 import './App.css';
 
 function App() {
   const [healthStatus, setHealthStatus] = useState(null);
-  const [view, setView] = useState('stocks'); // 'stocks' | 'ledger'
+  const [view, setView] = useState('stocks'); // 'stocks' | 'ledger' | 'ga'
 
   useEffect(() => {
     // Check API health on load
@@ -41,6 +42,12 @@ function App() {
             >
               📒 Paper Trading
             </button>
+            <button
+              className={`view-btn ${view === 'ga' ? 'active' : ''}`}
+              onClick={() => setView('ga')}
+            >
+              🧬 GA Lab
+            </button>
           </div>
           <div className="health-status">
             {healthStatus && (
@@ -63,6 +70,10 @@ function App() {
           {view === 'ledger' ? (
             <section className="stocks-section">
               <PaperTradingLedger />
+            </section>
+          ) : view === 'ga' ? (
+            <section className="stocks-section">
+              <GADashboard />
             </section>
           ) : (
             <section className="stocks-section">

@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 BENCHMARK_SYMBOL = "SPY"
 _CACHE_TTL_SECONDS = 15 * 60  # refresh at most every 15 min
 
-# module-level cache (single-process backend; per-worker is fine — worst case a
-# few extra Polygon calls across workers)
-_cache: Dict[str, object] = {"fetched_at": 0.0, "series": []}
+# module-level cache keyed by fetch period (single-process backend; per-worker is
+# fine — worst case a few extra Polygon calls across workers)
+_cache: Dict[str, Dict] = {}
 
 
 def _with_returns(window: List[Dict]) -> List[Dict]:
@@ -58,24 +58,59 @@ def get_spy_series(days: int = 90) -> List[Dict]:
         return []
 
 
-def _fetch_cached() -> List[Dict]:
-    """Return the raw SPY daily ``[{date, close}]`` series (oldest-first), cached."""
+def get_spy_series_for_window(start, end) -> List[Dict]:
+    """Date-aligned SPY daily series for a historical ``[start, end]`` window as
+    ``[{date(YYYY-MM-DD), close, return_pct}]``, oldest-first, filtered to the window.
+
+    Unlike :func:`get_spy_series` (which only ever returns the *recent* last-1y
+    slice), this fetches enough history to cover ``start`` (which may be years in
+    the past), so it is correct for historical backtest windows. ``start``/``end``
+    may be ``pandas``/``datetime`` timestamps or ISO ``YYYY-MM-DD`` strings.
+
+    Returns ``[]`` on any failure (the benchmark line/alpha is simply omitted)."""
+    try:
+        import pandas as pd
+
+        start_s = pd.Timestamp(start).strftime("%Y-%m-%d")
+        end_s = pd.Timestamp(end).strftime("%Y-%m-%d")
+        # Always fetch the full 5y history: the fetcher only honours a couple of
+        # period values ("1y", "5y") — anything in between collapses to ~1y, which
+        # would miss a years-old window. 5y covers every realistic backtest window;
+        # cached per-period for 15 min.
+        series = _fetch_cached("5y")
+        if not series:
+            return []
+        window = [b for b in series if start_s <= b["date"] <= end_s]
+        return _with_returns(window)
+    except Exception as e:
+        logger.warning("[benchmark] SPY window series failed: %s", e)
+        return []
+
+
+def _fetch_cached(period: str = "1y") -> List[Dict]:
+    """Return the raw SPY daily ``[{date, close}]`` series (oldest-first), cached
+    per ``period`` (the live view uses ``"1y"``; historical backtest windows use
+    ``"5y"`` so years-old windows are covered)."""
     now = time.time()
-    if _cache["series"] and (now - _cache["fetched_at"]) < _CACHE_TTL_SECONDS:
-        return _cache["series"]
-    fetched = _fetch_spy()
+    entry = _cache.get(period)
+    if entry and entry["series"] and (now - entry["fetched_at"]) < _CACHE_TTL_SECONDS:
+        return entry["series"]
+    fetched = _fetch_spy(period=period)
     if fetched:
-        _cache["fetched_at"] = now
-        _cache["series"] = fetched
+        _cache[period] = {"fetched_at": now, "series": fetched}
     return fetched
 
 
-def _fetch_spy() -> List[Dict]:
-    """Fetch SPY daily closes from Polygon → ``[{date, close}]``, oldest-first."""
+def _fetch_spy(period: str = "1y") -> List[Dict]:
+    """Fetch SPY daily closes from Polygon → ``[{date, close}]``, oldest-first.
+
+    ``period`` widens the fetch so a historical backtest window (e.g. 2024) is
+    covered even though "now" is years later — ``"1y"`` (default) preserves the
+    existing recent-window behaviour used by the live equity view."""
     from app.services.polygon_fetcher import PolygonFetcher
 
     fetcher = PolygonFetcher(api_key=os.getenv("POLYGON_API_KEY"))
-    bars = fetcher.fetch_historical_data(BENCHMARK_SYMBOL, period="1y", interval="1d")
+    bars = fetcher.fetch_historical_data(BENCHMARK_SYMBOL, period=period, interval="1d")
     if not bars:
         return []
     out = []

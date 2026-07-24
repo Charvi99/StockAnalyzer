@@ -35,7 +35,7 @@ ADAPTER = BACKEND / "app" / "services" / "backtest" / "backtest_signal_adapter.p
 # read in ANY of them would break no-look-ahead, not just the signal adapter.
 GUARDED_MODULES = [
     BACKEND / "app" / "services" / "backtest" / n
-    for n in ("backtest_signal_adapter.py", "backtest_regime.py", "backtest_order_calc.py")
+    for n in ("backtest_signal_adapter.py", "backtest_regime.py", "backtest_order_calc.py", "precompute.py")
 ]
 
 FAILURES = []
@@ -71,7 +71,7 @@ def _ast_violations(path: Path) -> list:
 
 
 def source_guard():
-    print("[1] AST source guard on as-of-T input modules (adapter + regime + order_calc)")
+    print("[1] AST source guard on as-of-T input modules (adapter + regime + order_calc + precompute)")
     for path in GUARDED_MODULES:
         v = _ast_violations(path)
         check(f"{path.name}: no forbidden imports / wall-clock reads", not v, "; ".join(v))
@@ -121,6 +121,46 @@ def causal_indicators():
         check(f"indicator '{col}' causal at T={T}", ok, f"full={a} trunc={b}")
 
 
+# ── 3. input-cache (Phase 3): bundle path == fresh path; no leak through cache ─
+def precompute_causality():
+    from app.services.backtest.backtest_signal_adapter import (
+        assemble_inputs, signal_as_of, signal_from_bundle,
+    )
+    from app.services.backtest.precompute import precompute_inputs
+    print("[3] input-cache: bundle==fresh; cache over future-bearing frame doesn't leak")
+    df = synthetic_prices(300)
+    sid = 0
+    T = 200
+    df_T = df.iloc[: T + 1].copy()
+
+    # (a) the cached bundle path must reproduce the fresh per-bar assembly exactly
+    #     (the cache must not alter signal values).
+    for eng in ("engine_1", "engine_2"):
+        fresh = signal_as_of(eng, df_T)
+        cached = signal_as_of(eng, df_T, bundle=assemble_inputs(eng, df_T))
+        same = (fresh.signal == cached.signal
+                and abs((fresh.weighted_score or 0) - (cached.weighted_score or 0)) < 1e-9)
+        check(f"{eng} bundle-path == fresh-path", same,
+              f"{fresh.signal}/{fresh.weighted_score:.4f} vs {cached.signal}/{cached.weighted_score:.4f}")
+
+    # (b) NO future leak through the cache: build the cache over the FULL series
+    #     (which contains bars > T), look up the bundle at several T, and confirm
+    #     each equals the fresh as-of-T signal. Each cache bundle is assembled from
+    #     its OWN truncated df_T (<= T), so future bars never enter it — this is the
+    #     property that makes per-(stock,T) caching safe where full-series slicing
+    #     (which carried the series-last-bar's broadcast *_signal) was not.
+    dates = [df["timestamp"].iloc[i] for i in (100, 200, 250)]
+    cache = precompute_inputs("engine_2", {sid: df}, dates)
+    for ti in (100, 200, 250):
+        T_i = pd.Timestamp(df["timestamp"].iloc[ti])
+        cached_sig = signal_from_bundle("engine_2", cache.get((sid, T_i)))
+        fresh_sig = signal_as_of("engine_2", df.iloc[: ti + 1].copy())
+        same = (cached_sig.signal == fresh_sig.signal
+                and abs((cached_sig.weighted_score or 0) - (fresh_sig.weighted_score or 0)) < 1e-9)
+        check(f"engine_2 cache(T={ti}) over full series == fresh as-of-T (no leak)", same,
+              f"{cached_sig.signal}/{cached_sig.weighted_score:.4f} vs {fresh_sig.signal}/{fresh_sig.weighted_score:.4f}")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("test_backtest_no_lookahead")
@@ -128,6 +168,7 @@ if __name__ == "__main__":
     source_guard()
     determinism()
     causal_indicators()
+    precompute_causality()
     print("=" * 60)
     if FAILURES:
         print(f"FAILED {len(FAILURES)} check(s): {FAILURES}")

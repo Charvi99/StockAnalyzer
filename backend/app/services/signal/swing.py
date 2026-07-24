@@ -69,6 +69,25 @@ _SWING_CONFIG_VERSION = config_version(
 )
 
 
+def config_version_for(weights: Optional[Dict[str, float]] = None) -> str:
+    """Deterministic config_version for a weight set (``None`` => live defaults).
+
+    Single source of truth shared by :func:`signal_swing` and the backtester
+    (replay engine), so a run's recorded ``config_version`` always matches its
+    EFFECTIVE weights. Passing the exact defaults reproduces
+    ``_SWING_CONFIG_VERSION``.
+    """
+    eff = weights if weights is not None else COMPONENT_WEIGHTS
+    return config_version(
+        eff,
+        {"ml_gate": ML_CONFIDENCE_GATE, "agree_boost": ALL_AGREE_BOOST,
+         "weekly_bullish_boost": WEEKLY_BULLISH_BOOST,
+         "bearish_override_cut": BEARISH_OVERRIDE_CONF_CUT,
+         "floor": FINAL_CONF_FLOOR},
+        SCHEMA,
+    )
+
+
 def _signed(rec: Optional[str], conf: Optional[float]) -> float:
     """Map a (BUY/SELL/HOLD, confidence) component vote to a signed [-1,1] score
     for ledger feature analysis (BUY -> +conf, SELL -> -conf, else 0)."""
@@ -90,6 +109,7 @@ def signal_swing(
     ml: Tuple[Optional[str], Optional[float], Optional[float]],
     dividend_split_signal: Optional[Dict[str, Any]],
     strategy_consensus: Optional[Tuple[Optional[str], Optional[float]]] = None,
+    weights: Optional[Dict[str, float]] = None,
 ) -> SignalResult:
     """
     Pure Engine #2 signal: swing-aware weighted vote -> BUY/SELL/HOLD.
@@ -112,11 +132,43 @@ def signal_swing(
             registered trading strategies (Phase 0.5), or None. When present
             with confidence > 0 it joins the weighted vote as the "strategy"
             component (weight = COMPONENT_WEIGHTS["strategy"]).
+        weights: optional override for the 6 COMPONENT_WEIGHTS (Phase 3 GA /
+            backtest candidates). ``None`` (default) uses the module
+            COMPONENT_WEIGHTS — behaviour-identical to every existing caller.
+            Passing the exact defaults yields the same ``config_version`` + signal.
 
     Returns:
         SignalResult. ``extras`` carries the Engine #2-specific fields the adapter
         maps onto ``RecommendationResponse``.
     """
+    # Phase 3 #3: behaviour-preserving factor. The component votes are
+    # weight-independent (cached per (stock,T) by the GA — detect_swing_points +
+    # check_weekly_trend, ~99% of signal cost, run ONCE there); only the normalized
+    # weighted vote + the weekly/swing-context/dividend tail depend on weights.
+    # signal_swing = compose(compute, assemble) so live + backtest share ONE impl.
+    return _assemble_swing(
+        _swing_components(df, tech_recommendation, chart_patterns_raw,
+                          candlestick_patterns_raw, sentiment_scores, ml,
+                          dividend_split_signal, strategy_consensus),
+        weights,
+    )
+
+
+def _swing_components(
+    df: pd.DataFrame,
+    tech_recommendation: Dict[str, Any],
+    chart_patterns_raw: List[Dict[str, Any]],
+    candlestick_patterns_raw: List[Dict[str, Any]],
+    sentiment_scores: Optional[List[float]],
+    ml: Tuple[Optional[str], Optional[float], Optional[float]],
+    dividend_split_signal: Optional[Dict[str, Any]],
+    strategy_consensus: Optional[Tuple[Optional[str], Optional[float]]] = None,
+) -> Dict[str, Any]:
+    """Weight-independent Engine #2 component votes + trend context as-of T — the
+    cacheable half of :func:`signal_swing`. Runs the expensive
+    :func:`check_weekly_trend` + :func:`detect_swing_points` once. Returns a dict
+    of every intermediate :func:`_assemble_swing` needs, incl. the partial
+    ``reasoning`` list (items 1-6). No weights are read here."""
     # ── technical signals (from tech_recommendation) ─────────────────────
     technical_signals: Dict[str, str] = {}
     for indicator, details in tech_recommendation['indicators'].items():
@@ -234,27 +286,93 @@ def signal_swing(
     else:
         reasoning.append("No valid swing trading patterns detected (filtered by duration and trend alignment)")
 
-    # ── weighted vote over PRESENT components (normalized) ───────────────
-    components: List[Tuple[str, float, float]] = [
-        (tech_recommendation['recommendation'], tech_recommendation['confidence'], COMPONENT_WEIGHTS["technical"]),
-    ]
-    if chart_pattern_signal:
-        components.append((chart_pattern_signal, chart_pattern_conf, COMPONENT_WEIGHTS["chart_pattern"]))
-    if candlestick_signal:
-        components.append((candlestick_signal, candlestick_conf, COMPONENT_WEIGHTS["candlestick"]))
-    if sentiment_rec:
-        components.append((sentiment_rec, sentiment_conf, COMPONENT_WEIGHTS["sentiment"]))
-    if ml_rec and ml_conf and ml_conf > ML_CONFIDENCE_GATE:
-        components.append((ml_rec, ml_conf, COMPONENT_WEIGHTS["ml"]))
-
-    # Phase 0.5: strategy consensus (one component across all strategies).
+    # Phase 0.5: strategy consensus — unpack + reasoning are weight-independent.
+    # The reasoning line must precede the weight-dependent all-agree line, so it
+    # is appended here (compute half); the components.append happens in assemble.
     strat_rec, strat_conf = strategy_consensus or (None, None)
     if strat_rec and strat_conf is not None and strat_conf > 0:
-        components.append((strat_rec, strat_conf, COMPONENT_WEIGHTS["strategy"]))
         reasoning.append(
             f"📐 Strategy consensus ({strat_conf:.0%} confidence): {strat_rec} "
             f"(aggregated vote across registered trading strategies)"
         )
+
+    return {
+        "technical_signals": technical_signals,
+        "technical_rec": tech_recommendation['recommendation'],
+        "technical_conf": tech_recommendation['confidence'],
+        "tech_recommendation": tech_recommendation,
+        "chart_pattern_signal": chart_pattern_signal,
+        "chart_pattern_conf": chart_pattern_conf,
+        "chart_pattern_count": chart_pattern_count,
+        "candlestick_signal": candlestick_signal,
+        "candlestick_conf": candlestick_conf,
+        "candlestick_count": candlestick_count,
+        "sentiment_rec": sentiment_rec,
+        "sentiment_conf": sentiment_conf,
+        "sentiment_index": sentiment_index,
+        "sentiment_positive": sentiment_positive,
+        "sentiment_negative": sentiment_negative,
+        "ml_rec": ml_rec,
+        "ml_conf": ml_conf,
+        "predicted_price": predicted_price,
+        "strat_rec": strat_rec,
+        "strat_conf": strat_conf,
+        "weekly_trend": weekly_trend,
+        "df": df,
+        "dividend_split_signal": dividend_split_signal,
+        "reasoning": reasoning,
+    }
+
+
+def _assemble_swing(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+    """Weight-dependent half of :func:`signal_swing`: the normalized weighted vote
+    + the all-agree / weekly-override / swing-context / dividend tail ->
+    SignalResult. Pure; called once per GA candidate (and by :func:`signal_swing`
+    itself, so live + backtest stay identical)."""
+    eff_weights: Dict[str, float] = weights if weights is not None else COMPONENT_WEIGHTS
+
+    technical_rec = comp["technical_rec"]
+    technical_conf = comp["technical_conf"]
+    technical_signals = comp["technical_signals"]
+    tech_recommendation = comp["tech_recommendation"]
+    chart_pattern_signal = comp["chart_pattern_signal"]
+    chart_pattern_conf = comp["chart_pattern_conf"]
+    chart_pattern_count = comp["chart_pattern_count"]
+    candlestick_signal = comp["candlestick_signal"]
+    candlestick_conf = comp["candlestick_conf"]
+    candlestick_count = comp["candlestick_count"]
+    sentiment_rec = comp["sentiment_rec"]
+    sentiment_conf = comp["sentiment_conf"]
+    sentiment_index = comp["sentiment_index"]
+    sentiment_positive = comp["sentiment_positive"]
+    sentiment_negative = comp["sentiment_negative"]
+    ml_rec = comp["ml_rec"]
+    ml_conf = comp["ml_conf"]
+    predicted_price = comp["predicted_price"]
+    strat_rec = comp["strat_rec"]
+    strat_conf = comp["strat_conf"]
+    weekly_trend = comp["weekly_trend"]
+    df = comp["df"]
+    dividend_split_signal = comp["dividend_split_signal"]
+    # Copy the partial reasoning list: comp may be a SHARED GA cache entry reused
+    # across weight candidates, so we must not mutate it. (Live path builds a fresh
+    # comp per call, so the copy is behaviour-identical there.)
+    reasoning: List[str] = list(comp["reasoning"])
+
+    # ── weighted vote over PRESENT components (normalized) ───────────────
+    components: List[Tuple[str, float, float]] = [
+        (technical_rec, technical_conf, eff_weights["technical"]),
+    ]
+    if chart_pattern_signal:
+        components.append((chart_pattern_signal, chart_pattern_conf, eff_weights["chart_pattern"]))
+    if candlestick_signal:
+        components.append((candlestick_signal, candlestick_conf, eff_weights["candlestick"]))
+    if sentiment_rec:
+        components.append((sentiment_rec, sentiment_conf, eff_weights["sentiment"]))
+    if ml_rec and ml_conf and ml_conf > ML_CONFIDENCE_GATE:
+        components.append((ml_rec, ml_conf, eff_weights["ml"]))
+    if strat_rec and strat_conf is not None and strat_conf > 0:
+        components.append((strat_rec, strat_conf, eff_weights["strategy"]))
 
     total_weight = sum(w for _, _, w in components) or 1.0
     rec_scores = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
@@ -373,7 +491,7 @@ def signal_swing(
             "ml": _signed(ml_rec, ml_conf),
             "strategy": _signed(strat_rec, strat_conf),
         },
-        config_version=_SWING_CONFIG_VERSION,
+        config_version=config_version_for(weights),
         reasoning=reasoning,
         regime=weekly_trend['trend'],
         extras={
