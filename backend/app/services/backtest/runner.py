@@ -53,6 +53,8 @@ def execute_backtest(db, run) -> Dict:
     starting_cash = float(cfg.get("starting_cash") or STARTING_CASH)
     dd_penalty = float(cfg.get("dd_penalty") or 0.5)
     trade_count_floor = int(cfg.get("trade_count_floor") or 5)
+    # Phase 2.5: regime de-risk overlay strength in [0,1] (0 => OFF, byte-identical).
+    overlay_strength = float(cfg.get("regime_overlay_strength") or 0.0)
 
     prices_by_stock, trading_dates, symbols = _load_prices(db, start, end, max_stocks)
 
@@ -63,6 +65,7 @@ def execute_backtest(db, run) -> Dict:
     weights = cfg.get("weights")
     account = ReplayEngine(
         engine=engine, starting_cash=starting_cash, weights=weights,
+        overlay_strength=overlay_strength,
     ).run(prices_by_stock, trading_dates)
 
     # SPY total return over the SAME historical window (date-aligned fetch).

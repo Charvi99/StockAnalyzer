@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from app.services.signal.regime_overlay import buy_score_factor
 from app.services.signal.types import SignalResult, config_version
 from app.services.technical_indicators import TechnicalIndicators
 
@@ -54,16 +55,24 @@ _SYSTEMATIC_CONFIG_VERSION = config_version(
 )
 
 
-def config_version_for(weights: Optional[Dict[str, float]] = None) -> str:
+def config_version_for(weights: Optional[Dict[str, float]] = None,
+                       overlay_strength: float = 0.0) -> str:
     """Deterministic config_version for a weight set (``None`` => live defaults).
 
     Single source of truth shared by :func:`signal_systematic` and the backtester
     (replay engine), so a run's recorded ``config_version`` always matches its
     EFFECTIVE weights. Passing the exact defaults reproduces
     ``_SYSTEMATIC_CONFIG_VERSION``.
+
+    ``overlay_strength`` is folded into the hash ONLY when nonzero, so the
+    regime de-risk overlay (Phase 2.5) is attributable when active while the
+    default (``0.0`` / OFF) stays byte-identical to every prior run.
     """
     eff = weights if weights is not None else WEIGHTS
-    return config_version(eff, {"buy_sell_threshold": BUY_SELL_THRESHOLD}, REGIME_SCORES, SCHEMA)
+    parts: list = [eff, {"buy_sell_threshold": BUY_SELL_THRESHOLD}, REGIME_SCORES, SCHEMA]
+    if overlay_strength:
+        parts.append({"regime_overlay": overlay_strength})
+    return config_version(*parts)
 
 
 def signal_systematic(
@@ -75,6 +84,8 @@ def signal_systematic(
     dividend_split_signal: Optional[Dict[str, Any]],
     weights: Optional[Dict[str, float]] = None,
     indicators: Optional[pd.DataFrame] = None,
+    regime_direction: Optional[str] = None,
+    overlay_strength: float = 0.0,
 ) -> SignalResult:
     """
     Pure Engine #1 signal: 6-factor weighted score -> BUY/SELL/HOLD.
@@ -93,6 +104,14 @@ def signal_systematic(
             backtest candidates). ``None`` (default) uses the module WEIGHTS —
             behaviour-identical to every existing caller. Passing the exact
             defaults yields the same ``config_version`` + signal.
+        indicators: optional precomputed indicator DataFrame (Phase 3 precompute).
+        regime_direction: optional per-stock directional regime
+            (``'bearish'`` / ``'bearish_weak'`` / ...) from
+            ``MarketRegimeService.detect_tcr_regime``. Consumed only by the
+            regime de-risk overlay (Phase 2.5); ``None`` => no direction-based
+            suppression (overlay inactive even at nonzero strength).
+        overlay_strength: regime de-risk overlay strength in ``[0, 1]``.
+            ``0.0`` (default) => overlay OFF, byte-identical to every prior call.
 
     Returns:
         SignalResult. ``component_scores`` are RAW (unrounded); the adapter rounds
@@ -105,9 +124,9 @@ def signal_systematic(
     return _decide_systematic(
         _systematic_scores(
             df_prices, chart_patterns, candlestick_patterns, sentiment_score,
-            regime, dividend_split_signal, indicators,
+            regime, dividend_split_signal, indicators, regime_direction,
         ),
-        weights,
+        weights, overlay_strength,
     )
 
 
@@ -119,11 +138,15 @@ def _systematic_scores(
     regime: str,
     dividend_split_signal: Optional[Dict[str, Any]],
     indicators: Optional[pd.DataFrame] = None,
+    regime_direction: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Weight-independent Engine #1 per-component scores as-of T — the cacheable
-    half of :func:`signal_systematic`. Returns ``{scores, regime, sentiment_score}``;
-    ``scores`` is the 6-component dict in [-1,1]. The per-component ``try/except``
-    (0.0 on failure) is preserved verbatim. No weights are read here."""
+    half of :func:`signal_systematic`. Returns
+    ``{scores, regime, sentiment_score, direction}``; ``scores`` is the 6-component
+    dict in [-1,1]. The per-component ``try/except`` (0.0 on failure) is preserved
+    verbatim. No weights are read here. ``direction`` (the per-stock directional
+    regime) is carried through untouched for the regime overlay (Phase 2.5) — it
+    does not affect the per-component scores, only the later buy-score scaling."""
     scores: Dict[str, float] = {k: 0.0 for k in WEIGHTS}
 
     # ============================================
@@ -341,10 +364,12 @@ def _systematic_scores(
     except Exception as e:
         logger.warning(f"Dividend/split signal detection failed: {e}")
 
-    return {"scores": scores, "regime": regime, "sentiment_score": sentiment_score}
+    return {"scores": scores, "regime": regime, "sentiment_score": sentiment_score,
+            "direction": regime_direction}
 
 
-def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None,
+                       overlay_strength: float = 0.0) -> SignalResult:
     """Weight-dependent half of :func:`signal_systematic`: apply ``weights`` to the
     cached component scores -> BUY/SELL/HOLD. Pure; called once per GA candidate
     (and by :func:`signal_systematic` itself, so live + backtest stay identical)."""
@@ -352,10 +377,20 @@ def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]]
     scores: Dict[str, float] = comp["scores"]
     regime: str = comp["regime"]
     sentiment_score: Optional[float] = comp["sentiment_score"]
+    direction: Optional[str] = comp.get("direction")
     # ============================================
     # CALCULATE FINAL RECOMMENDATION
     # ============================================
     weighted_score = sum(scores[key] * eff_weights[key] for key in scores.keys())
+
+    # Regime de-risk overlay (Phase 2.5): scale the BUY-leaning (positive) score
+    # down in a bearish per-stock regime — proportional, never a hard ban. OFF at
+    # ``overlay_strength == 0`` (byte-identical). Sells (negative) / holds (~0)
+    # are never touched, so bearish SELL signals keep full strength.
+    overlay_factor = 1.0
+    if overlay_strength > 0.0 and weighted_score > 0.0:
+        overlay_factor = buy_score_factor(direction, overlay_strength)
+        weighted_score *= overlay_factor
 
     if weighted_score > BUY_SELL_THRESHOLD:
         final_recommendation = 'BUY'
@@ -367,10 +402,11 @@ def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]]
         final_recommendation = 'HOLD'
         overall_confidence = 0.5  # Moderate confidence in HOLD
 
-    # config_version reflects the EFFECTIVE weights (None => the live defaults);
-    # each GA candidate is thereby attributable. Exact-default weights hash
-    # identically to _SYSTEMATIC_CONFIG_VERSION.
-    cv = config_version_for(weights)
+    # config_version reflects the EFFECTIVE weights + overlay (None/0 => live
+    # defaults); each GA candidate / overlay setting is thereby attributable.
+    # Exact-default weights + overlay OFF hash identically to
+    # _SYSTEMATIC_CONFIG_VERSION.
+    cv = config_version_for(weights, overlay_strength)
 
     # ── human-readable reasoning (per-component breakdown, mirrors signal_swing) ──
     reasoning = [
@@ -382,9 +418,16 @@ def _decide_systematic(comp: Dict[str, Any], weights: Optional[Dict[str, float]]
          else f"💬 Sentiment (w {eff_weights['sentiment']:.2f}): n/a"),
         f"🌐 Market regime (w {eff_weights['market_regime']:.2f}): {regime} → {scores['market_regime']:+.2f}",
         f"💰 Dividend/split (w {eff_weights['dividend_split_signals']:.2f}): {scores['dividend_split_signals']:+.2f}",
-        f"➡️ Weighted {weighted_score:+.3f} (BUY/SELL when |·|>{BUY_SELL_THRESHOLD}) → "
-        f"{final_recommendation} @ {overall_confidence:.0%} confidence",
     ]
+    if overlay_factor < 1.0:
+        reasoning.append(
+            f"🛡️ Regime overlay (strength {overlay_strength:.2f}): buy score × {overlay_factor:.2f} "
+            f"(direction={direction}) — bearish-regime de-risk"
+        )
+    reasoning.append(
+        f"➡️ Weighted {weighted_score:+.3f} (BUY/SELL when |·|>{BUY_SELL_THRESHOLD}) → "
+        f"{final_recommendation} @ {overall_confidence:.0%} confidence"
+    )
 
     return SignalResult(
         signal=final_recommendation,

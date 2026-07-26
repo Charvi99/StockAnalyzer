@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.services.signal.types import SignalResult
-from app.services.backtest.backtest_regime import detect_regime_from_df
+from app.services.backtest.backtest_regime import detect_direction_from_df, detect_regime_from_df
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ def signal_as_of(
     df_T: pd.DataFrame,
     weights: Optional[Dict[str, float]] = None,
     bundle: Optional[Dict] = None,
+    overlay_strength: float = 0.0,
 ) -> SignalResult:
     """Compute an engine's signal as-of the last bar of ``df_T`` (no look-ahead).
 
@@ -84,6 +85,10 @@ def signal_as_of(
             regime / tech-recommendation) is skipped and only weights are applied —
             the path the GA uses to reuse ONE assembly across many candidates.
             ``None`` => assemble fresh from ``df_T`` (the Phase-2 per-bar path).
+        overlay_strength: regime de-risk overlay strength in ``[0,1]`` (Phase 2.5).
+            ``0.0`` (default) => overlay OFF, byte-identical to every prior call.
+            Threaded into ``signal_systematic`` / ``signal_swing`` — no look-ahead
+            (it only scales already-computed as-of-T scores / a sizing factor).
 
     Returns:
         SignalResult. On insufficient history a neutral HOLD carries the engine's
@@ -99,8 +104,8 @@ def signal_as_of(
     # Single backtests don't enrich bundles, so they take the per-call path below.
     components = bundle.get("_components") if isinstance(bundle, dict) else None
     if components is not None:
-        return assemble(engine, components, weights)
-    return signal_from_bundle(engine, bundle, weights)
+        return assemble(engine, components, weights, overlay_strength)
+    return signal_from_bundle(engine, bundle, weights, overlay_strength)
 
 
 def assemble_inputs(engine: str, df_T: pd.DataFrame) -> Optional[Dict]:
@@ -122,7 +127,8 @@ def assemble_inputs(engine: str, df_T: pd.DataFrame) -> Optional[Dict]:
     raise ValueError(f"Unknown engine {engine!r}; expected 'engine_1' or 'engine_2'.")
 
 
-def signal_from_bundle(engine: str, bundle: Optional[Dict], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+def signal_from_bundle(engine: str, bundle: Optional[Dict], weights: Optional[Dict[str, float]] = None,
+                       overlay_strength: float = 0.0) -> SignalResult:
     """Apply ``weights`` to a pre-assembled bundle -> SignalResult (cheap; no
     indicator recompute). ``bundle=None`` => a neutral HOLD (insufficient history),
     carrying the engine's config_version so the stock is logged-but-not-traded."""
@@ -137,9 +143,9 @@ def signal_from_bundle(engine: str, bundle: Optional[Dict], weights: Optional[Di
     kwargs = {k: v for k, v in bundle.items() if k not in ("pattern_levels", "_components")}
     if engine == "engine_1":
         from app.services.signal.systematic import signal_systematic
-        return signal_systematic(**kwargs, weights=weights)
+        return signal_systematic(**kwargs, weights=weights, overlay_strength=overlay_strength)
     from app.services.signal.swing import signal_swing
-    return signal_swing(**kwargs, weights=weights)
+    return signal_swing(**kwargs, weights=weights, overlay_strength=overlay_strength)
 
 
 def compute_components(engine: str, bundle: Optional[Dict]) -> Optional[Dict]:
@@ -165,7 +171,8 @@ def compute_components(engine: str, bundle: Optional[Dict]) -> Optional[Dict]:
     return _swing_components(**kwargs)
 
 
-def assemble(engine: str, components: Optional[Dict], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+def assemble(engine: str, components: Optional[Dict], weights: Optional[Dict[str, float]] = None,
+             overlay_strength: float = 0.0) -> SignalResult:
     """Apply ``weights`` to a precomputed component dict -> SignalResult (cheap;
     the per-candidate path). ``components=None`` -> a neutral HOLD (insufficient
     history). Identical to :func:`signal_from_bundle` by construction, since each
@@ -174,9 +181,9 @@ def assemble(engine: str, components: Optional[Dict], weights: Optional[Dict[str
         return _hold_signal(engine)
     if engine == "engine_1":
         from app.services.signal.systematic import _decide_systematic
-        return _decide_systematic(components, weights)
+        return _decide_systematic(components, weights, overlay_strength)
     from app.services.signal.swing import _assemble_swing
-    return _assemble_swing(components, weights)
+    return _assemble_swing(components, weights, overlay_strength)
 
 
 def _hold_signal(engine: str) -> SignalResult:
@@ -218,6 +225,10 @@ def _engine1_assemble(df_T: pd.DataFrame) -> Optional[Dict]:
         "candlestick_patterns": _candlestick_as_of(df_T, window_days=7, simple=True),
         "sentiment_score": None,
         "regime": detect_regime_from_df(df_T, lookback=100),
+        # Phase 2.5: per-stock directional regime as-of T (sibling compute, pure)
+        # — feeds the regime de-risk overlay's buy-score scaling. Inert unless the
+        # caller passes a nonzero ``overlay_strength``.
+        "regime_direction": detect_direction_from_df(df_T, lookback=100),
         "dividend_split_signal": None,
         "indicators": indicators,
         "pattern_levels": _pattern_levels_from_detected(detected),

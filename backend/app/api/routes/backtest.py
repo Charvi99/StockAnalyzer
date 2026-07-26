@@ -29,6 +29,10 @@ class BacktestRequest(BaseModel):
     starting_cash: float = 100_000.0
     dd_penalty: float = 0.5
     trade_count_floor: int = 5
+    # Phase 2.5: regime de-risk overlay strength in [0,1]. 0.0 (default) => OFF,
+    # byte-identical to every prior run. >0 => proportional bear-market suppression
+    # (engine_1: buy-score scale; engine_2: position-size scale).
+    regime_overlay_strength: float = 0.0
 
 
 def _run_dict(r: BacktestRun) -> dict:
@@ -71,6 +75,8 @@ def create_backtest(req: BacktestRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
     if s >= e:
         raise HTTPException(status_code=400, detail="start_date must precede end_date")
+    if not 0.0 <= req.regime_overlay_strength <= 1.0:
+        raise HTTPException(status_code=400, detail="regime_overlay_strength must be in [0, 1]")
     from app.tasks.backtest_tasks import run_backtest_task
 
     run = BacktestRun(
@@ -83,6 +89,7 @@ def create_backtest(req: BacktestRequest, db: Session = Depends(get_db)):
             "starting_cash": req.starting_cash,
             "dd_penalty": req.dd_penalty,
             "trade_count_floor": req.trade_count_floor,
+            "regime_overlay_strength": req.regime_overlay_strength,
         },
     )
     db.add(run)

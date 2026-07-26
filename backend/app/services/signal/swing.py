@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from app.services.signal.regime_overlay import weekly_size_factor
 from app.services.signal.types import SignalResult, config_version
 from app.services.signal.core import (
     check_weekly_trend,
@@ -69,23 +70,31 @@ _SWING_CONFIG_VERSION = config_version(
 )
 
 
-def config_version_for(weights: Optional[Dict[str, float]] = None) -> str:
+def config_version_for(weights: Optional[Dict[str, float]] = None,
+                       overlay_strength: float = 0.0) -> str:
     """Deterministic config_version for a weight set (``None`` => live defaults).
 
     Single source of truth shared by :func:`signal_swing` and the backtester
     (replay engine), so a run's recorded ``config_version`` always matches its
     EFFECTIVE weights. Passing the exact defaults reproduces
     ``_SWING_CONFIG_VERSION``.
+
+    ``overlay_strength`` is folded into the hash ONLY when nonzero, so the
+    regime de-risk overlay (Phase 2.5) is attributable when active while the
+    default (``0.0`` / OFF) stays byte-identical to every prior run.
     """
     eff = weights if weights is not None else COMPONENT_WEIGHTS
-    return config_version(
+    parts: list = [
         eff,
         {"ml_gate": ML_CONFIDENCE_GATE, "agree_boost": ALL_AGREE_BOOST,
          "weekly_bullish_boost": WEEKLY_BULLISH_BOOST,
          "bearish_override_cut": BEARISH_OVERRIDE_CONF_CUT,
          "floor": FINAL_CONF_FLOOR},
         SCHEMA,
-    )
+    ]
+    if overlay_strength:
+        parts.append({"regime_overlay": overlay_strength})
+    return config_version(*parts)
 
 
 def _signed(rec: Optional[str], conf: Optional[float]) -> float:
@@ -110,6 +119,7 @@ def signal_swing(
     dividend_split_signal: Optional[Dict[str, Any]],
     strategy_consensus: Optional[Tuple[Optional[str], Optional[float]]] = None,
     weights: Optional[Dict[str, float]] = None,
+    overlay_strength: float = 0.0,
 ) -> SignalResult:
     """
     Pure Engine #2 signal: swing-aware weighted vote -> BUY/SELL/HOLD.
@@ -136,6 +146,11 @@ def signal_swing(
             backtest candidates). ``None`` (default) uses the module
             COMPONENT_WEIGHTS — behaviour-identical to every existing caller.
             Passing the exact defaults yields the same ``config_version`` + signal.
+        overlay_strength: regime de-risk overlay strength in ``[0, 1]``
+            (Phase 2.5). ``0.0`` (default) => overlay OFF — the weekly-bear
+            branch keeps today's hard ``BUY -> HOLD`` ban, byte-identical.
+            ``>0`` => SOFT: a weekly-bear BUY is kept (not banned) but flagged
+            with ``extras['bear_size_factor']`` so the sizing layer shrinks it.
 
     Returns:
         SignalResult. ``extras`` carries the Engine #2-specific fields the adapter
@@ -150,7 +165,7 @@ def signal_swing(
         _swing_components(df, tech_recommendation, chart_patterns_raw,
                           candlestick_patterns_raw, sentiment_scores, ml,
                           dividend_split_signal, strategy_consensus),
-        weights,
+        weights, overlay_strength,
     )
 
 
@@ -324,7 +339,8 @@ def _swing_components(
     }
 
 
-def _assemble_swing(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None) -> SignalResult:
+def _assemble_swing(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = None,
+                    overlay_strength: float = 0.0) -> SignalResult:
     """Weight-dependent half of :func:`signal_swing`: the normalized weighted vote
     + the all-agree / weekly-override / swing-context / dividend tail ->
     SignalResult. Pure; called once per GA candidate (and by :func:`signal_swing`
@@ -391,16 +407,30 @@ def _assemble_swing(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = 
 
     # ── Phase 2A: weekly-trend override ──────────────────────────────────
     weekly_conflict = False
+    bear_size_factor = 1.0  # regime overlay (Phase 2.5): <1.0 shrinks a bear BUY's size
     if final_rec == 'BUY' and weekly_trend['trend'] == 'bearish':
         original_rec = final_rec
-        final_rec = 'HOLD'
         final_conf = final_conf * BEARISH_OVERRIDE_CONF_CUT
         weekly_conflict = True
-        reasoning.append(
-            f"⚠️ SWING TRADING OVERRIDE: {original_rec} downgraded to HOLD - Weekly trend is BEARISH "
-            f"(price ${weekly_trend['weekly_close']:.2f} < 50-week SMA ${weekly_trend['weekly_sma_50']:.2f})"
-        )
-        reasoning.append("⛔ Swing trades against weekly trend have low probability - Wait for weekly trend to turn bullish")
+        if overlay_strength > 0.0:
+            # SOFT (regime overlay): keep the BUY but flag it for SIZE scaling.
+            # Sizing is risk-based (stop distance), not confidence-based, so a
+            # confidence cut alone would NOT de-risk — the sizing layer reads
+            # extras['bear_size_factor'] and shrinks the position. No hard ban.
+            bear_size_factor = weekly_size_factor(overlay_strength, True)
+            reasoning.append(
+                f"🛡️ Regime overlay (strength {overlay_strength:.2f}): weekly-BEAR BUY kept but "
+                f"position size × {bear_size_factor:.2f} (price ${weekly_trend['weekly_close']:.2f} "
+                f"< 50-week SMA ${weekly_trend['weekly_sma_50']:.2f}) — bearish-regime de-risk"
+            )
+        else:
+            # HARD ban (today's behaviour): BUY -> HOLD, no entry.
+            final_rec = 'HOLD'
+            reasoning.append(
+                f"⚠️ SWING TRADING OVERRIDE: {original_rec} downgraded to HOLD - Weekly trend is BEARISH "
+                f"(price ${weekly_trend['weekly_close']:.2f} < 50-week SMA ${weekly_trend['weekly_sma_50']:.2f})"
+            )
+            reasoning.append("⛔ Swing trades against weekly trend have low probability - Wait for weekly trend to turn bullish")
     elif final_rec == 'BUY' and weekly_trend['trend'] == 'bullish':
         reasoning.append(
             f"✅ SWING TRADING CONFIRMED: Weekly trend is BULLISH (price ${weekly_trend['weekly_close']:.2f} "
@@ -513,5 +543,8 @@ def _assemble_swing(comp: Dict[str, Any], weights: Optional[Dict[str, float]] = 
             "strategy_consensus_signal": strat_rec,
             "strategy_consensus_confidence": strat_conf,
             "risk_level": risk_level,
+            # Regime overlay (Phase 2.5): <1.0 when a BUY survived a weekly-bear
+            # under the soft overlay; the sizing layer multiplies position size by it.
+            "bear_size_factor": bear_size_factor,
         },
     )

@@ -132,11 +132,15 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
             logger.warning(f"Sentiment fetch failed: {e}")
 
         # 5. MARKET REGIME (MarketRegimeService is DB-bound) -> regime label str
+        #    + directional regime (Phase 2.5: feeds the regime de-risk overlay;
+        #    inert in live — overlay_strength stays 0 — but promote-ready).
         regime = 'unknown'
+        regime_direction = None
         try:
             regime_service = MarketRegimeService(db)
             regime_result = regime_service.detect_market_regime(stock_id)
             regime = regime_result.get('regime', 'unknown')
+            regime_direction = regime_result.get('direction')
         except Exception as e:
             logger.warning(f"Market regime detection failed: {e}")
 
@@ -161,6 +165,7 @@ def generate_final_recommendation(db: Session, stock_id: int) -> dict:
             sentiment_score=sentiment_score,
             regime=regime,
             dividend_split_signal=dividend_split_signal,
+            regime_direction=regime_direction,
         )
 
         # ============================================

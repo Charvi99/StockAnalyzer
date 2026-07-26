@@ -104,6 +104,7 @@ class ReplayEngine:
         commission: float = LEDGER_COMMISSION_PER_SHARE,
         weights: Optional[Dict[str, float]] = None,
         input_cache: Optional[Dict] = None,
+        overlay_strength: float = 0.0,
     ):
         self.engine = engine
         self.starting_cash = starting_cash
@@ -120,6 +121,10 @@ class ReplayEngine:
         # so only weights are re-applied. None => assemble per bar (Phase-2 path,
         # used by single backtests to avoid holding every bundle in memory).
         self.input_cache = input_cache
+        # Phase 2.5: regime de-risk overlay strength in [0,1]. ``0.0`` (default)
+        # => overlay OFF, byte-identical replay. Threaded into signal_as_of per
+        # bar; the sizing step also reads each signal's ``bear_size_factor``.
+        self.overlay_strength = overlay_strength
 
     def run(self, prices_by_stock: Dict[int, pd.DataFrame], trading_dates: List) -> BTAccount:
         """Run the exits-first replay. ``prices_by_stock`` maps stock_id -> a
@@ -141,9 +146,9 @@ class ReplayEngine:
         try:
             if self.engine == "engine_1":
                 from app.services.signal.systematic import config_version_for as cv_for
-                return cv_for(self.weights)
+                return cv_for(self.weights, self.overlay_strength)
             from app.services.signal.swing import config_version_for as cv_for
-            return cv_for(self.weights)
+            return cv_for(self.weights, self.overlay_strength)
         except Exception:
             return "unknown"
 
@@ -157,7 +162,7 @@ class ReplayEngine:
                 continue
             try:
                 bundle = self.input_cache.get((sid, T)) if self.input_cache else None
-                sr = signal_as_of(self.engine, df_T, self.weights, bundle)
+                sr = signal_as_of(self.engine, df_T, self.weights, bundle, self.overlay_strength)
             except Exception as e:  # C4: per-stock fault tolerance
                 logger.warning("[backtest %s] signal failed for stock %s at %s: %s", self.engine, sid, T, e)
                 current_signals[sid] = None
@@ -218,15 +223,27 @@ class ReplayEngine:
                 entry_price=entry,
                 stop_loss=levels["stop_loss"],
             )
+            sr = current_signals.get(sid)
             size = int(size_info.get("position_size") or 0)
             if size <= 0:
                 continue
+            # Phase 2.5 regime overlay: shrink a weekly-bear BUY's size (engine_2).
+            # engine_1 signals carry no bear_size_factor -> 1.0 (no change). Done
+            # before the heat/cash guards so the smaller size's risk is honest.
+            if self.overlay_strength > 0.0 and sr is not None:
+                bear_f = float((sr.extras or {}).get("bear_size_factor", 1.0))
+                if bear_f < 1.0:
+                    size = max(0, int(size * bear_f))
+                    size_info = {**size_info,
+                                 "position_size": size,
+                                 "risk_amount": float(size_info.get("risk_amount") or 0.0) * bear_f}
+                    if size <= 0:
+                        continue
             if not self._within_heat(account, entry, levels["stop_loss"], size):
                 continue
             cost = entry * size + self.commission * size
             if cost > account.cash:
                 continue
-            sr = current_signals.get(sid)
             self._open(account, sid, sr, entry, T, levels, size, size_info)
 
         # 4. mark to market at T's close.
