@@ -79,7 +79,7 @@ POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
 POLYGON_BASE_URL = 'https://api.polygon.io'
 
 # Date range for historical news (Polygon has ~5 years of historical data)
-HISTORICAL_START_DATE = datetime(2020, 1, 1)
+HISTORICAL_START_DATE = datetime.fromisoformat(os.getenv('NEWS_START_DATE', '2020-01-01'))
 END_DATE = datetime.now()
 
 # Batch settings (OPTIMIZED FOR PAID TIER)
@@ -225,7 +225,7 @@ class PolygonNewsFetcher:
 # NEWS SAVER
 # ============================================================================
 
-def save_articles_to_db(stock_id: int, articles: List[Dict]) -> Tuple[int, int, int]:
+def save_articles_to_db(stock_id: int, symbol: str, articles: List[Dict]) -> Tuple[int, int, int]:
     """
     Save news articles to database (with deduplication)
 
@@ -257,11 +257,16 @@ def save_articles_to_db(stock_id: int, articles: List[Dict]) -> Tuple[int, int, 
                     skipped_count += 1
                     continue
 
-                # Extract sentiment from Polygon insights
+                # Extract sentiment from Polygon insights — match the insight for
+                # THIS ticker. Polygon articles carry a `tickers` LIST (not a
+                # top-level `ticker`), so article.get('ticker') is None and a
+                # comparison against it never matches -> everything defaulted to
+                # neutral. Match against the symbol being fetched instead.
                 insights = article.get('insights', [])
+                _sym = (symbol or "").upper()
                 ticker_insight = next(
-                    (i for i in insights if i.get('ticker') == article.get('ticker')),
-                    None
+                    (i for i in insights if str(i.get("ticker", "")).upper() == _sym),
+                    None,
                 )
 
                 if ticker_insight:
@@ -402,14 +407,24 @@ def main():
     # Get tracked stocks
     db = SessionLocal()
     try:
-        result = db.execute(
-            text("""
-                SELECT id, symbol
-                FROM stocks
-                WHERE is_tracked = true
-                ORDER BY symbol
-            """)
-        )
+        _max = int(os.getenv('NEWS_MAX_STOCKS', '0'))
+        if _max > 0:
+            # Scoped run: match the backtest universe (runner.prepare_backtest uses
+            # ORDER BY id LIMIT N) so backfilled sentiment covers exactly the stocks
+            # we backtest. Default (unset) = original full tracked-universe backfill.
+            result = db.execute(
+                text("SELECT id, symbol FROM stocks ORDER BY id LIMIT :lim"),
+                {"lim": _max},
+            )
+        else:
+            result = db.execute(
+                text("""
+                    SELECT id, symbol
+                    FROM stocks
+                    WHERE is_tracked = true
+                    ORDER BY symbol
+                """)
+            )
         stocks = list(result)
     finally:
         db.close()
@@ -464,7 +479,7 @@ def main():
         logger.info(f"Fetched {len(articles)} articles for {symbol}")
 
         # Save to database
-        created, skipped, errors = save_articles_to_db(stock_id, articles)
+        created, skipped, errors = save_articles_to_db(stock_id, symbol, articles)
 
         total_created += created
         total_skipped += skipped
