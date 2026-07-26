@@ -109,7 +109,12 @@ services:
     restart: unless-stopped
     # I/O-bound (Polygon API waits + inter-stock sleeps) — safe to run above core count.
     # Fetcher + maintenance only; CPU-bound analysis runs on the dedicated celery_processor.
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=8 --queues=fetcher,maintenance
+    # --pool=threads (NOT the default prefork): prefork runs tasks in DAEMONIC processes,
+    # which Python forbids from spawning multiprocessing children — that crashed the GA's
+    # parallel precompute ("daemonic processes are not allowed to have children"). Threads
+    # are non-daemonic, so a GA task can fan precompute across cores via a Pool; the Pool's
+    # child processes are real OS processes (true parallelism, not GIL-bound).
+    command: celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=8 --queues=fetcher,maintenance
     environment:
       DATABASE_URL: postgresql://stockuser:stockpass123@database:5432/stock_analyzer
       CELERY_BROKER_URL: redis://redis:6379/0
