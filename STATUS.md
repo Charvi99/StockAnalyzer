@@ -152,4 +152,52 @@ The headline TabNet result (+9.71%, Sharpe 2.44, Q1-2024) used a single chronolo
 
 ---
 
+## Regime de-risk overlay — built + A/B'd, NOT promoted (2026-07-26)
+
+Built the proportional bear-market suppression overlay (STATUS option-B "risk-managed
+participation" lever) and A/B-tested it. **Verdict: keep OFF (the default); it adds no value.**
+
+**Design (default-OFF ⇒ byte-identical to today; live untouched):**
+- engine_1: scale the buy-leaning `weighted_score` by `f(per-stock direction)` —
+  `bearish`→×(1−s), `bearish_weak`→×(1−s/2) — before the BUY threshold (can flip BUY→HOLD).
+- engine_2: replace the hard weekly-bear `BUY→HOLD` ban with **position-size scaling**
+  (×(1−s)). Sizing is risk-based (stop distance), not confidence-coupled, so scaling
+  SIZE (not confidence) is the real de-risk lever.
+- New pure `signal/regime_overlay.py`; new pure `backtest_regime.detect_direction_from_df`
+  (mirrors live `detect_tcr_regime` — parity-tested); `overlay_strength` threaded through
+  the backtest + `POST /api/v1/backtests` (`regime_overlay_strength`); live
+  `recommendation_engine` now reads `direction` (inert at s=0, promote-ready).
+- Tests green in-container (real TA-Lib): `tests/test_regime_overlay.py` (byte-identical
+  at OFF, suppression math, live parity) + `test_backtest_no_lookahead.py` (no regression).
+
+**A/B** (in-memory, input-cache, 30 stocks, same prices; SPY window return shown):
+
+| engine | window (SPY) | overlay 0.0 → 0.4 | return% | maxDD% | alpha% | trades |
+|---|---|---|---|---|---|---|
+| engine_1 | 2022 bear (−20.0%) | 0.0 / 0.4 | −0.11 / −0.10 | −0.19 / −0.17 | +0.09 / +0.10 | 103 / 92 |
+| engine_2 | 2022 bear (−20.0%) | 0.0 / 0.4 | −0.10 / −0.12 | −0.14 / −0.14 | +0.10 / +0.08 | 144 / **200** |
+| engine_1 | 2024-26 bull (+57.8%) | 0.0 / 0.4 | +0.06 / +0.04 | −0.09 / −0.10 | −0.51 / −0.54 | 234 / 220 |
+
+**Why it doesn't help:**
+- **engine_1 is already ~cash in every regime** (≈0% return in both the −20% bear and the
+  +58% bull; tiny DD). Its buy signals rarely clear the 0.3 threshold, so there is almost
+  nothing for the overlay to suppress — it is defensive by *inaction*, not by the overlay.
+  (Notable side-finding: engine_1 as configured generates ~no participation/return.)
+- **engine_2's hard weekly-bear ban is genuinely protective:** softening it let +56
+  previously-banned buys enter (at 0.6× size) and they were net losers (same DD, slightly
+  worse return). The banned trades were the right ones to ban.
+- The overlay can only *suppress* longs, so in a bull it can only cost return (it did, marginally).
+
+**Decision: overlay stays OFF (zero behavior change); engine_2 keeps its hard weekly-bear ban.**
+Code/tests/API are in place if a future regime ever warrants it, but the data says no —
+consistent with the no-edge conclusion (no directional edge ⇒ no risk-overlay tuning creates
+return, and the engines' natural defensiveness already covers the bear).
+
+**Infra** (branch `chore/audit-restructure`, uncommitted): `signal/regime_overlay.py`,
+`backtest_regime.detect_direction_from_df`, the `overlay_strength` seam (systematic / swing /
+backtest_signal_adapter / replay_engine / runner / api / recommendation_engine),
+`tests/test_regime_overlay.py`, `scripts/regime_overlay_ab.py`. Nothing merged to main; live untouched.
+
+---
+
 *This document is the "previous status" baseline. Update it as the picture changes.*
